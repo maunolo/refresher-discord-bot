@@ -64,6 +64,9 @@ async fn handle_locked(
     match parts.as_slice() {
         ["add_users", camp_id] => add_users(ctx, data, interaction, camp_id).await,
         ["start_queue", camp_id] => start_queue(ctx, data, interaction, guild_id, camp_id).await,
+        ["create_match", camp_id] => {
+            create_match(ctx, data, interaction, guild_id, camp_id).await
+        }
         ["refresh", camp_id, match_id] => {
             refresh(ctx, data, interaction, guild_id, camp_id, match_id).await
         }
@@ -124,37 +127,88 @@ async fn start_queue(
         return ephemeral(ctx, interaction, "Only server managers can start the queue.").await;
     }
     match db::start_queue(&data.db, camp_id).await {
-        Ok(match_ids) => {
+        Ok(()) => {
+            ack(ctx, interaction).await?;
+            let state = db::load_camp(&data.db, camp_id)
+                .await?
+                .ok_or_else(|| anyhow!("camp missing"))?;
+            let channel = ChannelId::new(state.camp.channel_id as u64);
+            let queued_ids: Vec<i64> = state.players.iter().map(|p| p.user_id).collect();
+            sync::redraw_all(ctx, &data.db, &state).await?;
+            sync::apply_moves(
+                ctx,
+                guild_id,
+                &data.config,
+                channel,
+                &sync::queue_voice_moves(&queued_ids),
+            )
+            .await;
+            let _ = channel
+                .say(
+                    &ctx.http,
+                    format!(
+                        "Queue shuffled for camp `{}`. An admin clicks **Create match** to sort the next teams.",
+                        state.camp.id
+                    ),
+                )
+                .await;
+            Ok(())
+        }
+        Err(err) => ephemeral(ctx, interaction, err.to_string()).await,
+    }
+}
+
+async fn create_match(
+    ctx: &Context,
+    data: &Data,
+    interaction: &ComponentInteraction,
+    guild_id: GuildId,
+    camp_id: &str,
+) -> Result<()> {
+    if !is_admin(interaction) {
+        return ephemeral(ctx, interaction, "Only server managers can create a match.").await;
+    }
+    match db::create_match(&data.db, camp_id).await {
+        Ok(match_id) => {
             ack(ctx, interaction).await?;
             let state = db::load_camp(&data.db, camp_id)
                 .await?
                 .ok_or_else(|| anyhow!("camp missing"))?;
             let channel = ChannelId::new(state.camp.channel_id as u64);
             sync::redraw_all(ctx, &data.db, &state).await?;
-            let state = db::load_camp(&data.db, camp_id)
-                .await?
-                .ok_or_else(|| anyhow!("camp missing"))?;
-            for open in &state.open_matches {
-                if match_ids.contains(&open.row.id) {
-                    sync::apply_moves(
-                        ctx,
-                        guild_id,
-                        &data.config,
-                        channel,
-                        &sync::match_voice_moves(open),
-                    )
-                    .await;
-                }
-            }
-            let _ = channel
-                .say(
-                    &ctx.http,
-                    format!(
-                        "Queue shuffled for camp `{}`. Vote to refresh teams, then an admin starts each match.",
-                        state.camp.id
-                    ),
+            if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
+                sync::apply_moves(
+                    ctx,
+                    guild_id,
+                    &data.config,
+                    channel,
+                    &sync::match_voice_moves(open),
                 )
                 .await;
+                let hk: Vec<i64> = open
+                    .players
+                    .iter()
+                    .filter(|p| p.side == "hiddenking")
+                    .map(|p| p.user_id)
+                    .collect();
+                let am: Vec<i64> = open
+                    .players
+                    .iter()
+                    .filter(|p| p.side == "archmother")
+                    .map(|p| p.user_id)
+                    .collect();
+                let _ = channel
+                    .say(
+                        &ctx.http,
+                        format!(
+                            "Match {} created. Vote to refresh teams, then an admin starts the match.\nHiddenking: {}\nArchmother: {}",
+                            open.row.slot,
+                            sync::mention_list(&hk),
+                            sync::mention_list(&am)
+                        ),
+                    )
+                    .await;
+            }
             Ok(())
         }
         Err(err) => ephemeral(ctx, interaction, err.to_string()).await,
@@ -326,7 +380,7 @@ async fn report_win(
         .and_then(|m| m.row.message_id);
 
     match db::report_winner(&data.db, camp_id, match_id, side).await {
-        Ok(pulled) => {
+        Ok(()) => {
             ack(ctx, interaction).await?;
             let channel = ChannelId::new(before.camp.channel_id as u64);
             if let Some(msg_id) = old_message {
@@ -365,18 +419,6 @@ async fn report_win(
                 .await?
                 .ok_or_else(|| anyhow!("camp missing"))?;
             sync::redraw_all(ctx, &data.db, &state).await?;
-            if let Some(new_id) = pulled {
-                if let Some(open) = state.open_matches.iter().find(|m| m.row.id == new_id) {
-                    sync::apply_moves(
-                        ctx,
-                        guild_id,
-                        &data.config,
-                        channel,
-                        &sync::match_voice_moves(open),
-                    )
-                    .await;
-                }
-            }
             let winner = if side == "hiddenking" {
                 "Hiddenking"
             } else {
@@ -385,7 +427,9 @@ async fn report_win(
             let _ = channel
                 .say(
                     &ctx.http,
-                    format!("{winner} wins. +1 point to that side. Queue updated."),
+                    format!(
+                        "{winner} wins. +1 point to that side. Players are back in queue — an admin clicks **Create match** when ready."
+                    ),
                 )
                 .await;
             Ok(())

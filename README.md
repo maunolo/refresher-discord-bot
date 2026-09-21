@@ -55,17 +55,16 @@ Admins are anyone with **Manage Server**.
 
 ## Match flow
 
-1. Admin fills the roster to exactly 24, 30, or 4 (test), then **Start queue**.
-2. The full roster is shuffled. First 12 become match 1 (Hiddenking / Archmother). Next 12 become match 2. With 30 players, 6 wait in queue. A 4-player test camp is one 2v2 (no second match).
+1. Admin fills the roster to exactly 24, 30, or 4 (test), then **Start queue**. The roster is shuffled; nobody is placed into a match yet.
+2. Admin clicks **Create match** to pull the next group from the queue (12, or 4 in a test camp) and sort Hiddenking / Archmother. Click it again for a second concurrent match when a slot is free. With 30 players, leftover players stay in queue until an admin creates another match.
 3. Players on a match can **Refresh teams** once. If at least 4 players from either side vote (2 in a test camp), those players are re-sorted and the button locks.
 4. Admin **Start match** marks the game live. If `ENABLE_CUSTOM_MATCH_CREATE=true`, it also creates a Deadlock custom lobby and posts the party code. Players join in-game and draft heroes.
-5. Admin reports the winner. Winners get +1 point. Players re-enter the queue by consecutive-match count (winners before losers in the same count; blocks with more than two players are shuffled). Anyone who sat out has their consecutive count reset to 0.
-6. If a match slot is free and enough players are queued (12, or 4 in a test camp), the next match is pulled automatically (still needs an admin Start for the lobby).
-7. **End camp** posts gold / silver / bronze for the top distinct point totals.
+5. Admin reports the winner. Winners get +1 point. Players re-enter the queue by consecutive-match count (winners before losers in the same count; blocks with more than two players are shuffled). Anyone who sat out has their consecutive count reset to 0. The next match is **not** created until an admin clicks **Create match**.
+6. **End camp** posts gold / silver / bronze for the top distinct point totals.
 
 ### Testing with four accounts
 
-Use `/camp start` and pick **4**. Add your four Discord users, then **Start queue**. You get one Hiddenking vs Archmother match of two players each. Refresh needs **2 votes from either team**. Keep `ENABLE_CUSTOM_MATCH_CREATE=false` so Start match does not call the Deadlock API.
+Use `/camp start` and pick **4**. Add your four Discord users, then **Start queue**, then **Create match**. You get one Hiddenking vs Archmother match of two players each. Refresh needs **2 votes from either team**. After a winner, they stay in queue until you create the next match. Keep `ENABLE_CUSTOM_MATCH_CREATE=false` so Start match does not call the Deadlock API.
 
 ## Persistence
 

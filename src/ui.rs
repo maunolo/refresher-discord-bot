@@ -109,7 +109,7 @@ fn queued_players(state: &CampState) -> Vec<&PlayerRow> {
 pub fn board_embed(state: &CampState) -> CreateEmbed {
     let queue = queued_players(state);
     let queue_preview: String = if queue.is_empty() {
-        "_empty — match slots are full_".to_string()
+        "_empty_".to_string()
     } else {
         let preview = state.camp.layout().match_size;
         queue
@@ -131,7 +131,7 @@ pub fn board_embed(state: &CampState) -> CreateEmbed {
     let mut embed = CreateEmbed::new()
         .title(format!("Deadlock camp {}", state.camp.id))
         .description(format!(
-            "Matches played: **{}** · Roster: **{}**",
+            "Matches played: **{}** · Roster: **{}**\nAdmin clicks **Create match** to sort the next teams from the queue.",
             state.camp.match_count,
             state.players.len()
         ))
@@ -149,13 +149,16 @@ pub fn board_embed(state: &CampState) -> CreateEmbed {
 
 pub fn board_components(state: &CampState) -> Vec<CreateActionRow> {
     let scored = state.camp.match_count >= 1;
-    vec![CreateActionRow::Buttons(vec![CreateButton::new(format!(
-        "end_camp:{}",
-        state.camp.id
-    ))
-    .label("End camp")
-    .style(ButtonStyle::Danger)
-    .disabled(!scored)])]
+    vec![CreateActionRow::Buttons(vec![
+        CreateButton::new(format!("create_match:{}", state.camp.id))
+            .label("Create match")
+            .style(ButtonStyle::Success)
+            .disabled(!state.can_create_match()),
+        CreateButton::new(format!("end_camp:{}", state.camp.id))
+            .label("End camp")
+            .style(ButtonStyle::Danger)
+            .disabled(!scored),
+    ])]
 }
 
 fn match_field(open: &OpenMatch) -> String {

@@ -66,6 +66,18 @@ pub struct CampState {
     pub open_matches: Vec<OpenMatch>,
 }
 
+impl CampState {
+    pub fn queued_count(&self) -> usize {
+        self.players.iter().filter(|p| p.location == "queued").count()
+    }
+
+    pub fn can_create_match(&self) -> bool {
+        self.camp.status == "running"
+            && self.open_matches.len() < 2
+            && self.queued_count() >= self.camp.layout().match_size
+    }
+}
+
 pub fn now() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -528,7 +540,7 @@ async fn pull_match_in_tx(
     Ok(Some(match_id))
 }
 
-pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<Vec<i64>> {
+pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<()> {
     let state = load_camp(pool, camp_id)
         .await?
         .ok_or_else(|| anyhow!("camp not found"))?;
@@ -562,16 +574,33 @@ pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<Vec<i64>> {
         .bind(camp_id)
         .execute(&mut *tx)
         .await?;
-
-    let mut created = Vec::new();
-    if let Some(id) = pull_match_in_tx(&mut tx, camp_id).await? {
-        created.push(id);
-    }
-    if let Some(id) = pull_match_in_tx(&mut tx, camp_id).await? {
-        created.push(id);
-    }
     tx.commit().await?;
-    Ok(created)
+    Ok(())
+}
+
+pub async fn create_match(pool: &SqlitePool, camp_id: &str) -> Result<i64> {
+    let state = load_camp(pool, camp_id)
+        .await?
+        .ok_or_else(|| anyhow!("camp not found"))?;
+    if state.camp.status != "running" {
+        return Err(anyhow!("start the queue first"));
+    }
+    if state.open_matches.len() >= 2 {
+        return Err(anyhow!("both match slots are already filled"));
+    }
+    let need = state.camp.layout().match_size;
+    let queued = state.queued_count();
+    if queued < need {
+        return Err(anyhow!(
+            "need {need} queued players to create a match, have {queued}"
+        ));
+    }
+    let mut tx = pool.begin().await?;
+    let match_id = pull_match_in_tx(&mut tx, camp_id)
+        .await?
+        .ok_or_else(|| anyhow!("could not create a match from the queue"))?;
+    tx.commit().await?;
+    Ok(match_id)
 }
 
 #[derive(Debug)]
@@ -716,7 +745,7 @@ pub async fn report_winner(
     camp_id: &str,
     match_id: i64,
     winner_side: &str,
-) -> Result<Option<i64>> {
+) -> Result<()> {
     let mut tx = pool.begin().await?;
     let status: Option<String> =
         sqlx::query_scalar("SELECT status FROM camp_matches WHERE id = ? AND camp_id = ?")
@@ -819,9 +848,8 @@ pub async fn report_winner(
     let ordered = queue::requeue(waiters, finished, &mut rand::thread_rng());
     write_queue_order(&mut tx, camp_id, &ordered).await?;
 
-    let pulled = pull_match_in_tx(&mut tx, camp_id).await?;
     tx.commit().await?;
-    Ok(pulled)
+    Ok(())
 }
 
 pub async fn cancel_camp(pool: &SqlitePool, camp_id: &str) -> Result<()> {
