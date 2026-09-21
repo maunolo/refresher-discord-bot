@@ -53,10 +53,16 @@ pub struct MatchPlayerRow {
 }
 
 #[derive(Clone, Debug)]
+pub struct RefreshVote {
+    pub user_id: i64,
+    pub refresh: bool,
+}
+
+#[derive(Clone, Debug)]
 pub struct OpenMatch {
     pub row: MatchRow,
     pub players: Vec<MatchPlayerRow>,
-    pub votes: Vec<i64>,
+    pub votes: Vec<RefreshVote>,
 }
 
 #[derive(Clone, Debug)]
@@ -279,10 +285,18 @@ async fn assemble_state(
                 points_after: p.2,
             })
             .collect();
-        let votes: Vec<i64> = sqlx::query_scalar("SELECT user_id FROM camp_refresh_votes WHERE match_id = ?")
-            .bind(row.id)
-            .fetch_all(pool)
-            .await?;
+        let votes: Vec<RefreshVote> = sqlx::query_as::<_, (i64, String)>(
+            "SELECT user_id, choice FROM camp_refresh_votes WHERE match_id = ?",
+        )
+        .bind(row.id)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|(user_id, choice)| RefreshVote {
+            user_id,
+            refresh: choice != "keep",
+        })
+        .collect();
         let expected = camp.layout().match_size;
         if match_players.len() != expected {
             tracing::error!(
@@ -605,14 +619,27 @@ pub async fn create_match(pool: &SqlitePool, camp_id: &str) -> Result<i64> {
 
 #[derive(Debug)]
 pub enum RefreshOutcome {
-    Recorded { hk: usize, am: usize, needed: usize },
+    Recorded {
+        hk: usize,
+        am: usize,
+        keep: usize,
+        voted: usize,
+        total: usize,
+        needed: usize,
+    },
     AlreadyUsed,
     NotInMatch,
     AlreadyVoted,
     Refreshed { hiddenking: Vec<i64>, archmother: Vec<i64> },
+    Kept { voted: usize, total: usize },
 }
 
-pub async fn vote_refresh(pool: &SqlitePool, match_id: i64, user_id: i64) -> Result<RefreshOutcome> {
+pub async fn vote_refresh_choice(
+    pool: &SqlitePool,
+    match_id: i64,
+    user_id: i64,
+    want_refresh: bool,
+) -> Result<RefreshOutcome> {
     let mut tx = pool.begin().await?;
     let match_row = sqlx::query_as::<_, (String, i64, String)>(
         "SELECT status, refresh_used, camp_id FROM camp_matches WHERE id = ?",
@@ -647,9 +674,10 @@ pub async fn vote_refresh(pool: &SqlitePool, match_id: i64, user_id: i64) -> Res
     if already.is_some() {
         return Ok(RefreshOutcome::AlreadyVoted);
     }
-    sqlx::query("INSERT INTO camp_refresh_votes (match_id, user_id) VALUES (?, ?)")
+    sqlx::query("INSERT INTO camp_refresh_votes (match_id, user_id, choice) VALUES (?, ?, ?)")
         .bind(match_id)
         .bind(user_id)
+        .bind(if want_refresh { "refresh" } else { "keep" })
         .execute(&mut *tx)
         .await?;
 
@@ -658,8 +686,8 @@ pub async fn vote_refresh(pool: &SqlitePool, match_id: i64, user_id: i64) -> Res
             .bind(match_id)
             .fetch_all(&mut *tx)
             .await?;
-    let votes: Vec<i64> =
-        sqlx::query_scalar("SELECT user_id FROM camp_refresh_votes WHERE match_id = ?")
+    let votes: Vec<(i64, String)> =
+        sqlx::query_as("SELECT user_id, choice FROM camp_refresh_votes WHERE match_id = ?")
             .bind(match_id)
             .fetch_all(&mut *tx)
             .await?;
@@ -673,49 +701,75 @@ pub async fn vote_refresh(pool: &SqlitePool, match_id: i64, user_id: i64) -> Res
         .filter(|p| p.1 == "archmother")
         .map(|p| p.0)
         .collect();
-    let hk_votes = votes.iter().filter(|id| hk.contains(id)).count();
-    let am_votes = votes.iter().filter(|id| am.contains(id)).count();
-    if hk_votes < needed && am_votes < needed {
+    let refresh_ids: Vec<i64> = votes
+        .iter()
+        .filter(|v| v.1 != "keep")
+        .map(|v| v.0)
+        .collect();
+    let keep = votes.iter().filter(|v| v.1 == "keep").count();
+    let hk_votes = refresh_ids.iter().filter(|id| hk.contains(id)).count();
+    let am_votes = refresh_ids.iter().filter(|id| am.contains(id)).count();
+    let voted = votes.len();
+    let total = roster.len();
+    let voted_ids: Vec<i64> = votes.iter().map(|v| v.0).collect();
+    let hk_unvoted = hk.iter().filter(|id| !voted_ids.contains(id)).count();
+    let am_unvoted = am.iter().filter(|id| !voted_ids.contains(id)).count();
+
+    if hk_votes >= needed || am_votes >= needed {
+        let batch: Vec<i64> = roster.iter().map(|p| p.0).collect();
+        let (hiddenking, archmother) = queue::split_teams(batch, &mut rand::thread_rng());
+        sqlx::query("DELETE FROM camp_match_players WHERE match_id = ?")
+            .bind(match_id)
+            .execute(&mut *tx)
+            .await?;
+        for user_id in &hiddenking {
+            sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'hiddenking')")
+                .bind(match_id)
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        for user_id in &archmother {
+            sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'archmother')")
+                .bind(match_id)
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        sqlx::query("UPDATE camp_matches SET refresh_used = 1 WHERE id = ?")
+            .bind(match_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM camp_refresh_votes WHERE match_id = ?")
+            .bind(match_id)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
-        return Ok(RefreshOutcome::Recorded {
-            hk: hk_votes,
-            am: am_votes,
-            needed,
+        return Ok(RefreshOutcome::Refreshed {
+            hiddenking,
+            archmother,
         });
     }
 
-    let batch: Vec<i64> = roster.iter().map(|p| p.0).collect();
-    let (hiddenking, archmother) = queue::split_teams(batch, &mut rand::thread_rng());
-    sqlx::query("DELETE FROM camp_match_players WHERE match_id = ?")
-        .bind(match_id)
-        .execute(&mut *tx)
-        .await?;
-    for user_id in &hiddenking {
-        sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'hiddenking')")
+    let refresh_impossible =
+        hk_votes + hk_unvoted < needed && am_votes + am_unvoted < needed;
+    if refresh_impossible || voted == total {
+        sqlx::query("UPDATE camp_matches SET refresh_used = 1 WHERE id = ?")
             .bind(match_id)
-            .bind(user_id)
             .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
+        return Ok(RefreshOutcome::Kept { voted, total });
     }
-    for user_id in &archmother {
-        sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'archmother')")
-            .bind(match_id)
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
-    }
-    sqlx::query("UPDATE camp_matches SET refresh_used = 1 WHERE id = ?")
-        .bind(match_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("DELETE FROM camp_refresh_votes WHERE match_id = ?")
-        .bind(match_id)
-        .execute(&mut *tx)
-        .await?;
+
     tx.commit().await?;
-    Ok(RefreshOutcome::Refreshed {
-        hiddenking,
-        archmother,
+    Ok(RefreshOutcome::Recorded {
+        hk: hk_votes,
+        am: am_votes,
+        keep,
+        voted,
+        total,
+        needed,
     })
 }
 

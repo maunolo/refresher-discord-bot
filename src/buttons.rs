@@ -64,11 +64,12 @@ async fn handle_locked(
     match parts.as_slice() {
         ["add_users", camp_id] => add_users(ctx, data, interaction, camp_id).await,
         ["start_queue", camp_id] => start_queue(ctx, data, interaction, guild_id, camp_id).await,
-        ["create_match", camp_id] => {
-            create_match(ctx, data, interaction, guild_id, camp_id).await
-        }
+        ["create_match", camp_id] => create_match(ctx, data, interaction, camp_id).await,
         ["refresh", camp_id, match_id] => {
-            refresh(ctx, data, interaction, guild_id, camp_id, match_id).await
+            vote_choice(ctx, data, interaction, camp_id, match_id, true).await
+        }
+        ["no_refresh", camp_id, match_id] => {
+            vote_choice(ctx, data, interaction, camp_id, match_id, false).await
         }
         ["start_match", camp_id, match_id] => {
             start_match(ctx, data, interaction, guild_id, camp_id, match_id).await
@@ -162,7 +163,6 @@ async fn create_match(
     ctx: &Context,
     data: &Data,
     interaction: &ComponentInteraction,
-    guild_id: GuildId,
     camp_id: &str,
 ) -> Result<()> {
     if !is_admin(interaction) {
@@ -177,14 +177,6 @@ async fn create_match(
             let channel = ChannelId::new(state.camp.channel_id as u64);
             sync::redraw_all(ctx, &data.db, &state).await?;
             if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
-                sync::apply_moves(
-                    ctx,
-                    guild_id,
-                    &data.config,
-                    channel,
-                    &sync::match_voice_moves(open),
-                )
-                .await;
                 let hk: Vec<i64> = open
                     .players
                     .iter()
@@ -215,27 +207,34 @@ async fn create_match(
     }
 }
 
-async fn refresh(
+async fn vote_choice(
     ctx: &Context,
     data: &Data,
     interaction: &ComponentInteraction,
-    guild_id: GuildId,
     camp_id: &str,
     match_id: &str,
+    want_refresh: bool,
 ) -> Result<()> {
     let match_id: i64 = match_id.parse().unwrap_or(0);
     let user_id = interaction.user.id.get() as i64;
-    match db::vote_refresh(&data.db, match_id, user_id).await? {
+    match db::vote_refresh_choice(&data.db, match_id, user_id, want_refresh).await? {
         RefreshOutcome::AlreadyUsed => {
-            ephemeral(ctx, interaction, "This match already used its refresh.").await
+            ephemeral(ctx, interaction, "Voting on this match is already over.").await
         }
         RefreshOutcome::NotInMatch => {
             ephemeral(ctx, interaction, "You're not in this match.").await
         }
         RefreshOutcome::AlreadyVoted => {
-            ephemeral(ctx, interaction, "You already voted to refresh.").await
+            ephemeral(ctx, interaction, "You already voted.").await
         }
-        RefreshOutcome::Recorded { hk, am, needed } => {
+        RefreshOutcome::Recorded {
+            hk,
+            am,
+            keep,
+            voted,
+            total,
+            needed,
+        } => {
             ack(ctx, interaction).await?;
             if let Some(state) = db::load_camp(&data.db, camp_id).await? {
                 sync::redraw_all(ctx, &data.db, &state).await?;
@@ -244,12 +243,29 @@ async fn refresh(
                         &ctx.http,
                         serenity::all::CreateInteractionResponseFollowup::new()
                             .content(format!(
-                                "Vote recorded. Hiddenking {hk}/{needed} · Archmother {am}/{needed}"
+                                "Vote recorded. Refresh Hiddenking {hk}/{needed} · Archmother {am}/{needed} · No refresh {keep} · Voted {voted}/{total}"
                             ))
                             .ephemeral(true),
                     )
                     .await;
             }
+            Ok(())
+        }
+        RefreshOutcome::Kept { voted, total } => {
+            ack(ctx, interaction).await?;
+            let state = db::load_camp(&data.db, camp_id)
+                .await?
+                .ok_or_else(|| anyhow!("camp missing"))?;
+            let channel = ChannelId::new(state.camp.channel_id as u64);
+            sync::redraw_all(ctx, &data.db, &state).await?;
+            let _ = channel
+                .say(
+                    &ctx.http,
+                    format!(
+                        "Voting complete — teams kept ({voted}/{total}). An admin can start the match."
+                    ),
+                )
+                .await;
             Ok(())
         }
         RefreshOutcome::Refreshed {
@@ -262,16 +278,6 @@ async fn refresh(
                 .ok_or_else(|| anyhow!("camp missing"))?;
             let channel = ChannelId::new(state.camp.channel_id as u64);
             sync::redraw_all(ctx, &data.db, &state).await?;
-            if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
-                sync::apply_moves(
-                    ctx,
-                    guild_id,
-                    &data.config,
-                    channel,
-                    &sync::match_voice_moves(open),
-                )
-                .await;
-            }
             let _ = channel
                 .say(
                     &ctx.http,

@@ -1,9 +1,12 @@
 use anyhow::Result;
-use serenity::all::{ChannelId, Context, CreateMessage, EditMessage, GuildId, Mentionable, UserId};
+use serenity::all::{
+    ChannelId, Context, CreateMessage, EditMessage, GuildId, Mentionable, UserId, VoiceState,
+};
 use sqlx::SqlitePool;
 
 use crate::config::Config;
 use crate::db::{self, CampState, OpenMatch};
+use crate::state::{with_guild_lock, Data};
 use crate::voice::{self, VoiceDest};
 
 pub async fn redraw_board(ctx: &Context, pool: &SqlitePool, state: &CampState) -> Result<()> {
@@ -155,4 +158,51 @@ pub fn mention_list(ids: &[i64]) -> String {
         .map(|id| UserId::new(*id as u64).mention().to_string())
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+/// If a player joins voice after a live match started, move them to their team channel.
+pub async fn place_late_voice_join(
+    ctx: &Context,
+    data: &Data,
+    old: Option<&VoiceState>,
+    new: &VoiceState,
+) -> Result<()> {
+    let Some(guild_id) = new.guild_id else {
+        return Ok(());
+    };
+    let Some(current) = new.channel_id else {
+        return Ok(());
+    };
+    if old.and_then(|state| state.channel_id) == Some(current) {
+        return Ok(());
+    }
+
+    with_guild_lock(data, guild_id.get(), || async {
+        let Some(state) = db::load_active_for_guild(&data.db, guild_id.get() as i64).await? else {
+            return Ok(());
+        };
+        let user_id = new.user_id.get() as i64;
+        let Some(open) = state.open_matches.iter().find(|m| {
+            m.row.status == "live" && m.players.iter().any(|p| p.user_id == user_id)
+        }) else {
+            return Ok(());
+        };
+        let Some(player) = open.players.iter().find(|p| p.user_id == user_id) else {
+            return Ok(());
+        };
+        voice::move_to_dest(
+            ctx,
+            guild_id,
+            &data.config,
+            new.user_id,
+            VoiceDest::Match {
+                slot: open.row.slot,
+                hiddenking: player.side == "hiddenking",
+            },
+            current,
+        )
+        .await;
+        Ok(())
+    })
+    .await
 }

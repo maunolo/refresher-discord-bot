@@ -47,6 +47,11 @@ async fn event_handler(
                 tracing::info!("registered slash commands in {}", guild.name);
             }
         }
+        FullEvent::VoiceStateUpdate { old, new } => {
+            if let Err(err) = sync::place_late_voice_join(ctx, data, old.as_ref(), new).await {
+                tracing::warn!(error = %err, "late voice placement failed");
+            }
+        }
         FullEvent::InteractionCreate { interaction } => {
             if let serenity::Interaction::Component(component) = interaction {
                 if let Err(err) = buttons::handle(ctx, data, component).await {

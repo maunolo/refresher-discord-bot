@@ -200,11 +200,28 @@ pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
         .filter(|p| p.side == "archmother")
         .map(|p| p.user_id)
         .collect();
-    let hk_votes = open.votes.iter().filter(|id| hk.contains(id)).count();
-    let am_votes = open.votes.iter().filter(|id| am.contains(id)).count();
+    let refresh_ids: Vec<i64> = open
+        .votes
+        .iter()
+        .filter(|v| v.refresh)
+        .map(|v| v.user_id)
+        .collect();
+    let keep = open.votes.iter().filter(|v| !v.refresh).count();
+    let hk_votes = refresh_ids.iter().filter(|id| hk.contains(id)).count();
+    let am_votes = refresh_ids.iter().filter(|id| am.contains(id)).count();
     let needed = state.camp.layout().refresh_votes;
+    let voted = open.votes.len();
+    let total = open.players.len();
     let mut desc = if open.row.status == "voting" {
-        format!("Refresh votes: Hiddenking **{hk_votes}/{needed}** · Archmother **{am_votes}/{needed}**")
+        if open.row.refresh_used && !open.votes.is_empty() {
+            format!("Voting complete — teams kept ({voted}/{total}). An admin can start the match.")
+        } else if open.row.refresh_used {
+            "Teams refreshed. An admin can start the match.".to_string()
+        } else {
+            format!(
+                "Refresh: Hiddenking **{hk_votes}/{needed}** · Archmother **{am_votes}/{needed}**\nNo refresh: **{keep}** · Voted: **{voted}/{total}**"
+            )
+        }
     } else {
         "Match is live. Join with the party code and pick heroes in Deadlock.".to_string()
     };
@@ -229,6 +246,12 @@ pub fn match_components(state: &CampState, open: &OpenMatch) -> Vec<CreateAction
         .label("Start match")
         .style(ButtonStyle::Success)];
         if !open.row.refresh_used {
+            buttons.insert(
+                0,
+                CreateButton::new(format!("no_refresh:{}:{}", state.camp.id, open.row.id))
+                    .label("No refresh")
+                    .style(ButtonStyle::Secondary),
+            );
             buttons.insert(
                 0,
                 CreateButton::new(format!("refresh:{}:{}", state.camp.id, open.row.id))

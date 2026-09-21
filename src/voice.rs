@@ -124,6 +124,26 @@ pub fn skipped_message(skipped: &[UserId]) -> Option<String> {
         .collect::<Vec<_>>()
         .join(" ");
     Some(format!(
-        "Could not move {mentions} — join a voice channel so the bot can place you."
+        "Could not move {mentions} — join a voice channel (Queue is fine) and the bot will place you."
     ))
+}
+
+/// Move one member if they are not already in the destination channel.
+pub async fn move_to_dest(
+    ctx: &Context,
+    guild_id: GuildId,
+    config: &Config,
+    user_id: UserId,
+    dest: VoiceDest,
+    current: ChannelId,
+) {
+    let Ok(dest_id) = resolve_channel(ctx, guild_id, dest, config).await else {
+        return;
+    };
+    if dest_id == current {
+        return;
+    }
+    if let Err(err) = guild_id.move_member(&ctx.http, user_id, dest_id).await {
+        tracing::warn!(%user_id, error = %err, "failed to move late-joining member");
+    }
 }
