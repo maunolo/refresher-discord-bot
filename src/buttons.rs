@@ -64,7 +64,9 @@ async fn handle_locked(
     match parts.as_slice() {
         ["add_users", camp_id] => add_users(ctx, data, interaction, camp_id).await,
         ["start_queue", camp_id] => start_queue(ctx, data, interaction, guild_id, camp_id).await,
-        ["create_match", camp_id] => create_match(ctx, data, interaction, camp_id).await,
+        ["create_match", camp_id] => {
+            create_match(ctx, data, interaction, guild_id, camp_id).await
+        }
         ["refresh", camp_id, match_id] => {
             vote_choice(ctx, data, interaction, camp_id, match_id, true).await
         }
@@ -128,7 +130,7 @@ async fn start_queue(
         return ephemeral(ctx, interaction, "Only server managers can start the queue.").await;
     }
     match db::start_queue(&data.db, camp_id).await {
-        Ok(()) => {
+        Ok(order) => {
             ack(ctx, interaction).await?;
             let state = db::load_camp(&data.db, camp_id)
                 .await?
@@ -148,8 +150,9 @@ async fn start_queue(
                 .say(
                     &ctx.http,
                     format!(
-                        "Queue shuffled for camp `{}`. An admin clicks **Create match** to sort the next teams.",
-                        state.camp.id
+                        "Queue shuffled for camp `{}`:\n{}\nAn admin clicks **Create match** to sort the next teams.",
+                        state.camp.id,
+                        sync::mention_list(&order)
                     ),
                 )
                 .await;
@@ -163,15 +166,16 @@ async fn create_match(
     ctx: &Context,
     data: &Data,
     interaction: &ComponentInteraction,
+    guild_id: GuildId,
     camp_id: &str,
 ) -> Result<()> {
     if !is_admin(interaction) {
         return ephemeral(ctx, interaction, "Only server managers can create a match.").await;
     }
-    match db::create_match(&data.db, camp_id).await {
-        Ok(match_id) => {
+    match db::create_match(&data.db, camp_id, guild_id.get() as i64).await {
+        Ok((camp_id, match_id)) => {
             ack(ctx, interaction).await?;
-            let state = db::load_camp(&data.db, camp_id)
+            let state = db::load_camp(&data.db, &camp_id)
                 .await?
                 .ok_or_else(|| anyhow!("camp missing"))?;
             let channel = ChannelId::new(state.camp.channel_id as u64);

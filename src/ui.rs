@@ -148,6 +148,9 @@ pub fn board_embed(state: &CampState) -> CreateEmbed {
 }
 
 pub fn board_components(state: &CampState) -> Vec<CreateActionRow> {
+    if state.camp.status != "running" {
+        return Vec::new();
+    }
     let scored = state.camp.match_count >= 1;
     vec![CreateActionRow::Buttons(vec![
         CreateButton::new(format!("create_match:{}", state.camp.id))

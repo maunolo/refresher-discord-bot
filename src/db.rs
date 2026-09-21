@@ -1,4 +1,6 @@
 use anyhow::{anyhow, Result};
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool, Transaction, Sqlite};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -223,7 +225,8 @@ async fn assemble_state(
     };
     let player_rows = sqlx::query_as::<_, (i64, i64, String, Option<i64>, i64)>(
         "SELECT user_id, points, location, queue_position, consecutive_matches
-         FROM camp_players WHERE camp_id = ?",
+         FROM camp_players WHERE camp_id = ?
+         ORDER BY queue_position IS NULL, queue_position, joined_at, user_id",
     )
     .bind(&camp.id)
     .fetch_all(pool)
@@ -554,7 +557,7 @@ async fn pull_match_in_tx(
     Ok(Some(match_id))
 }
 
-pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<()> {
+pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<Vec<i64>> {
     let state = load_camp(pool, camp_id)
         .await?
         .ok_or_else(|| anyhow!("camp not found"))?;
@@ -570,8 +573,22 @@ pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<()> {
     }
 
     let mut tx = pool.begin().await?;
-    let mut ids: Vec<i64> = state.players.iter().map(|p| p.user_id).collect();
-    queue::shuffle_ids(&mut ids, &mut rand::thread_rng());
+    let original: Vec<i64> = sqlx::query_scalar(
+        "SELECT user_id FROM camp_players WHERE camp_id = ? ORDER BY joined_at, user_id",
+    )
+    .bind(camp_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut ids = original.clone();
+    let mut rng = StdRng::from_entropy();
+    if ids.len() > 1 {
+        for _ in 0..16 {
+            queue::shuffle_ids(&mut ids, &mut rng);
+            if ids != original {
+                break;
+            }
+        }
+    }
     for (i, user_id) in ids.iter().enumerate() {
         sqlx::query(
             "UPDATE camp_players SET queue_position = ?, consecutive_matches = 0, location = 'queued'
@@ -583,22 +600,38 @@ pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<()> {
         .execute(&mut *tx)
         .await?;
     }
-    sqlx::query("UPDATE camps SET status = 'running', updated_at = ? WHERE id = ?")
+    sqlx::query("UPDATE camps SET status = 'running', updated_at = ? WHERE id = ? AND status = 'signup'")
         .bind(now())
         .bind(camp_id)
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
-    Ok(())
+    Ok(ids)
 }
 
-pub async fn create_match(pool: &SqlitePool, camp_id: &str) -> Result<i64> {
-    let state = load_camp(pool, camp_id)
+pub async fn create_match(pool: &SqlitePool, camp_id: &str, guild_id: i64) -> Result<(String, i64)> {
+    let mut state = load_camp(pool, camp_id)
         .await?
         .ok_or_else(|| anyhow!("camp not found"))?;
-    if state.camp.status != "running" {
-        return Err(anyhow!("start the queue first"));
+    if state.camp.guild_id != guild_id || state.camp.status != "running" {
+        state = load_active_for_guild(pool, guild_id)
+            .await?
+            .ok_or_else(|| anyhow!("start the queue first (click **Start queue** on the roster)"))?;
     }
+    if state.camp.status == "signup" {
+        start_queue(pool, &state.camp.id).await?;
+        state = load_camp(pool, &state.camp.id)
+            .await?
+            .ok_or_else(|| anyhow!("camp missing after starting the queue"))?;
+    }
+    if state.camp.status != "running" {
+        return Err(anyhow!(
+            "camp `{}` is {}, not running. Click **Start queue** on the roster first.",
+            state.camp.id,
+            state.camp.status
+        ));
+    }
+    let camp_id = state.camp.id.clone();
     if state.open_matches.len() >= 2 {
         return Err(anyhow!("both match slots are already filled"));
     }
@@ -610,11 +643,11 @@ pub async fn create_match(pool: &SqlitePool, camp_id: &str) -> Result<i64> {
         ));
     }
     let mut tx = pool.begin().await?;
-    let match_id = pull_match_in_tx(&mut tx, camp_id)
+    let match_id = pull_match_in_tx(&mut tx, &camp_id)
         .await?
         .ok_or_else(|| anyhow!("could not create a match from the queue"))?;
     tx.commit().await?;
-    Ok(match_id)
+    Ok((camp_id, match_id))
 }
 
 #[derive(Debug)]
@@ -907,7 +940,16 @@ pub async fn report_winner(
 }
 
 pub async fn cancel_camp(pool: &SqlitePool, camp_id: &str) -> Result<()> {
-    sqlx::query("UPDATE camps SET status = 'cancelled', updated_at = ? WHERE id = ? AND status IN ('signup', 'running')")
+    let state = load_camp(pool, camp_id)
+        .await?
+        .ok_or_else(|| anyhow!("camp not found"))?;
+    let status = if state.camp.status == "signup" {
+        "cancelled_signup"
+    } else {
+        "cancelled_running"
+    };
+    sqlx::query("UPDATE camps SET status = ?, updated_at = ? WHERE id = ? AND status IN ('signup', 'running')")
+        .bind(status)
         .bind(now())
         .bind(camp_id)
         .execute(pool)
@@ -925,13 +967,17 @@ pub async fn resume_camp(pool: &SqlitePool, camp_id: &str, guild_id: i64) -> Res
     if state.camp.guild_id != guild_id {
         return Err(anyhow!("that camp belongs to another server"));
     }
-    if state.camp.status != "cancelled" {
+    if !matches!(
+        state.camp.status.as_str(),
+        "cancelled" | "cancelled_signup" | "cancelled_running"
+    ) {
         return Err(anyhow!("only a cancelled camp can be resumed"));
     }
-    let restored = if state.open_matches.is_empty() && state.camp.match_count == 0 {
-        "signup"
-    } else {
-        "running"
+    let restored = match state.camp.status.as_str() {
+        "cancelled_signup" => "signup",
+        "cancelled_running" => "running",
+        _ if state.open_matches.is_empty() && state.camp.match_count == 0 => "signup",
+        _ => "running",
     };
     sqlx::query("UPDATE camps SET status = ?, updated_at = ? WHERE id = ?")
         .bind(restored)

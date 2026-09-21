@@ -177,6 +177,9 @@ pub async fn cancel(ctx: Context<'_>) -> Result<(), Error> {
             .await?
             .ok_or_else(|| anyhow!("no active camp"))?;
         db::cancel_camp(&ctx.data().db, &camp.camp.id).await?;
+        if let Some(state) = db::load_camp(&ctx.data().db, &camp.camp.id).await? {
+            let _ = sync::redraw_board(ctx.serenity_context(), &ctx.data().db, &state).await;
+        }
         ctx.send(
             CreateReply::default().content(format!(
                 "Camp cancelled. Resume with `/camp resume {}`",
