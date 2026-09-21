@@ -406,7 +406,7 @@ async fn start_match(
     let message = if let Some(code) = party_code {
         format!("Match lobby created. **Party code:** `{code}` — pick heroes in Deadlock.")
     } else {
-        "Match is live in Discord. Custom lobby creation is disabled (`ENABLE_CUSTOM_MATCH_CREATE`).".to_string()
+        "Match is live. Wait for the Admin to provide the match code.".to_string()
     };
     let _ = channel.say(&ctx.http, message).await;
     Ok(())

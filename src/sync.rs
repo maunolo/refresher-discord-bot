@@ -148,7 +148,7 @@ pub async fn apply_moves(
     moves: &[(UserId, VoiceDest)],
 ) {
     let skipped = voice::move_players(ctx, guild_id, config, moves).await;
-    if let Some(text) = voice::skipped_message(&skipped) {
+    if let Some(text) = voice::skipped_message(ctx, guild_id, config, &skipped).await {
         let _ = channel.say(&ctx.http, text).await;
     }
 }

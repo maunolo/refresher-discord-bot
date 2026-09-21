@@ -114,7 +114,12 @@ pub async fn move_players(
     skipped
 }
 
-pub fn skipped_message(skipped: &[UserId]) -> Option<String> {
+pub async fn skipped_message(
+    ctx: &Context,
+    guild_id: GuildId,
+    config: &Config,
+    skipped: &[UserId],
+) -> Option<String> {
     if skipped.is_empty() {
         return None;
     }
@@ -123,8 +128,12 @@ pub fn skipped_message(skipped: &[UserId]) -> Option<String> {
         .map(|id| id.mention().to_string())
         .collect::<Vec<_>>()
         .join(" ");
+    let queue = match resolve_channel(ctx, guild_id, VoiceDest::Queue, config).await {
+        Ok(id) => id.mention().to_string(),
+        Err(_) => "#Queue".to_string(),
+    };
     Some(format!(
-        "Could not move {mentions} — join a voice channel (Queue is fine) and the bot will place you."
+        "Could not move {mentions} — join the voice channel {queue} and the bot will place you."
     ))
 }
 
