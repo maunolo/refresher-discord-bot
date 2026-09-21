@@ -58,10 +58,10 @@ pub fn signup_embed(state: &CampState) -> CreateEmbed {
             "{}/{} players. Admin adds Discord users, then starts the queue.{}",
             state.players.len(),
             state.camp.target_size,
-            if state.camp.target_size == 4 {
-                " This is a 2v2 test camp."
-            } else {
-                ""
+            match state.camp.layout().match_size {
+                2 => " This is a 1v1 test camp (two matches at once).",
+                4 => " This is a 2v2 test camp.",
+                _ => "",
             }
         ))
         .field("Players", list_mentions(&ids), false)
@@ -106,37 +106,61 @@ fn queued_players(state: &CampState) -> Vec<&PlayerRow> {
     q
 }
 
+fn queue_line(index: usize, player: &PlayerRow, up_next: bool) -> String {
+    format!(
+        "`{:>2}.` {} {} ({} consec, {} pts)",
+        index + 1,
+        if up_next { "→" } else { " " },
+        mention(player.user_id),
+        player.consecutive_matches,
+        player.points
+    )
+}
+
+/// Discord embed fields are capped at 1024 characters.
+fn pack_field_chunks(lines: &[String]) -> Vec<String> {
+    let mut chunks = Vec::new();
+    let mut current = String::new();
+    for line in lines {
+        let extra = if current.is_empty() { 0 } else { 1 };
+        if !current.is_empty() && current.len() + extra + line.len() > 1024 {
+            chunks.push(std::mem::take(&mut current));
+        }
+        if !current.is_empty() {
+            current.push('\n');
+        }
+        current.push_str(line);
+    }
+    if !current.is_empty() {
+        chunks.push(current);
+    }
+    chunks
+}
+
 pub fn board_embed(state: &CampState) -> CreateEmbed {
     let queue = queued_players(state);
-    let queue_preview: String = if queue.is_empty() {
-        "_empty_".to_string()
-    } else {
-        let preview = state.camp.layout().match_size;
-        queue
-            .iter()
-            .take(preview)
-            .enumerate()
-            .map(|(i, p)| {
-                format!(
-                    "`{:>2}.` {} ({} consec, {} pts)",
-                    i + 1,
-                    mention(p.user_id),
-                    p.consecutive_matches,
-                    p.points
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    };
+    let next_n = state.camp.layout().match_size;
     let mut embed = CreateEmbed::new()
         .title(format!("Deadlock camp {}", state.camp.id))
         .description(format!(
-            "Matches played: **{}** · Roster: **{}**\nAdmin clicks **Create match** to sort the next teams from the queue.",
+            "Matches played: **{}** · Roster: **{}**\nAdmin clicks **Create match** to sort the next teams from the queue. **→** marks who is in the next pull.",
             state.camp.match_count,
             state.players.len()
         ))
-        .field("Queue", queue_preview, false)
         .footer(footer(&state.camp.id));
+    if queue.is_empty() {
+        embed = embed.field("Queue", "_empty_", false);
+    } else {
+        let lines: Vec<String> = queue
+            .iter()
+            .enumerate()
+            .map(|(i, p)| queue_line(i, p, i < next_n))
+            .collect();
+        for (i, chunk) in pack_field_chunks(&lines).into_iter().enumerate() {
+            let name = if i == 0 { "Queue".to_string() } else { format!("Queue ({})", i + 1) };
+            embed = embed.field(name, chunk, false);
+        }
+    }
     for open in &state.open_matches {
         embed = embed.field(
             format!("Match {} ({})", open.row.slot, open.row.status),
@@ -315,8 +339,8 @@ pub fn info_embed(state: &CampState) -> CreateEmbed {
     let mut embed = CreateEmbed::new()
         .title(format!("Camp {} ({})", state.camp.id, state.camp.status))
         .description(format!(
-            "Size {} · matches played {}",
-            state.camp.target_size, state.camp.match_count
+            "Size {} · match size {} · matches played {}",
+            state.camp.target_size, state.camp.match_size, state.camp.match_count
         ))
         .field("Queue", queue_text, false)
         .footer(footer(&state.camp.id));

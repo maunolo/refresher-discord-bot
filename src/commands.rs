@@ -50,11 +50,11 @@ pub async fn camp(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Create a new camp roster (24, 30, or 4 for a 2v2 test).
+/// Create a new camp roster (24, 30, or a 4-player test).
 #[poise::command(slash_command, guild_only)]
 pub async fn start(
     ctx: Context<'_>,
-    #[description = "Roster size (4 is a 2v2 test camp)"] size: CampSize,
+    #[description = "Roster size. 4-1v1 runs two matches at once."] size: CampSize,
 ) -> Result<(), Error> {
     if !deny_if_not_admin(ctx).await? {
         return Ok(());
@@ -77,7 +77,8 @@ pub async fn start(
             &ctx.data().db,
             guild_id.get() as i64,
             ctx.channel_id().get() as i64,
-            size.as_i64(),
+            size.target_size(),
+            size.match_size(),
         )
         .await?;
         let state = db::load_camp(&ctx.data().db, &camp.id)
@@ -86,9 +87,10 @@ pub async fn start(
         sync::redraw_board(ctx.serenity_context(), &ctx.data().db, &state).await?;
         ctx.send(
             CreateReply::default().content(format!(
-                "Camp `{}` created for {} players. Add users, then Start queue.",
+                "Camp `{}` created for {} players{}. Add users, then Start queue.",
                 camp.id,
-                size.as_i64()
+                size.target_size(),
+                size.format_note()
             )),
         )
         .await?;
@@ -271,8 +273,10 @@ pub async fn info(
 
 #[derive(poise::ChoiceParameter, Clone, Copy)]
 pub enum CampSize {
-    #[name = "4"]
-    Four,
+    #[name = "4-1v1"]
+    FourOneVOne,
+    #[name = "4-2v2"]
+    FourTwoVTwo,
     #[name = "24"]
     TwentyFour,
     #[name = "30"]
@@ -280,11 +284,27 @@ pub enum CampSize {
 }
 
 impl CampSize {
-    fn as_i64(self) -> i64 {
+    fn target_size(self) -> i64 {
         match self {
-            CampSize::Four => 4,
+            CampSize::FourOneVOne | CampSize::FourTwoVTwo => 4,
             CampSize::TwentyFour => 24,
             CampSize::Thirty => 30,
+        }
+    }
+
+    fn match_size(self) -> i64 {
+        match self {
+            CampSize::FourOneVOne => 2,
+            CampSize::FourTwoVTwo => 4,
+            CampSize::TwentyFour | CampSize::Thirty => 12,
+        }
+    }
+
+    fn format_note(self) -> &'static str {
+        match self {
+            CampSize::FourOneVOne => " (1v1, two matches at once)",
+            CampSize::FourTwoVTwo => " (2v2 test)",
+            _ => "",
         }
     }
 }

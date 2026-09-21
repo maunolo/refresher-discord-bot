@@ -14,13 +14,14 @@ pub struct CampRow {
     pub channel_id: i64,
     pub board_message_id: Option<i64>,
     pub target_size: i64,
+    pub match_size: i64,
     pub status: String,
     pub match_count: i64,
 }
 
 impl CampRow {
     pub fn layout(&self) -> CampLayout {
-        CampLayout::from_roster_size(self.target_size)
+        CampLayout::from_match_size(self.match_size)
     }
 }
 
@@ -119,18 +120,20 @@ pub async fn create_camp(
     guild_id: i64,
     channel_id: i64,
     target_size: i64,
+    match_size: i64,
 ) -> Result<CampRow> {
     let mut tx = pool.begin().await?;
     let id = generate_unique_id(&mut tx).await?;
     let ts = now();
     sqlx::query(
-        "INSERT INTO camps (id, guild_id, channel_id, target_size, status, match_count, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'signup', 0, ?, ?)",
+        "INSERT INTO camps (id, guild_id, channel_id, target_size, match_size, status, match_count, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'signup', 0, ?, ?)",
     )
     .bind(&id)
     .bind(guild_id)
     .bind(channel_id)
     .bind(target_size)
+    .bind(match_size)
     .bind(ts)
     .bind(ts)
     .execute(&mut *tx)
@@ -142,6 +145,7 @@ pub async fn create_camp(
         channel_id,
         board_message_id: None,
         target_size,
+        match_size,
         status: "signup".into(),
         match_count: 0,
     })
@@ -167,8 +171,8 @@ pub async fn set_match_message_id(pool: &SqlitePool, match_id: i64, message_id: 
 }
 
 pub async fn load_camp(pool: &SqlitePool, camp_id: &str) -> Result<Option<CampState>> {
-    let camp = sqlx::query_as::<_, (String, i64, i64, Option<i64>, i64, String, i64)>(
-        "SELECT id, guild_id, channel_id, board_message_id, target_size, status, match_count FROM camps WHERE id = ?",
+    let camp = sqlx::query_as::<_, (String, i64, i64, Option<i64>, i64, i64, String, i64)>(
+        "SELECT id, guild_id, channel_id, board_message_id, target_size, match_size, status, match_count FROM camps WHERE id = ?",
     )
     .bind(camp_id)
     .fetch_optional(pool)
@@ -180,8 +184,8 @@ pub async fn load_camp(pool: &SqlitePool, camp_id: &str) -> Result<Option<CampSt
 }
 
 pub async fn load_active_for_guild(pool: &SqlitePool, guild_id: i64) -> Result<Option<CampState>> {
-    let camp = sqlx::query_as::<_, (String, i64, i64, Option<i64>, i64, String, i64)>(
-        "SELECT id, guild_id, channel_id, board_message_id, target_size, status, match_count
+    let camp = sqlx::query_as::<_, (String, i64, i64, Option<i64>, i64, i64, String, i64)>(
+        "SELECT id, guild_id, channel_id, board_message_id, target_size, match_size, status, match_count
          FROM camps WHERE guild_id = ? AND status IN ('signup', 'running') LIMIT 1",
     )
     .bind(guild_id)
@@ -194,8 +198,8 @@ pub async fn load_active_for_guild(pool: &SqlitePool, guild_id: i64) -> Result<O
 }
 
 pub async fn load_restore_camps(pool: &SqlitePool) -> Result<Vec<CampState>> {
-    let rows = sqlx::query_as::<_, (String, i64, i64, Option<i64>, i64, String, i64)>(
-        "SELECT id, guild_id, channel_id, board_message_id, target_size, status, match_count
+    let rows = sqlx::query_as::<_, (String, i64, i64, Option<i64>, i64, i64, String, i64)>(
+        "SELECT id, guild_id, channel_id, board_message_id, target_size, match_size, status, match_count
          FROM camps WHERE status IN ('signup', 'running')",
     )
     .fetch_all(pool)
@@ -212,7 +216,7 @@ pub async fn load_restore_camps(pool: &SqlitePool) -> Result<Vec<CampState>> {
 
 async fn assemble_state(
     pool: &SqlitePool,
-    c: (String, i64, i64, Option<i64>, i64, String, i64),
+    c: (String, i64, i64, Option<i64>, i64, i64, String, i64),
 ) -> Result<CampState> {
     let camp = CampRow {
         id: c.0,
@@ -220,8 +224,9 @@ async fn assemble_state(
         channel_id: c.2,
         board_message_id: c.3,
         target_size: c.4,
-        status: c.5,
-        match_count: c.6,
+        match_size: c.5,
+        status: c.6,
+        match_count: c.7,
     };
     let player_rows = sqlx::query_as::<_, (i64, i64, String, Option<i64>, i64)>(
         "SELECT user_id, points, location, queue_position, consecutive_matches
@@ -467,11 +472,11 @@ async fn camp_layout_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     camp_id: &str,
 ) -> Result<CampLayout> {
-    let size: i64 = sqlx::query_scalar("SELECT target_size FROM camps WHERE id = ?")
+    let match_size: i64 = sqlx::query_scalar("SELECT match_size FROM camps WHERE id = ?")
         .bind(camp_id)
         .fetch_one(&mut **tx)
         .await?;
-    Ok(CampLayout::from_roster_size(size))
+    Ok(CampLayout::from_match_size(match_size))
 }
 
 async fn pull_match_in_tx(

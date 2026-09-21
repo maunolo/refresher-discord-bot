@@ -28,18 +28,20 @@ pub struct CampLayout {
 }
 
 impl CampLayout {
-    /// 24/30 camps run two concurrent 6v6s. Size 4 is a 2v2 test camp.
-    pub fn from_roster_size(n: i64) -> Self {
-        if n == 4 {
-            Self {
+    pub fn from_match_size(match_size: i64) -> Self {
+        match match_size {
+            2 => Self {
+                match_size: 2,
+                refresh_votes: 1,
+            },
+            4 => Self {
                 match_size: 4,
                 refresh_votes: 2,
-            }
-        } else {
-            Self {
+            },
+            _ => Self {
                 match_size: 12,
                 refresh_votes: 4,
-            }
+            },
         }
     }
 }
@@ -48,7 +50,7 @@ pub fn shuffle_ids(ids: &mut [i64], rng: &mut impl Rng) {
     ids.shuffle(rng);
 }
 
-/// Split an even roster into Hiddenking and Archmother (6v6 or 2v2).
+/// Split an even roster into Hiddenking and Archmother.
 pub fn split_teams(mut ids: Vec<i64>, rng: &mut impl Rng) -> (Vec<i64>, Vec<i64>) {
     ids.shuffle(rng);
     let mid = ids.len() / 2;
