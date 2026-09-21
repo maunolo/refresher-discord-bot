@@ -1,0 +1,1 @@
+ALTER TABLE camp_matches ADD COLUMN is_final INTEGER NOT NULL DEFAULT 0;

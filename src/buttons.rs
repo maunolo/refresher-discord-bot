@@ -67,6 +67,9 @@ async fn handle_locked(
         ["create_match", camp_id] => {
             create_match(ctx, data, interaction, guild_id, camp_id).await
         }
+        ["final_match", camp_id] => {
+            create_final_match(ctx, data, interaction, guild_id, camp_id).await
+        }
         ["refresh", camp_id, match_id] => {
             vote_choice(ctx, data, interaction, camp_id, match_id, true).await
         }
@@ -199,6 +202,54 @@ async fn create_match(
                         format!(
                             "Match {} created. Vote to refresh teams, then an admin starts the match.\nHiddenking: {}\nArchmother: {}",
                             open.row.slot,
+                            sync::mention_list(&hk),
+                            sync::mention_list(&am)
+                        ),
+                    )
+                    .await;
+            }
+            Ok(())
+        }
+        Err(err) => ephemeral(ctx, interaction, err.to_string()).await,
+    }
+}
+
+async fn create_final_match(
+    ctx: &Context,
+    data: &Data,
+    interaction: &ComponentInteraction,
+    guild_id: GuildId,
+    camp_id: &str,
+) -> Result<()> {
+    if !is_admin(interaction) {
+        return ephemeral(ctx, interaction, "Only server managers can start the final.").await;
+    }
+    match db::create_final_match(&data.db, camp_id, guild_id.get() as i64).await {
+        Ok((camp_id, match_id)) => {
+            ack(ctx, interaction).await?;
+            let state = db::load_camp(&data.db, &camp_id)
+                .await?
+                .ok_or_else(|| anyhow!("camp missing"))?;
+            let channel = ChannelId::new(state.camp.channel_id as u64);
+            sync::redraw_all(ctx, &data.db, &state).await?;
+            if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
+                let hk: Vec<i64> = open
+                    .players
+                    .iter()
+                    .filter(|p| p.side == "hiddenking")
+                    .map(|p| p.user_id)
+                    .collect();
+                let am: Vec<i64> = open
+                    .players
+                    .iter()
+                    .filter(|p| p.side == "archmother")
+                    .map(|p| p.user_id)
+                    .collect();
+                let _ = channel
+                    .say(
+                        &ctx.http,
+                        format!(
+                            "Final match created from the top scorers. Vote to refresh teams, then an admin starts the match.\nHiddenking: {}\nArchmother: {}",
                             sync::mention_list(&hk),
                             sync::mention_list(&am)
                         ),

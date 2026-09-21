@@ -163,7 +163,15 @@ pub fn board_embed(state: &CampState) -> CreateEmbed {
     }
     for open in &state.open_matches {
         embed = embed.field(
-            format!("Match {} ({})", open.row.slot, open.row.status),
+            format!(
+                "{} ({})",
+                if open.row.is_final {
+                    "Final match".to_string()
+                } else {
+                    format!("Match {}", open.row.slot)
+                },
+                open.row.status
+            ),
             match_field(open),
             false,
         );
@@ -181,6 +189,10 @@ pub fn board_components(state: &CampState) -> Vec<CreateActionRow> {
             .label("Create match")
             .style(ButtonStyle::Success)
             .disabled(!state.can_create_match()),
+        CreateButton::new(format!("final_match:{}", state.camp.id))
+            .label("Final match")
+            .style(ButtonStyle::Primary)
+            .disabled(!state.can_create_final()),
         CreateButton::new(format!("end_camp:{}", state.camp.id))
             .label("End camp")
             .style(ButtonStyle::Danger)
@@ -256,7 +268,11 @@ pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
         desc.push_str(&format!("\n\n**Party code:** `{code}`"));
     }
     CreateEmbed::new()
-        .title(format!("Match {} · Camp {}", open.row.slot, state.camp.id))
+        .title(if open.row.is_final {
+            format!("Final match · Camp {}", state.camp.id)
+        } else {
+            format!("Match {} · Camp {}", open.row.slot, state.camp.id)
+        })
         .description(desc)
         .field("Hiddenking", list_mentions(&hk), true)
         .field("Archmother", list_mentions(&am), true)
@@ -346,7 +362,11 @@ pub fn info_embed(state: &CampState) -> CreateEmbed {
         .footer(footer(&state.camp.id));
     for open in &state.open_matches {
         embed = embed.field(
-            format!("Live/voting match {}", open.row.slot),
+            if open.row.is_final {
+                format!("Final match ({})", open.row.status)
+            } else {
+                format!("Live/voting match {}", open.row.slot)
+            },
             match_field(open),
             false,
         );

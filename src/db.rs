@@ -45,6 +45,7 @@ pub struct MatchRow {
     pub party_id: Option<String>,
     pub party_code: Option<String>,
     pub winner_side: Option<String>,
+    pub is_final: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -73,6 +74,7 @@ pub struct CampState {
     pub camp: CampRow,
     pub players: Vec<PlayerRow>,
     pub open_matches: Vec<OpenMatch>,
+    pub has_final: bool,
 }
 
 impl CampState {
@@ -82,8 +84,17 @@ impl CampState {
 
     pub fn can_create_match(&self) -> bool {
         self.camp.status == "running"
+            && !self.has_final
             && self.open_matches.len() < 2
             && self.queued_count() >= self.camp.layout().match_size
+    }
+
+    pub fn can_create_final(&self) -> bool {
+        self.camp.status == "running"
+            && !self.has_final
+            && self.open_matches.is_empty()
+            && self.camp.match_count >= 1
+            && self.players.len() >= self.camp.layout().match_size
     }
 }
 
@@ -258,9 +269,10 @@ async fn assemble_state(
             Option<String>,
             Option<String>,
             Option<String>,
+            i64,
         ),
     >(
-        "SELECT id, slot, status, refresh_used, message_id, party_id, party_code, winner_side
+        "SELECT id, slot, status, refresh_used, message_id, party_id, party_code, winner_side, is_final
          FROM camp_matches WHERE camp_id = ? AND status IN ('voting', 'live') ORDER BY slot",
     )
     .bind(&camp.id)
@@ -278,6 +290,7 @@ async fn assemble_state(
             party_id: m.5,
             party_code: m.6,
             winner_side: m.7,
+            is_final: m.8 != 0,
         };
         let mp = sqlx::query_as::<_, (i64, String, Option<i64>)>(
             "SELECT user_id, side, points_after FROM camp_match_players WHERE match_id = ?",
@@ -328,10 +341,18 @@ async fn assemble_state(
         });
     }
 
+    let has_final: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM camp_matches WHERE camp_id = ? AND is_final != 0 LIMIT 1",
+    )
+    .bind(&camp.id)
+    .fetch_optional(pool)
+    .await?;
+
     Ok(CampState {
         camp,
         players,
         open_matches,
+        has_final: has_final.is_some(),
     })
 }
 
@@ -503,7 +524,7 @@ async fn pull_match_in_tx(
     let (hiddenking, archmother) = queue::split_teams(batch, &mut rand::thread_rng());
 
     sqlx::query(
-        "INSERT INTO camp_matches (camp_id, slot, status, refresh_used) VALUES (?, ?, 'voting', 0)",
+        "INSERT INTO camp_matches (camp_id, slot, status, refresh_used, is_final) VALUES (?, ?, 'voting', 0, 0)",
     )
     .bind(camp_id)
     .bind(slot)
@@ -637,6 +658,9 @@ pub async fn create_match(pool: &SqlitePool, camp_id: &str, guild_id: i64) -> Re
         ));
     }
     let camp_id = state.camp.id.clone();
+    if state.has_final {
+        return Err(anyhow!("the final match has already been created"));
+    }
     if state.open_matches.len() >= 2 {
         return Err(anyhow!("both match slots are already filled"));
     }
@@ -651,6 +675,112 @@ pub async fn create_match(pool: &SqlitePool, camp_id: &str, guild_id: i64) -> Re
     let match_id = pull_match_in_tx(&mut tx, &camp_id)
         .await?
         .ok_or_else(|| anyhow!("could not create a match from the queue"))?;
+    tx.commit().await?;
+    Ok((camp_id, match_id))
+}
+
+pub async fn create_final_match(
+    pool: &SqlitePool,
+    camp_id: &str,
+    guild_id: i64,
+) -> Result<(String, i64)> {
+    let mut state = load_camp(pool, camp_id)
+        .await?
+        .ok_or_else(|| anyhow!("camp not found"))?;
+    if state.camp.guild_id != guild_id || state.camp.status != "running" {
+        state = load_active_for_guild(pool, guild_id)
+            .await?
+            .ok_or_else(|| anyhow!("no active camp"))?;
+    }
+    if !state.can_create_final() {
+        if state.has_final {
+            return Err(anyhow!("the final match has already been created"));
+        }
+        if !state.open_matches.is_empty() {
+            return Err(anyhow!("finish all live matches before the final"));
+        }
+        if state.camp.match_count < 1 {
+            return Err(anyhow!("play at least one scored match before the final"));
+        }
+        return Err(anyhow!("cannot start the final match yet"));
+    }
+
+    let camp_id = state.camp.id.clone();
+    let need = state.camp.layout().match_size;
+    let scored: Vec<(i64, i64)> = state.players.iter().map(|p| (p.user_id, p.points)).collect();
+    let mut rng = StdRng::from_entropy();
+    let batch = queue::select_finalists(&scored, need, &mut rng);
+    if batch.len() < need {
+        return Err(anyhow!(
+            "need {need} players for the final, have {}",
+            batch.len()
+        ));
+    }
+
+    let (hiddenking, archmother) = queue::split_teams(batch, &mut rng);
+
+    let mut tx = pool.begin().await?;
+    let slot = next_free_slot(&mut tx, &camp_id)
+        .await?
+        .ok_or_else(|| anyhow!("no free match slot"))?;
+
+    sqlx::query(
+        "INSERT INTO camp_matches (camp_id, slot, status, refresh_used, is_final) VALUES (?, ?, 'voting', 0, 1)",
+    )
+    .bind(&camp_id)
+    .bind(slot)
+    .execute(&mut *tx)
+    .await?;
+    let match_id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
+        .fetch_one(&mut *tx)
+        .await?;
+
+    let location = if slot == 1 { "match_1" } else { "match_2" };
+    for user_id in &hiddenking {
+        sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'hiddenking')")
+            .bind(match_id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "UPDATE camp_players SET location = ?, queue_position = NULL WHERE camp_id = ? AND user_id = ?",
+        )
+        .bind(location)
+        .bind(&camp_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    for user_id in &archmother {
+        sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'archmother')")
+            .bind(match_id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query(
+            "UPDATE camp_players SET location = ?, queue_position = NULL WHERE camp_id = ? AND user_id = ?",
+        )
+        .bind(location)
+        .bind(&camp_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    let remaining: Vec<i64> = sqlx::query_scalar(
+        "SELECT user_id FROM camp_players WHERE camp_id = ? AND location = 'queued' ORDER BY queue_position",
+    )
+    .bind(&camp_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    for (i, user_id) in remaining.into_iter().enumerate() {
+        sqlx::query("UPDATE camp_players SET queue_position = ? WHERE camp_id = ? AND user_id = ?")
+            .bind(i as i64)
+            .bind(&camp_id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+    }
     tx.commit().await?;
     Ok((camp_id, match_id))
 }

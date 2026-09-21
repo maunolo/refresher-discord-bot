@@ -60,7 +60,8 @@ Admins are anyone with **Manage Server**.
 3. Players on a match each vote once: **Refresh teams** or **No refresh**. If at least 4 players from either side vote refresh (2 in a 2v2 test, 1 in a 1v1 test), teams are re-sorted. If everyone has voted (or refresh can no longer pass), voting ends and the admin can start. Each match only votes once.
 4. Admin **Start match** marks the game live and moves those players into the team voice channels. If `ENABLE_CUSTOM_MATCH_CREATE=true`, it also creates a Deadlock custom lobby and posts the party code. Players join in-game and draft heroes.
 5. Admin reports the winner. Winners get +1 point. Players re-enter the queue by consecutive-match count (winners before losers in the same count; blocks with more than two players are shuffled). Anyone who sat out has their consecutive count reset to 0. The next match is **not** created until an admin clicks **Create match**.
-6. **End camp** posts gold / silver / bronze for the top distinct point totals.
+6. When no matches are live and at least one has been scored, admin can click **Final match**. That seats the highest-point players (same count as a normal match; ties for the last seats are shuffled) and randomizes Hiddenking / Archmother. Refresh voting works the same as a normal match. After a final is created, **Create match** is locked. After it is scored, **End camp**.
+7. **End camp** posts gold / silver / bronze for the top distinct point totals.
 
 ### Testing with four accounts
 
@@ -69,7 +70,7 @@ Use `/camp start` and pick **4-1v1** to run two matches at once, or **4-2v2** fo
 - **4-1v1:** click **Create match** twice. You get two 1v1s (Match 1 and Match 2). Refresh needs **1 vote from either side**.
 - **4-2v2:** click **Create match** once. You get one Hiddenking vs Archmother match of two players each. Refresh needs **2 votes from either team**.
 
-After a winner, they stay in queue until you create the next match. Keep `ENABLE_CUSTOM_MATCH_CREATE=false` so Start match does not call the Deadlock API.
+After a winner, they stay in queue until you create the next match. When both test matches are done, **Final match** seats the two (1v1) or four (2v2) highest-point players. Keep `ENABLE_CUSTOM_MATCH_CREATE=false` so Start match does not call the Deadlock API.
 
 ## Persistence
 

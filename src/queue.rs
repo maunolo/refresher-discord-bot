@@ -50,6 +50,26 @@ pub fn shuffle_ids(ids: &mut [i64], rng: &mut impl Rng) {
     ids.shuffle(rng);
 }
 
+/// Top `n` players by points. Equal scores are shuffled so ties for the last seats are fair.
+pub fn select_finalists(players: &[(i64, i64)], n: usize, rng: &mut impl Rng) -> Vec<i64> {
+    let mut by_points: std::collections::BTreeMap<i64, Vec<i64>> =
+        std::collections::BTreeMap::new();
+    for (user_id, points) in players {
+        by_points.entry(*points).or_default().push(*user_id);
+    }
+    let mut result = Vec::with_capacity(n.min(players.len()));
+    for (_points, mut ids) in by_points.into_iter().rev() {
+        ids.shuffle(rng);
+        for user_id in ids {
+            result.push(user_id);
+            if result.len() == n {
+                return result;
+            }
+        }
+    }
+    result
+}
+
 /// Split an even roster into Hiddenking and Archmother.
 pub fn split_teams(mut ids: Vec<i64>, rng: &mut impl Rng) -> (Vec<i64>, Vec<i64>) {
     ids.shuffle(rng);
