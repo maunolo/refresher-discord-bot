@@ -82,6 +82,12 @@ async fn handle_locked(
         ["win", camp_id, match_id, side] => {
             report_win(ctx, data, interaction, guild_id, camp_id, match_id, side).await
         }
+        ["correct_win", camp_id, match_id] => {
+            correct_win(ctx, data, interaction, camp_id, match_id).await
+        }
+        ["reopen_match", camp_id, match_id] => {
+            reopen_match(ctx, data, interaction, guild_id, camp_id, match_id).await
+        }
         ["end_camp", camp_id] => end_camp(ctx, data, interaction, camp_id).await,
         _ => Ok(()),
     }
@@ -444,29 +450,42 @@ async fn report_win(
         Ok(()) => {
             ack(ctx, interaction).await?;
             let channel = ChannelId::new(before.camp.channel_id as u64);
+            let is_final = before
+                .open_matches
+                .iter()
+                .find(|m| m.row.id == match_id)
+                .map(|m| m.row.is_final)
+                .unwrap_or(false);
             if let Some(msg_id) = old_message {
-                let winner = if side == "hiddenking" {
-                    "Hiddenking"
-                } else {
-                    "Archmother"
-                };
                 let _ = channel
                     .edit_message(
                         &ctx.http,
                         msg_id as u64,
                         serenity::all::EditMessage::new()
-                            .embed(
-                                serenity::all::CreateEmbed::new()
-                                    .title(format!("{winner} venceu"))
-                                    .description(format!("Camp {}", before.camp.id))
-                                    .footer(serenity::all::CreateEmbedFooter::new(format!(
-                                        "Camp {}",
-                                        before.camp.id
-                                    ))),
-                            )
-                            .components(Vec::new()),
+                            .embed(crate::ui::completed_match_embed(
+                                &before.camp.id,
+                                side,
+                                is_final,
+                            ))
+                            .components(crate::ui::completed_match_components(
+                                &before.camp.id,
+                                match_id,
+                            )),
                     )
                     .await;
+            }
+            if let Ok(previous) =
+                db::other_completed_message_ids(&data.db, camp_id, match_id).await
+            {
+                for msg_id in previous {
+                    let _ = channel
+                        .edit_message(
+                            &ctx.http,
+                            msg_id as u64,
+                            serenity::all::EditMessage::new().components(Vec::new()),
+                        )
+                        .await;
+                }
             }
             sync::apply_moves(
                 ctx,
@@ -480,17 +499,113 @@ async fn report_win(
                 .await?
                 .ok_or_else(|| anyhow!("camp não encontrado"))?;
             sync::redraw_all(ctx, &data.db, &state).await?;
-            let winner = if side == "hiddenking" {
-                "Hiddenking"
-            } else {
-                "Archmother"
-            };
+            let winner = crate::ui::winner_label(side);
             let _ = channel
                 .say(
                     &ctx.http,
                     format!(
                         "{winner} vence. +1 ponto para esse time. Os jogadores voltaram para a fila — um admin clica em **Criar partida** quando quiser."
                     ),
+                )
+                .await;
+            Ok(())
+        }
+        Err(err) => ephemeral(ctx, interaction, err.to_string()).await,
+    }
+}
+
+async fn correct_win(
+    ctx: &Context,
+    data: &Data,
+    interaction: &ComponentInteraction,
+    camp_id: &str,
+    match_id: &str,
+) -> Result<()> {
+    if !is_admin(interaction) {
+        return ephemeral(
+            ctx,
+            interaction,
+            "Apenas quem gerencia o servidor pode corrigir o resultado.",
+        )
+        .await;
+    }
+    let match_id: i64 = match_id.parse().unwrap_or(0);
+    match db::correct_winner(&data.db, camp_id, match_id).await {
+        Ok(view) => {
+            ack(ctx, interaction).await?;
+            let state = db::load_camp(&data.db, camp_id)
+                .await?
+                .ok_or_else(|| anyhow!("camp não encontrado"))?;
+            let channel = ChannelId::new(state.camp.channel_id as u64);
+            let msg_id = interaction.message.id.get();
+            let _ = channel
+                .edit_message(
+                    &ctx.http,
+                    msg_id,
+                    serenity::all::EditMessage::new()
+                        .embed(crate::ui::completed_match_embed(
+                            camp_id,
+                            &view.winner_side,
+                            view.is_final,
+                        ))
+                        .components(crate::ui::completed_match_components(camp_id, match_id)),
+                )
+                .await;
+            sync::redraw_all(ctx, &data.db, &state).await?;
+            let winner = crate::ui::winner_label(&view.winner_side);
+            let _ = channel
+                .say(
+                    &ctx.http,
+                    format!(
+                        "Resultado corrigido: {winner} vence. Pontos e fila atualizados."
+                    ),
+                )
+                .await;
+            Ok(())
+        }
+        Err(err) => ephemeral(ctx, interaction, err.to_string()).await,
+    }
+}
+
+async fn reopen_match(
+    ctx: &Context,
+    data: &Data,
+    interaction: &ComponentInteraction,
+    guild_id: GuildId,
+    camp_id: &str,
+    match_id: &str,
+) -> Result<()> {
+    if !is_admin(interaction) {
+        return ephemeral(
+            ctx,
+            interaction,
+            "Apenas quem gerencia o servidor pode reabrir a partida.",
+        )
+        .await;
+    }
+    let match_id: i64 = match_id.parse().unwrap_or(0);
+    match db::reopen_match(&data.db, camp_id, match_id).await {
+        Ok(()) => {
+            ack(ctx, interaction).await?;
+            let state = db::load_camp(&data.db, camp_id)
+                .await?
+                .ok_or_else(|| anyhow!("camp não encontrado"))?;
+            let channel = ChannelId::new(state.camp.channel_id as u64);
+            sync::redraw_all(ctx, &data.db, &state).await?;
+            if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
+                sync::apply_moves(
+                    ctx,
+                    guild_id,
+                    &data.config,
+                    channel,
+                    &sync::match_voice_moves(open),
+                )
+                .await;
+            }
+            let _ = channel
+                .say(
+                    &ctx.http,
+                    "Partida reaberta. Jogadores voltam aos canais de time.",
                 )
                 .await;
             Ok(())

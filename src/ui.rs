@@ -353,6 +353,38 @@ pub fn match_components(state: &CampState, open: &OpenMatch) -> Vec<CreateAction
     rows
 }
 
+pub fn winner_label(side: &str) -> &'static str {
+    if side == "hiddenking" {
+        "Hiddenking"
+    } else {
+        "Archmother"
+    }
+}
+
+pub fn completed_match_embed(camp_id: &str, winner_side: &str, is_final: bool) -> CreateEmbed {
+    let winner = winner_label(winner_side);
+    let title = if is_final {
+        format!("{winner} venceu · Partida final")
+    } else {
+        format!("{winner} venceu")
+    };
+    CreateEmbed::new()
+        .title(title)
+        .description(format!("Camp {camp_id}"))
+        .footer(footer(camp_id))
+}
+
+pub fn completed_match_components(camp_id: &str, match_id: i64) -> Vec<CreateActionRow> {
+    vec![CreateActionRow::Buttons(vec![
+        CreateButton::new(format!("correct_win:{camp_id}:{match_id}"))
+            .label("Trocar vencedor")
+            .style(ButtonStyle::Secondary),
+        CreateButton::new(format!("reopen_match:{camp_id}:{match_id}"))
+            .label("Reabrir partida")
+            .style(ButtonStyle::Primary),
+    ])]
+}
+
 pub fn standings_embed(camp_id: &str, match_count: i64, players: &[PlayerRow]) -> CreateEmbed {
     CreateEmbed::new()
         .title(format!("Ranking do camp {camp_id}"))

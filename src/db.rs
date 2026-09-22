@@ -1081,6 +1081,303 @@ pub async fn report_winner(
     Ok(())
 }
 
+struct CorrectableMatch {
+    slot: i64,
+    is_final: bool,
+    winner_side: String,
+    roster: Vec<(i64, String)>,
+}
+
+fn other_side(side: &str) -> Result<&'static str> {
+    match side {
+        "hiddenking" => Ok("archmother"),
+        "archmother" => Ok("hiddenking"),
+        _ => Err(anyhow!("vencedor inválido")),
+    }
+}
+
+async fn require_correctable_match(
+    tx: &mut Transaction<'_, Sqlite>,
+    camp_id: &str,
+    match_id: i64,
+    require_free_slot: bool,
+) -> Result<CorrectableMatch> {
+    let camp_status: Option<String> = sqlx::query_scalar("SELECT status FROM camps WHERE id = ?")
+        .bind(camp_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    match camp_status.as_deref() {
+        Some("running") => {}
+        Some(_) => return Err(anyhow!("o camp não está em andamento")),
+        None => return Err(anyhow!("camp não encontrado")),
+    }
+
+    let row: Option<(String, i64, Option<String>, Option<i64>, i64)> = sqlx::query_as(
+        "SELECT status, slot, winner_side, completed_at, is_final
+         FROM camp_matches WHERE id = ? AND camp_id = ?",
+    )
+    .bind(match_id)
+    .bind(camp_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((status, slot, winner_side, _completed_at, is_final)) = row else {
+        return Err(anyhow!("partida não encontrada"));
+    };
+    let Some(winner_side) = winner_side else {
+        return Err(anyhow!("não é mais possível corrigir esta partida"));
+    };
+    if status != "completed" {
+        return Err(anyhow!("não é mais possível corrigir esta partida"));
+    }
+
+    let latest: Option<i64> = sqlx::query_scalar(
+        "SELECT id FROM camp_matches
+         WHERE camp_id = ? AND status = 'completed' AND completed_at IS NOT NULL
+         ORDER BY completed_at DESC, id DESC LIMIT 1",
+    )
+    .bind(camp_id)
+    .fetch_optional(&mut **tx)
+    .await?;
+    if latest != Some(match_id) {
+        return Err(anyhow!("não é mais possível corrigir esta partida"));
+    }
+
+    let roster: Vec<(i64, String)> =
+        sqlx::query_as("SELECT user_id, side FROM camp_match_players WHERE match_id = ?")
+            .bind(match_id)
+            .fetch_all(&mut **tx)
+            .await?;
+    if roster.is_empty() {
+        return Err(anyhow!("elenco da partida inconsistente"));
+    }
+    for (user_id, _) in &roster {
+        let location: Option<String> = sqlx::query_scalar(
+            "SELECT location FROM camp_players WHERE camp_id = ? AND user_id = ?",
+        )
+        .bind(camp_id)
+        .bind(user_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if location.as_deref() != Some("queued") {
+            return Err(anyhow!(
+                "não é mais possível corrigir esta partida (os jogadores já foram para outra partida)"
+            ));
+        }
+    }
+
+    if require_free_slot {
+        let occupied: Option<i64> = sqlx::query_scalar(
+            "SELECT 1 FROM camp_matches
+             WHERE camp_id = ? AND slot = ? AND status IN ('voting', 'live') LIMIT 1",
+        )
+        .bind(camp_id)
+        .bind(slot)
+        .fetch_optional(&mut **tx)
+        .await?;
+        if occupied.is_some() {
+            return Err(anyhow!(
+                "não é mais possível reabrir esta partida (o slot já está em uso)"
+            ));
+        }
+    }
+
+    Ok(CorrectableMatch {
+        slot,
+        is_final: is_final != 0,
+        winner_side,
+        roster,
+    })
+}
+
+async fn reindex_queued(tx: &mut Transaction<'_, Sqlite>, camp_id: &str) -> Result<()> {
+    let rows: Vec<(i64, i64)> = sqlx::query_as(
+        "SELECT user_id, consecutive_matches FROM camp_players
+         WHERE camp_id = ? AND location = 'queued' ORDER BY queue_position",
+    )
+    .bind(camp_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let ordered: Vec<QueuePlayer> = rows
+        .into_iter()
+        .enumerate()
+        .map(|(i, (user_id, consecutive_matches))| QueuePlayer {
+            user_id,
+            consecutive_matches,
+            queue_position: i as i64,
+            just_won: None,
+        })
+        .collect();
+    write_queue_order(tx, camp_id, &ordered).await
+}
+
+pub struct CompletedMatchView {
+    pub is_final: bool,
+    pub winner_side: String,
+}
+
+pub async fn correct_winner(
+    pool: &SqlitePool,
+    camp_id: &str,
+    match_id: i64,
+) -> Result<CompletedMatchView> {
+    let mut tx = pool.begin().await?;
+    let current = require_correctable_match(&mut tx, camp_id, match_id, false).await?;
+    let new_side = other_side(&current.winner_side)?;
+    let old_side = current.winner_side.clone();
+
+    for (user_id, side) in &current.roster {
+        if side == &old_side {
+            sqlx::query(
+                "UPDATE camp_players SET points = MAX(0, points - 1) WHERE camp_id = ? AND user_id = ?",
+            )
+            .bind(camp_id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        if side == new_side {
+            sqlx::query("UPDATE camp_players SET points = points + 1 WHERE camp_id = ? AND user_id = ?")
+                .bind(camp_id)
+                .bind(user_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        let points: i64 =
+            sqlx::query_scalar("SELECT points FROM camp_players WHERE camp_id = ? AND user_id = ?")
+                .bind(camp_id)
+                .bind(user_id)
+                .fetch_one(&mut *tx)
+                .await?;
+        sqlx::query("UPDATE camp_match_players SET points_after = ? WHERE match_id = ? AND user_id = ?")
+            .bind(points)
+            .bind(match_id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    sqlx::query("UPDATE camp_matches SET winner_side = ? WHERE id = ?")
+        .bind(new_side)
+        .bind(match_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE camps SET updated_at = ? WHERE id = ?")
+        .bind(now())
+        .bind(camp_id)
+        .execute(&mut *tx)
+        .await?;
+
+    let roster_ids: Vec<i64> = current.roster.iter().map(|(id, _)| *id).collect();
+    let waiters_raw: Vec<(i64, i64, Option<i64>)> = sqlx::query_as(
+        "SELECT user_id, consecutive_matches, queue_position FROM camp_players
+         WHERE camp_id = ? AND location = 'queued' ORDER BY queue_position",
+    )
+    .bind(camp_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let waiters: Vec<QueuePlayer> = waiters_raw
+        .into_iter()
+        .filter(|(user_id, _, _)| !roster_ids.contains(user_id))
+        .map(|w| QueuePlayer {
+            user_id: w.0,
+            consecutive_matches: w.1,
+            queue_position: w.2.unwrap_or(0),
+            just_won: None,
+        })
+        .collect();
+
+    let mut finished = Vec::new();
+    for (user_id, side) in &current.roster {
+        let consecutive: i64 = sqlx::query_scalar(
+            "SELECT consecutive_matches FROM camp_players WHERE camp_id = ? AND user_id = ?",
+        )
+        .bind(camp_id)
+        .bind(user_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        finished.push(QueuePlayer {
+            user_id: *user_id,
+            consecutive_matches: consecutive,
+            queue_position: 0,
+            just_won: Some(side == new_side),
+        });
+    }
+
+    let ordered = queue::requeue(waiters, finished, &mut rand::thread_rng());
+    write_queue_order(&mut tx, camp_id, &ordered).await?;
+    tx.commit().await?;
+    Ok(CompletedMatchView {
+        is_final: current.is_final,
+        winner_side: new_side.to_string(),
+    })
+}
+
+pub async fn reopen_match(pool: &SqlitePool, camp_id: &str, match_id: i64) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    let current = require_correctable_match(&mut tx, camp_id, match_id, true).await?;
+    let location = if current.slot == 1 {
+        "match_1"
+    } else {
+        "match_2"
+    };
+
+    for (user_id, side) in &current.roster {
+        if side == &current.winner_side {
+            sqlx::query(
+                "UPDATE camp_players SET points = MAX(0, points - 1) WHERE camp_id = ? AND user_id = ?",
+            )
+            .bind(camp_id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+        sqlx::query(
+            "UPDATE camp_players SET consecutive_matches = MAX(0, consecutive_matches - 1),
+             location = ?, queue_position = NULL
+             WHERE camp_id = ? AND user_id = ?",
+        )
+        .bind(location)
+        .bind(camp_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    sqlx::query(
+        "UPDATE camp_matches SET status = 'live', winner_side = NULL, completed_at = NULL WHERE id = ?",
+    )
+    .bind(match_id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query(
+        "UPDATE camps SET match_count = MAX(0, match_count - 1), updated_at = ? WHERE id = ?",
+    )
+    .bind(now())
+    .bind(camp_id)
+    .execute(&mut *tx)
+    .await?;
+
+    reindex_queued(&mut tx, camp_id).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn other_completed_message_ids(
+    pool: &SqlitePool,
+    camp_id: &str,
+    except_match_id: i64,
+) -> Result<Vec<i64>> {
+    let ids: Vec<i64> = sqlx::query_scalar(
+        "SELECT message_id FROM camp_matches
+         WHERE camp_id = ? AND status = 'completed' AND id != ? AND message_id IS NOT NULL",
+    )
+    .bind(camp_id)
+    .bind(except_match_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(ids)
+}
+
 pub async fn cancel_camp(pool: &SqlitePool, camp_id: &str) -> Result<()> {
     let state = load_camp(pool, camp_id)
         .await?
