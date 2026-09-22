@@ -11,12 +11,36 @@ pub fn mention(user_id: i64) -> String {
 
 pub fn list_mentions(ids: &[i64]) -> String {
     if ids.is_empty() {
-        return "_empty_".to_string();
+        return "_vazio_".to_string();
     }
     ids.iter()
         .map(|id| mention(*id))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn status_label(status: &str) -> &str {
+    match status {
+        "signup" => "inscrição",
+        "running" => "em andamento",
+        "voting" => "votação",
+        "live" => "ao vivo",
+        "ended" => "encerrado",
+        "cancelled" => "cancelado",
+        "cancelled_signup" => "inscrição cancelada",
+        "cancelled_running" => "cancelado em andamento",
+        "completed" => "encerrada",
+        _ => status,
+    }
+}
+
+fn location_label(location: &str) -> &str {
+    match location {
+        "queued" => "fila",
+        "match_1" => "partida 1",
+        "match_2" => "partida 2",
+        _ => location,
+    }
 }
 
 pub fn trophy_lines(players: &[PlayerRow]) -> String {
@@ -53,18 +77,18 @@ pub fn signup_embed(state: &CampState) -> CreateEmbed {
     let mut ids: Vec<i64> = state.players.iter().map(|p| p.user_id).collect();
     ids.sort();
     CreateEmbed::new()
-        .title("Deadlock camp roster")
+        .title("Elenco do camp de Deadlock")
         .description(format!(
-            "{}/{} players. Admin adds Discord users, then starts the queue.{}",
+            "{}/{} jogadores. O admin adiciona usuários do Discord e depois inicia a fila.{}",
             state.players.len(),
             state.camp.target_size,
             match state.camp.layout().match_size {
-                2 => " This is a 1v1 test camp (two matches at once).",
-                4 => " This is a 2v2 test camp.",
+                2 => " Este é um camp de teste 1v1 (duas partidas ao mesmo tempo).",
+                4 => " Este é um camp de teste 2v2.",
                 _ => "",
             }
         ))
-        .field("Players", list_mentions(&ids), false)
+        .field("Jogadores", list_mentions(&ids), false)
         .footer(footer(&state.camp.id))
 }
 
@@ -81,7 +105,7 @@ pub fn signup_components(state: &CampState) -> Vec<CreateActionRow> {
                     default_users: None,
                 },
             )
-            .placeholder("Add players (up to 25 at a time)")
+            .placeholder("Adicionar jogadores (até 25 por vez)")
             .min_values(1)
             .max_values(select_max),
         ));
@@ -90,7 +114,7 @@ pub fn signup_components(state: &CampState) -> Vec<CreateActionRow> {
         "start_queue:{}",
         state.camp.id
     ))
-    .label("Start queue")
+    .label("Iniciar fila")
     .style(ButtonStyle::Success)
     .disabled(!full)]));
     rows
@@ -108,7 +132,7 @@ fn queued_players(state: &CampState) -> Vec<&PlayerRow> {
 
 fn queue_line(index: usize, player: &PlayerRow, up_next: bool) -> String {
     format!(
-        "`{:>2}.` {} {} ({} consec, {} pts)",
+        "`{:>2}.` {} {} ({} seg., {} pts)",
         index + 1,
         if up_next { "→" } else { " " },
         mention(player.user_id),
@@ -141,15 +165,15 @@ pub fn board_embed(state: &CampState) -> CreateEmbed {
     let queue = queued_players(state);
     let next_n = state.camp.layout().match_size;
     let mut embed = CreateEmbed::new()
-        .title(format!("Deadlock camp {}", state.camp.id))
+        .title(format!("Camp de Deadlock {}", state.camp.id))
         .description(format!(
-            "Matches played: **{}** · Roster: **{}**\nAdmin clicks **Create match** to sort the next teams from the queue. **→** marks who is in the next pull.",
+            "Partidas jogadas: **{}** · Elenco: **{}**\nO admin clica em **Criar partida** para montar os próximos times a partir da fila. **→** indica quem entra no próximo sorteio.",
             state.camp.match_count,
             state.players.len()
         ))
         .footer(footer(&state.camp.id));
     if queue.is_empty() {
-        embed = embed.field("Queue", "_empty_", false);
+        embed = embed.field("Fila", "_vazia_", false);
     } else {
         let lines: Vec<String> = queue
             .iter()
@@ -157,7 +181,11 @@ pub fn board_embed(state: &CampState) -> CreateEmbed {
             .map(|(i, p)| queue_line(i, p, i < next_n))
             .collect();
         for (i, chunk) in pack_field_chunks(&lines).into_iter().enumerate() {
-            let name = if i == 0 { "Queue".to_string() } else { format!("Queue ({})", i + 1) };
+            let name = if i == 0 {
+                "Fila".to_string()
+            } else {
+                format!("Fila ({})", i + 1)
+            };
             embed = embed.field(name, chunk, false);
         }
     }
@@ -166,11 +194,11 @@ pub fn board_embed(state: &CampState) -> CreateEmbed {
             format!(
                 "{} ({})",
                 if open.row.is_final {
-                    "Final match".to_string()
+                    "Partida final".to_string()
                 } else {
-                    format!("Match {}", open.row.slot)
+                    format!("Partida {}", open.row.slot)
                 },
-                open.row.status
+                status_label(&open.row.status)
             ),
             match_field(open),
             false,
@@ -186,15 +214,15 @@ pub fn board_components(state: &CampState) -> Vec<CreateActionRow> {
     let scored = state.camp.match_count >= 1;
     vec![CreateActionRow::Buttons(vec![
         CreateButton::new(format!("create_match:{}", state.camp.id))
-            .label("Create match")
+            .label("Criar partida")
             .style(ButtonStyle::Success)
             .disabled(!state.can_create_match()),
         CreateButton::new(format!("final_match:{}", state.camp.id))
-            .label("Final match")
+            .label("Partida final")
             .style(ButtonStyle::Primary)
             .disabled(!state.can_create_final()),
         CreateButton::new(format!("end_camp:{}", state.camp.id))
-            .label("End camp")
+            .label("Encerrar camp")
             .style(ButtonStyle::Danger)
             .disabled(!scored),
     ])]
@@ -221,7 +249,7 @@ fn match_field(open: &OpenMatch) -> String {
         list_mentions(&am)
     );
     if let Some(code) = &open.row.party_code {
-        text.push_str(&format!("\nParty code: `{code}`"));
+        text.push_str(&format!("\nCódigo da party: `{code}`"));
     }
     text
 }
@@ -253,25 +281,27 @@ pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
     let total = open.players.len();
     let mut desc = if open.row.status == "voting" {
         if open.row.refresh_used && !open.votes.is_empty() {
-            format!("Voting complete — teams kept ({voted}/{total}). An admin can start the match.")
+            format!(
+                "Votação encerrada — times mantidos ({voted}/{total}). Um admin pode iniciar a partida."
+            )
         } else if open.row.refresh_used {
-            "Teams refreshed. An admin can start the match.".to_string()
+            "Times atualizados. Um admin pode iniciar a partida.".to_string()
         } else {
             format!(
-                "Refresh: Hiddenking **{hk_votes}/{needed}** · Archmother **{am_votes}/{needed}**\nNo refresh: **{keep}** · Voted: **{voted}/{total}**"
+                "Atualizar: Hiddenking **{hk_votes}/{needed}** · Archmother **{am_votes}/{needed}**\nManter times: **{keep}** · Votos: **{voted}/{total}**"
             )
         }
     } else {
-        "Match is live. Join with the party code and pick heroes in Deadlock.".to_string()
+        "Partida ao vivo. Entre com o código da party e escolha os heróis no Deadlock.".to_string()
     };
     if let Some(code) = &open.row.party_code {
-        desc.push_str(&format!("\n\n**Party code:** `{code}`"));
+        desc.push_str(&format!("\n\n**Código da party:** `{code}`"));
     }
     CreateEmbed::new()
         .title(if open.row.is_final {
-            format!("Final match · Camp {}", state.camp.id)
+            format!("Partida final · Camp {}", state.camp.id)
         } else {
-            format!("Match {} · Camp {}", open.row.slot, state.camp.id)
+            format!("Partida {} · Camp {}", open.row.slot, state.camp.id)
         })
         .description(desc)
         .field("Hiddenking", list_mentions(&hk), true)
@@ -286,19 +316,19 @@ pub fn match_components(state: &CampState, open: &OpenMatch) -> Vec<CreateAction
             "start_match:{}:{}",
             state.camp.id, open.row.id
         ))
-        .label("Start match")
+        .label("Iniciar partida")
         .style(ButtonStyle::Success)];
         if !open.row.refresh_used {
             buttons.insert(
                 0,
                 CreateButton::new(format!("no_refresh:{}:{}", state.camp.id, open.row.id))
-                    .label("No refresh")
+                    .label("Manter times")
                     .style(ButtonStyle::Secondary),
             );
             buttons.insert(
                 0,
                 CreateButton::new(format!("refresh:{}:{}", state.camp.id, open.row.id))
-                    .label("Refresh teams")
+                    .label("Refresh")
                     .style(ButtonStyle::Primary),
             );
         }
@@ -310,13 +340,13 @@ pub fn match_components(state: &CampState, open: &OpenMatch) -> Vec<CreateAction
                 "win:{}:{}:hiddenking",
                 state.camp.id, open.row.id
             ))
-            .label("Hiddenking won")
+            .label("Hiddenking venceu")
             .style(ButtonStyle::Secondary),
             CreateButton::new(format!(
                 "win:{}:{}:archmother",
                 state.camp.id, open.row.id
             ))
-            .label("Archmother won")
+            .label("Archmother venceu")
             .style(ButtonStyle::Secondary),
         ]));
     }
@@ -325,47 +355,55 @@ pub fn match_components(state: &CampState, open: &OpenMatch) -> Vec<CreateAction
 
 pub fn standings_embed(camp_id: &str, match_count: i64, players: &[PlayerRow]) -> CreateEmbed {
     CreateEmbed::new()
-        .title(format!("Camp {camp_id} standings"))
-        .description(format!("Matches played: **{match_count}**"))
-        .field("Ranks", trophy_lines(players), false)
+        .title(format!("Ranking do camp {camp_id}"))
+        .description(format!("Partidas jogadas: **{match_count}**"))
+        .field("Colocação", trophy_lines(players), false)
         .footer(footer(camp_id))
 }
 
 pub fn info_embed(state: &CampState) -> CreateEmbed {
     let queue = queued_players(state);
     let queue_text = if queue.is_empty() {
-        "_none_".into()
+        "_nenhum_".into()
     } else {
         queue
             .iter()
             .enumerate()
             .map(|(i, p)| {
                 format!(
-                    "`{:>2}.` {} · {} pts · {} consec · {}",
+                    "`{:>2}.` {} · {} pts · {} seg. · {}",
                     i + 1,
                     mention(p.user_id),
                     p.points,
                     p.consecutive_matches,
-                    p.location
+                    location_label(&p.location)
                 )
             })
             .collect::<Vec<_>>()
             .join("\n")
     };
     let mut embed = CreateEmbed::new()
-        .title(format!("Camp {} ({})", state.camp.id, state.camp.status))
+        .title(format!(
+            "Camp {} ({})",
+            state.camp.id,
+            status_label(&state.camp.status)
+        ))
         .description(format!(
-            "Size {} · match size {} · matches played {}",
+            "Tamanho {} · tamanho da partida {} · partidas jogadas {}",
             state.camp.target_size, state.camp.match_size, state.camp.match_count
         ))
-        .field("Queue", queue_text, false)
+        .field("Fila", queue_text, false)
         .footer(footer(&state.camp.id));
     for open in &state.open_matches {
         embed = embed.field(
             if open.row.is_final {
-                format!("Final match ({})", open.row.status)
+                format!("Partida final ({})", status_label(&open.row.status))
             } else {
-                format!("Live/voting match {}", open.row.slot)
+                format!(
+                    "Partida {} ({})",
+                    open.row.slot,
+                    status_label(&open.row.status)
+                )
             },
             match_field(open),
             false,

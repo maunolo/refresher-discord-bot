@@ -36,17 +36,17 @@ pub async fn create_custom_match(
     let response = request
         .send()
         .await
-        .context("failed to call Deadlock custom match API")?;
+        .context("falha ao chamar a API de partida custom do Deadlock")?;
 
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
     if !status.is_success() {
         return Err(anyhow!(
-            "Deadlock API rejected custom match create ({status}): {text}"
+            "A API do Deadlock recusou a criação da partida custom ({status}): {text}"
         ));
     }
 
     let parsed: CreateCustomResponse = serde_json::from_str(&text)
-        .with_context(|| format!("unexpected Deadlock API body: {text}"))?;
+        .with_context(|| format!("resposta inesperada da API do Deadlock: {text}"))?;
     Ok((parsed.party_id, parsed.party_code))
 }

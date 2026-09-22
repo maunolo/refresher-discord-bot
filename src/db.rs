@@ -123,7 +123,7 @@ async fn generate_unique_id(tx: &mut Transaction<'_, Sqlite>) -> Result<String> 
             return Ok(id);
         }
     }
-    Err(anyhow!("could not allocate a unique camp id"))
+    Err(anyhow!("não foi possível gerar um ID único para o camp"))
 }
 
 pub async fn create_camp(
@@ -328,7 +328,7 @@ async fn assemble_state(
                 "inconsistent match roster; skipping restore of this camp"
             );
             return Err(anyhow!(
-                "inconsistent match {} has {} players (expected {})",
+                "partida inconsistente {}: tem {} jogadores (esperado {})",
                 row.id,
                 match_players.len(),
                 expected
@@ -359,9 +359,9 @@ async fn assemble_state(
 pub async fn add_players(pool: &SqlitePool, camp_id: &str, user_ids: &[i64]) -> Result<(usize, Vec<i64>)> {
     let state = load_camp(pool, camp_id)
         .await?
-        .ok_or_else(|| anyhow!("camp not found"))?;
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
     if state.camp.status != "signup" {
-        return Err(anyhow!("players can only be added before the queue starts"));
+        return Err(anyhow!("jogadores só podem ser adicionados antes de iniciar a fila"));
     }
     let mut added = 0usize;
     let mut skipped = Vec::new();
@@ -412,9 +412,9 @@ async fn count_players(tx: &mut Transaction<'_, Sqlite>, camp_id: &str) -> Resul
 pub async fn remove_player(pool: &SqlitePool, camp_id: &str, user_id: i64) -> Result<()> {
     let state = load_camp(pool, camp_id)
         .await?
-        .ok_or_else(|| anyhow!("camp not found"))?;
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
     if state.camp.status != "signup" {
-        return Err(anyhow!("players can only be removed before the queue starts"));
+        return Err(anyhow!("jogadores só podem ser removidos antes de iniciar a fila"));
     }
     let mut tx = pool.begin().await?;
     let deleted = sqlx::query("DELETE FROM camp_players WHERE camp_id = ? AND user_id = ?")
@@ -424,7 +424,7 @@ pub async fn remove_player(pool: &SqlitePool, camp_id: &str, user_id: i64) -> Re
         .await?
         .rows_affected();
     if deleted == 0 {
-        return Err(anyhow!("that player is not on the roster"));
+        return Err(anyhow!("esse jogador não está no elenco"));
     }
     reindex_signup_queue(&mut tx, camp_id).await?;
     sqlx::query("UPDATE camps SET updated_at = ? WHERE id = ?")
@@ -586,13 +586,13 @@ async fn pull_match_in_tx(
 pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<Vec<i64>> {
     let state = load_camp(pool, camp_id)
         .await?
-        .ok_or_else(|| anyhow!("camp not found"))?;
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
     if state.camp.status != "signup" {
-        return Err(anyhow!("the queue has already started"));
+        return Err(anyhow!("a fila já foi iniciada"));
     }
     if state.players.len() as i64 != state.camp.target_size {
         return Err(anyhow!(
-            "need exactly {} players, have {}",
+            "precisa de exatamente {} jogadores, tem {}",
             state.camp.target_size,
             state.players.len()
         ));
@@ -638,43 +638,50 @@ pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<Vec<i64>> {
 pub async fn create_match(pool: &SqlitePool, camp_id: &str, guild_id: i64) -> Result<(String, i64)> {
     let mut state = load_camp(pool, camp_id)
         .await?
-        .ok_or_else(|| anyhow!("camp not found"))?;
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
     if state.camp.guild_id != guild_id || state.camp.status != "running" {
         state = load_active_for_guild(pool, guild_id)
             .await?
-            .ok_or_else(|| anyhow!("start the queue first (click **Start queue** on the roster)"))?;
+            .ok_or_else(|| anyhow!("inicie a fila primeiro (clique em **Iniciar fila** no elenco)"))?;
     }
     if state.camp.status == "signup" {
         start_queue(pool, &state.camp.id).await?;
         state = load_camp(pool, &state.camp.id)
             .await?
-            .ok_or_else(|| anyhow!("camp missing after starting the queue"))?;
+            .ok_or_else(|| anyhow!("camp não encontrado após iniciar a fila"))?;
     }
     if state.camp.status != "running" {
+        let status = match state.camp.status.as_str() {
+            "signup" => "em inscrição",
+            "ended" => "encerrado",
+            "cancelled_signup" => "inscrição cancelada",
+            "cancelled_running" => "cancelado em andamento",
+            other => other,
+        };
         return Err(anyhow!(
-            "camp `{}` is {}, not running. Click **Start queue** on the roster first.",
+            "o camp `{}` está {}, não em andamento. Clique em **Iniciar fila** no elenco primeiro.",
             state.camp.id,
-            state.camp.status
+            status
         ));
     }
     let camp_id = state.camp.id.clone();
     if state.has_final {
-        return Err(anyhow!("the final match has already been created"));
+        return Err(anyhow!("a partida final já foi criada"));
     }
     if state.open_matches.len() >= 2 {
-        return Err(anyhow!("both match slots are already filled"));
+        return Err(anyhow!("as duas vagas de partida já estão ocupadas"));
     }
     let need = state.camp.layout().match_size;
     let queued = state.queued_count();
     if queued < need {
         return Err(anyhow!(
-            "need {need} queued players to create a match, have {queued}"
+            "precisa de {need} jogadores na fila para criar uma partida, tem {queued}"
         ));
     }
     let mut tx = pool.begin().await?;
     let match_id = pull_match_in_tx(&mut tx, &camp_id)
         .await?
-        .ok_or_else(|| anyhow!("could not create a match from the queue"))?;
+        .ok_or_else(|| anyhow!("não foi possível criar uma partida a partir da fila"))?;
     tx.commit().await?;
     Ok((camp_id, match_id))
 }
@@ -686,23 +693,23 @@ pub async fn create_final_match(
 ) -> Result<(String, i64)> {
     let mut state = load_camp(pool, camp_id)
         .await?
-        .ok_or_else(|| anyhow!("camp not found"))?;
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
     if state.camp.guild_id != guild_id || state.camp.status != "running" {
         state = load_active_for_guild(pool, guild_id)
             .await?
-            .ok_or_else(|| anyhow!("no active camp"))?;
+            .ok_or_else(|| anyhow!("nenhum camp ativo"))?;
     }
     if !state.can_create_final() {
         if state.has_final {
-            return Err(anyhow!("the final match has already been created"));
+            return Err(anyhow!("a partida final já foi criada"));
         }
         if !state.open_matches.is_empty() {
-            return Err(anyhow!("finish all live matches before the final"));
+            return Err(anyhow!("termine todas as partidas ao vivo antes da final"));
         }
         if state.camp.match_count < 1 {
-            return Err(anyhow!("play at least one scored match before the final"));
+            return Err(anyhow!("jogue pelo menos uma partida pontuada antes da final"));
         }
-        return Err(anyhow!("cannot start the final match yet"));
+        return Err(anyhow!("ainda não é possível iniciar a partida final"));
     }
 
     let camp_id = state.camp.id.clone();
@@ -712,7 +719,7 @@ pub async fn create_final_match(
     let batch = queue::select_finalists(&scored, need, &mut rng);
     if batch.len() < need {
         return Err(anyhow!(
-            "need {need} players for the final, have {}",
+            "precisa de {need} jogadores na final, tem {}",
             batch.len()
         ));
     }
@@ -722,7 +729,7 @@ pub async fn create_final_match(
     let mut tx = pool.begin().await?;
     let slot = next_free_slot(&mut tx, &camp_id)
         .await?
-        .ok_or_else(|| anyhow!("no free match slot"))?;
+        .ok_or_else(|| anyhow!("não há vaga livre para partida"))?;
 
     sqlx::query(
         "INSERT INTO camp_matches (camp_id, slot, status, refresh_used, is_final) VALUES (?, ?, 'voting', 0, 1)",
@@ -815,9 +822,9 @@ pub async fn vote_refresh_choice(
     .bind(match_id)
     .fetch_optional(&mut *tx)
     .await?
-    .ok_or_else(|| anyhow!("match not found"))?;
+    .ok_or_else(|| anyhow!("partida não encontrada"))?;
     if match_row.0 != "voting" {
-        return Err(anyhow!("refresh is only available before the lobby starts"));
+        return Err(anyhow!("atualizar os times só é possível antes de iniciar o lobby"));
     }
     if match_row.1 != 0 {
         return Ok(RefreshOutcome::AlreadyUsed);
@@ -957,7 +964,7 @@ pub async fn start_live_match(
     .await?
     .rows_affected();
     if updated == 0 {
-        return Err(anyhow!("that match is not waiting to start"));
+        return Err(anyhow!("essa partida não está esperando para começar"));
     }
     Ok(())
 }
@@ -976,7 +983,7 @@ pub async fn report_winner(
             .fetch_optional(&mut *tx)
             .await?;
     if status.as_deref() != Some("live") {
-        return Err(anyhow!("that match is not live"));
+        return Err(anyhow!("essa partida não está ao vivo"));
     }
 
     let roster: Vec<(i64, String)> =
@@ -986,7 +993,7 @@ pub async fn report_winner(
             .await?;
     let layout = camp_layout_in_tx(&mut tx, camp_id).await?;
     if roster.len() != layout.match_size {
-        return Err(anyhow!("inconsistent match roster"));
+        return Err(anyhow!("elenco da partida inconsistente"));
     }
 
     let waiters_raw: Vec<(i64, i64, Option<i64>)> = sqlx::query_as(
@@ -1077,7 +1084,7 @@ pub async fn report_winner(
 pub async fn cancel_camp(pool: &SqlitePool, camp_id: &str) -> Result<()> {
     let state = load_camp(pool, camp_id)
         .await?
-        .ok_or_else(|| anyhow!("camp not found"))?;
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
     let status = if state.camp.status == "signup" {
         "cancelled_signup"
     } else {
@@ -1094,19 +1101,19 @@ pub async fn cancel_camp(pool: &SqlitePool, camp_id: &str) -> Result<()> {
 
 pub async fn resume_camp(pool: &SqlitePool, camp_id: &str, guild_id: i64) -> Result<CampState> {
     if load_active_for_guild(pool, guild_id).await?.is_some() {
-        return Err(anyhow!("this server already has an active camp"));
+        return Err(anyhow!("este servidor já tem um camp ativo"));
     }
     let state = load_camp(pool, camp_id)
         .await?
-        .ok_or_else(|| anyhow!("camp not found"))?;
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
     if state.camp.guild_id != guild_id {
-        return Err(anyhow!("that camp belongs to another server"));
+        return Err(anyhow!("esse camp pertence a outro servidor"));
     }
     if !matches!(
         state.camp.status.as_str(),
         "cancelled" | "cancelled_signup" | "cancelled_running"
     ) {
-        return Err(anyhow!("only a cancelled camp can be resumed"));
+        return Err(anyhow!("só um camp cancelado pode ser retomado"));
     }
     let restored = match state.camp.status.as_str() {
         "cancelled_signup" => "signup",
@@ -1122,18 +1129,18 @@ pub async fn resume_camp(pool: &SqlitePool, camp_id: &str, guild_id: i64) -> Res
         .await?;
     load_camp(pool, camp_id)
         .await?
-        .ok_or_else(|| anyhow!("camp vanished"))
+        .ok_or_else(|| anyhow!("o camp desapareceu"))
 }
 
 pub async fn end_camp(pool: &SqlitePool, camp_id: &str) -> Result<Vec<PlayerRow>> {
     let state = load_camp(pool, camp_id)
         .await?
-        .ok_or_else(|| anyhow!("camp not found"))?;
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
     if state.camp.status != "running" {
-        return Err(anyhow!("the camp is not running"));
+        return Err(anyhow!("o camp não está em andamento"));
     }
     if state.camp.match_count < 1 {
-        return Err(anyhow!("end camp after at least one scored match"));
+        return Err(anyhow!("encerre o camp depois de pelo menos uma partida pontuada"));
     }
     sqlx::query("UPDATE camps SET status = 'ended', updated_at = ? WHERE id = ?")
         .bind(now())

@@ -130,10 +130,10 @@ pub async fn skipped_message(
         .join(" ");
     let queue = match resolve_channel(ctx, guild_id, VoiceDest::Queue, config).await {
         Ok(id) => id.mention().to_string(),
-        Err(_) => "#Queue".to_string(),
+        Err(_) => "#Fila".to_string(),
     };
     Some(format!(
-        "Could not move {mentions} — join the voice channel {queue} and the bot will place you."
+        "Não foi possível mover {mentions} — entre no canal de voz {queue} e o bot te posiciona."
     ))
 }
 

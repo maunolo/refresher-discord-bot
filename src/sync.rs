@@ -84,7 +84,7 @@ pub async fn redraw_all(ctx: &Context, pool: &SqlitePool, state: &CampState) -> 
     redraw_board(ctx, pool, state).await?;
     let fresh = db::load_camp(pool, &state.camp.id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("camp missing"))?;
+        .ok_or_else(|| anyhow::anyhow!("camp não encontrado"))?;
     for open in &fresh.open_matches {
         redraw_match(ctx, pool, &fresh, open).await?;
     }
@@ -111,7 +111,7 @@ async fn restore_one(ctx: &Context, pool: &SqlitePool, state: &CampState) -> Res
     redraw_board(ctx, pool, state).await?;
     let fresh = db::load_camp(pool, &state.camp.id)
         .await?
-        .ok_or_else(|| anyhow::anyhow!("camp missing after restore"))?;
+        .ok_or_else(|| anyhow::anyhow!("camp não encontrado após restaurar"))?;
     for open in &fresh.open_matches {
         redraw_match(ctx, pool, &fresh, open).await?;
     }

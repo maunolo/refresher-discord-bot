@@ -120,7 +120,7 @@ async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
             let _ = ctx
                 .send(
                     poise::CreateReply::default()
-                        .content(format!("Error: {error}"))
+                        .content(format!("Erro: {error}"))
                         .ephemeral(true),
                 )
                 .await;

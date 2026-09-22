@@ -28,7 +28,7 @@ async fn deny_if_not_admin(ctx: Context<'_>) -> Result<bool> {
     }
     ctx.send(
         CreateReply::default()
-            .content("Only server managers can do that.")
+            .content("Apenas quem gerencia o servidor pode fazer isso.")
             .ephemeral(true),
     )
     .await?;
@@ -37,10 +37,10 @@ async fn deny_if_not_admin(ctx: Context<'_>) -> Result<bool> {
 
 fn guild_id(ctx: Context<'_>) -> Result<GuildId> {
     ctx.guild_id()
-        .ok_or_else(|| anyhow!("use this in a server"))
+        .ok_or_else(|| anyhow!("use este comando em um servidor"))
 }
 
-/// Deadlock camp queue, matches, and standings.
+/// Fila, partidas e ranking do camp de Deadlock.
 #[poise::command(
     slash_command,
     guild_only,
@@ -50,11 +50,13 @@ pub async fn camp(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-/// Create a new camp roster (24, 30, or a 4-player test).
-#[poise::command(slash_command, guild_only)]
+/// Cria um novo camp (24, 30 ou teste de 4 jogadores).
+#[poise::command(slash_command, guild_only, rename = "iniciar")]
 pub async fn start(
     ctx: Context<'_>,
-    #[description = "Roster size. 4-1v1 runs two matches at once."] size: CampSize,
+    #[rename = "tamanho"]
+    #[description = "Tamanho do elenco. 4-1v1 roda duas partidas ao mesmo tempo."]
+    size: CampSize,
 ) -> Result<(), Error> {
     if !deny_if_not_admin(ctx).await? {
         return Ok(());
@@ -67,7 +69,7 @@ pub async fn start(
         {
             ctx.send(
                 CreateReply::default()
-                    .content("This server already has an active camp. Cancel or end it first.")
+                    .content("Este servidor já tem um camp ativo. Cancele ou encerre o atual primeiro.")
                     .ephemeral(true),
             )
             .await?;
@@ -83,11 +85,11 @@ pub async fn start(
         .await?;
         let state = db::load_camp(&ctx.data().db, &camp.id)
             .await?
-            .ok_or_else(|| anyhow!("camp missing"))?;
+            .ok_or_else(|| anyhow!("camp não encontrado"))?;
         sync::redraw_board(ctx.serenity_context(), &ctx.data().db, &state).await?;
         ctx.send(
             CreateReply::default().content(format!(
-                "Camp `{}` created for {} players{}. Add users, then Start queue.",
+                "Camp `{}` criado para {} jogadores{}. Adicione os usuários e inicie a fila.",
                 camp.id,
                 size.target_size(),
                 size.format_note()
@@ -99,15 +101,25 @@ pub async fn start(
     .await
 }
 
-/// Add Discord users to the camp roster.
-#[poise::command(slash_command, guild_only)]
+/// Adiciona usuários do Discord ao elenco do camp.
+#[poise::command(slash_command, guild_only, rename = "adicionar")]
 pub async fn add(
     ctx: Context<'_>,
-    #[description = "Player"] user: User,
-    #[description = "Player"] user2: Option<User>,
-    #[description = "Player"] user3: Option<User>,
-    #[description = "Player"] user4: Option<User>,
-    #[description = "Player"] user5: Option<User>,
+    #[rename = "jogador"]
+    #[description = "Jogador"]
+    user: User,
+    #[rename = "jogador2"]
+    #[description = "Jogador"]
+    user2: Option<User>,
+    #[rename = "jogador3"]
+    #[description = "Jogador"]
+    user3: Option<User>,
+    #[rename = "jogador4"]
+    #[description = "Jogador"]
+    user4: Option<User>,
+    #[rename = "jogador5"]
+    #[description = "Jogador"]
+    user5: Option<User>,
 ) -> Result<(), Error> {
     if !deny_if_not_admin(ctx).await? {
         return Ok(());
@@ -116,7 +128,7 @@ pub async fn add(
     with_guild_lock(ctx.data(), guild_id.get(), || async {
         let camp = db::load_active_for_guild(&ctx.data().db, guild_id.get() as i64)
             .await?
-            .ok_or_else(|| anyhow!("no active camp"))?;
+            .ok_or_else(|| anyhow!("nenhum camp ativo"))?;
         let mut ids = vec![user.id.get() as i64];
         for extra in [user2, user3, user4, user5].into_iter().flatten() {
             ids.push(extra.id.get() as i64);
@@ -124,11 +136,14 @@ pub async fn add(
         let (added, skipped) = db::add_players(&ctx.data().db, &camp.camp.id, &ids).await?;
         let state = db::load_camp(&ctx.data().db, &camp.camp.id)
             .await?
-            .ok_or_else(|| anyhow!("camp missing"))?;
+            .ok_or_else(|| anyhow!("camp não encontrado"))?;
         sync::redraw_board(ctx.serenity_context(), &ctx.data().db, &state).await?;
         ctx.send(
             CreateReply::default()
-                .content(format!("Added {added}. Skipped {}.", skipped.len()))
+                .content(format!(
+                    "Adicionado(s): {added}. Ignorado(s): {}.",
+                    skipped.len()
+                ))
                 .ephemeral(true),
         )
         .await?;
@@ -137,11 +152,13 @@ pub async fn add(
     .await
 }
 
-/// Remove a Discord user from the camp roster.
-#[poise::command(slash_command, guild_only)]
+/// Remove um usuário do Discord do elenco.
+#[poise::command(slash_command, guild_only, rename = "remover")]
 pub async fn remove(
     ctx: Context<'_>,
-    #[description = "Player"] user: User,
+    #[rename = "jogador"]
+    #[description = "Jogador"]
+    user: User,
 ) -> Result<(), Error> {
     if !deny_if_not_admin(ctx).await? {
         return Ok(());
@@ -150,15 +167,15 @@ pub async fn remove(
     with_guild_lock(ctx.data(), guild_id.get(), || async {
         let camp = db::load_active_for_guild(&ctx.data().db, guild_id.get() as i64)
             .await?
-            .ok_or_else(|| anyhow!("no active camp"))?;
+            .ok_or_else(|| anyhow!("nenhum camp ativo"))?;
         db::remove_player(&ctx.data().db, &camp.camp.id, user.id.get() as i64).await?;
         let state = db::load_camp(&ctx.data().db, &camp.camp.id)
             .await?
-            .ok_or_else(|| anyhow!("camp missing"))?;
+            .ok_or_else(|| anyhow!("camp não encontrado"))?;
         sync::redraw_board(ctx.serenity_context(), &ctx.data().db, &state).await?;
         ctx.send(
             CreateReply::default()
-                .content(format!("Removed {}.", user.mention()))
+                .content(format!("Removido {}.", user.mention()))
                 .ephemeral(true),
         )
         .await?;
@@ -167,8 +184,8 @@ pub async fn remove(
     .await
 }
 
-/// Soft-cancel the active camp (can be resumed).
-#[poise::command(slash_command, guild_only)]
+/// Cancela o camp ativo (pode ser retomado).
+#[poise::command(slash_command, guild_only, rename = "cancelar")]
 pub async fn cancel(ctx: Context<'_>) -> Result<(), Error> {
     if !deny_if_not_admin(ctx).await? {
         return Ok(());
@@ -177,14 +194,14 @@ pub async fn cancel(ctx: Context<'_>) -> Result<(), Error> {
     with_guild_lock(ctx.data(), guild_id.get(), || async {
         let camp = db::load_active_for_guild(&ctx.data().db, guild_id.get() as i64)
             .await?
-            .ok_or_else(|| anyhow!("no active camp"))?;
+            .ok_or_else(|| anyhow!("nenhum camp ativo"))?;
         db::cancel_camp(&ctx.data().db, &camp.camp.id).await?;
         if let Some(state) = db::load_camp(&ctx.data().db, &camp.camp.id).await? {
             let _ = sync::redraw_board(ctx.serenity_context(), &ctx.data().db, &state).await;
         }
         ctx.send(
             CreateReply::default().content(format!(
-                "Camp cancelled. Resume with `/camp resume {}`",
+                "Camp cancelado. Retome com `/camp retomar {}`",
                 camp.camp.id
             )),
         )
@@ -194,8 +211,8 @@ pub async fn cancel(ctx: Context<'_>) -> Result<(), Error> {
     .await
 }
 
-/// End the camp and post standings.
-#[poise::command(slash_command, guild_only)]
+/// Encerra o camp e publica o ranking.
+#[poise::command(slash_command, guild_only, rename = "encerrar")]
 pub async fn end(ctx: Context<'_>) -> Result<(), Error> {
     if !deny_if_not_admin(ctx).await? {
         return Ok(());
@@ -204,7 +221,7 @@ pub async fn end(ctx: Context<'_>) -> Result<(), Error> {
     with_guild_lock(ctx.data(), guild_id.get(), || async {
         let camp = db::load_active_for_guild(&ctx.data().db, guild_id.get() as i64)
             .await?
-            .ok_or_else(|| anyhow!("no active camp"))?;
+            .ok_or_else(|| anyhow!("nenhum camp ativo"))?;
         let players = db::end_camp(&ctx.data().db, &camp.camp.id).await?;
         ctx.send(
             CreateReply::default().embed(crate::ui::standings_embed(
@@ -219,11 +236,12 @@ pub async fn end(ctx: Context<'_>) -> Result<(), Error> {
     .await
 }
 
-/// Resume a cancelled camp by ID.
-#[poise::command(slash_command, guild_only)]
+/// Retoma um camp cancelado pelo ID.
+#[poise::command(slash_command, guild_only, rename = "retomar")]
 pub async fn resume(
     ctx: Context<'_>,
-    #[description = "Camp ID"] id: String,
+    #[description = "ID do camp"]
+    id: String,
 ) -> Result<(), Error> {
     if !deny_if_not_admin(ctx).await? {
         return Ok(());
@@ -233,18 +251,19 @@ pub async fn resume(
         let id = id.trim().to_uppercase();
         let state = db::resume_camp(&ctx.data().db, &id, guild_id.get() as i64).await?;
         sync::redraw_all(ctx.serenity_context(), &ctx.data().db, &state).await?;
-        ctx.send(CreateReply::default().content(format!("Resumed camp `{}`.", state.camp.id)))
+        ctx.send(CreateReply::default().content(format!("Camp `{}` retomado.", state.camp.id)))
             .await?;
         Ok(())
     })
     .await
 }
 
-/// Show roster, queue, points, and live matches.
+/// Mostra elenco, fila, pontos e partidas ao vivo.
 #[poise::command(slash_command, guild_only)]
 pub async fn info(
     ctx: Context<'_>,
-    #[description = "Camp ID (defaults to the active camp)"] id: Option<String>,
+    #[description = "ID do camp (padrão: o camp ativo)"]
+    id: Option<String>,
 ) -> Result<(), Error> {
     if !deny_if_not_admin(ctx).await? {
         return Ok(());
@@ -253,14 +272,14 @@ pub async fn info(
     let state = if let Some(id) = id {
         db::load_camp(&ctx.data().db, &id.trim().to_uppercase())
             .await?
-            .ok_or_else(|| anyhow!("camp not found"))?
+            .ok_or_else(|| anyhow!("camp não encontrado"))?
     } else {
         db::load_active_for_guild(&ctx.data().db, guild_id.get() as i64)
             .await?
-            .ok_or_else(|| anyhow!("no active camp"))?
+            .ok_or_else(|| anyhow!("nenhum camp ativo"))?
     };
     if state.camp.guild_id != guild_id.get() as i64 {
-        return Err(anyhow!("that camp belongs to another server"));
+        return Err(anyhow!("esse camp pertence a outro servidor"));
     }
     ctx.send(
         CreateReply::default()
@@ -302,8 +321,8 @@ impl CampSize {
 
     fn format_note(self) -> &'static str {
         match self {
-            CampSize::FourOneVOne => " (1v1, two matches at once)",
-            CampSize::FourTwoVTwo => " (2v2 test)",
+            CampSize::FourOneVOne => " (1v1, duas partidas ao mesmo tempo)",
+            CampSize::FourTwoVTwo => " (teste 2v2)",
             _ => "",
         }
     }

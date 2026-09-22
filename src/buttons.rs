@@ -45,7 +45,7 @@ async fn ack(ctx: &Context, interaction: &ComponentInteraction) -> Result<()> {
 
 pub async fn handle(ctx: &Context, data: &Data, interaction: &ComponentInteraction) -> Result<()> {
     let Some(guild_id) = interaction.guild_id else {
-        return ephemeral(ctx, interaction, "Use this in a server.").await;
+        return ephemeral(ctx, interaction, "Use isso em um servidor.").await;
     };
     with_guild_lock(data, guild_id.get(), || async {
         handle_locked(ctx, data, interaction, guild_id).await
@@ -94,7 +94,7 @@ async fn add_users(
     camp_id: &str,
 ) -> Result<()> {
     if !is_admin(interaction) {
-        return ephemeral(ctx, interaction, "Only server managers can add players.").await;
+        return ephemeral(ctx, interaction, "Apenas quem gerencia o servidor pode adicionar jogadores.").await;
     }
     let ComponentInteractionDataKind::UserSelect { values } = &interaction.data.kind else {
         return Ok(());
@@ -111,7 +111,7 @@ async fn add_users(
                     .create_followup(
                         &ctx.http,
                         serenity::all::CreateInteractionResponseFollowup::new()
-                            .content("No new players added (duplicates or roster full).")
+                            .content("Nenhum jogador novo adicionado (duplicados ou elenco cheio).")
                             .ephemeral(true),
                     )
                     .await;
@@ -130,14 +130,14 @@ async fn start_queue(
     camp_id: &str,
 ) -> Result<()> {
     if !is_admin(interaction) {
-        return ephemeral(ctx, interaction, "Only server managers can start the queue.").await;
+        return ephemeral(ctx, interaction, "Apenas quem gerencia o servidor pode iniciar a fila.").await;
     }
     match db::start_queue(&data.db, camp_id).await {
         Ok(order) => {
             ack(ctx, interaction).await?;
             let state = db::load_camp(&data.db, camp_id)
                 .await?
-                .ok_or_else(|| anyhow!("camp missing"))?;
+                .ok_or_else(|| anyhow!("camp não encontrado"))?;
             let channel = ChannelId::new(state.camp.channel_id as u64);
             let queued_ids: Vec<i64> = state.players.iter().map(|p| p.user_id).collect();
             sync::redraw_all(ctx, &data.db, &state).await?;
@@ -153,7 +153,7 @@ async fn start_queue(
                 .say(
                     &ctx.http,
                     format!(
-                        "Queue shuffled for camp `{}`:\n{}\nAn admin clicks **Create match** to sort the next teams.",
+                        "Fila embaralhada do camp `{}`:\n{}\nUm admin clica em **Criar partida** para montar os próximos times.",
                         state.camp.id,
                         sync::mention_list(&order)
                     ),
@@ -173,14 +173,14 @@ async fn create_match(
     camp_id: &str,
 ) -> Result<()> {
     if !is_admin(interaction) {
-        return ephemeral(ctx, interaction, "Only server managers can create a match.").await;
+        return ephemeral(ctx, interaction, "Apenas quem gerencia o servidor pode criar uma partida.").await;
     }
     match db::create_match(&data.db, camp_id, guild_id.get() as i64).await {
         Ok((camp_id, match_id)) => {
             ack(ctx, interaction).await?;
             let state = db::load_camp(&data.db, &camp_id)
                 .await?
-                .ok_or_else(|| anyhow!("camp missing"))?;
+                .ok_or_else(|| anyhow!("camp não encontrado"))?;
             let channel = ChannelId::new(state.camp.channel_id as u64);
             sync::redraw_all(ctx, &data.db, &state).await?;
             if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
@@ -200,7 +200,7 @@ async fn create_match(
                     .say(
                         &ctx.http,
                         format!(
-                            "Match {} created. Vote to refresh teams, then an admin starts the match.\nHiddenking: {}\nArchmother: {}",
+                            "Partida {} criada. Votem para atualizar os times; depois um admin inicia a partida.\nHiddenking: {}\nArchmother: {}",
                             open.row.slot,
                             sync::mention_list(&hk),
                             sync::mention_list(&am)
@@ -222,14 +222,14 @@ async fn create_final_match(
     camp_id: &str,
 ) -> Result<()> {
     if !is_admin(interaction) {
-        return ephemeral(ctx, interaction, "Only server managers can start the final.").await;
+        return ephemeral(ctx, interaction, "Apenas quem gerencia o servidor pode iniciar a final.").await;
     }
     match db::create_final_match(&data.db, camp_id, guild_id.get() as i64).await {
         Ok((camp_id, match_id)) => {
             ack(ctx, interaction).await?;
             let state = db::load_camp(&data.db, &camp_id)
                 .await?
-                .ok_or_else(|| anyhow!("camp missing"))?;
+                .ok_or_else(|| anyhow!("camp não encontrado"))?;
             let channel = ChannelId::new(state.camp.channel_id as u64);
             sync::redraw_all(ctx, &data.db, &state).await?;
             if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
@@ -249,7 +249,7 @@ async fn create_final_match(
                     .say(
                         &ctx.http,
                         format!(
-                            "Final match created from the top scorers. Vote to refresh teams, then an admin starts the match.\nHiddenking: {}\nArchmother: {}",
+                            "Partida final criada com os jogadores de maior pontuação. Votem para atualizar os times; depois um admin inicia a partida.\nHiddenking: {}\nArchmother: {}",
                             sync::mention_list(&hk),
                             sync::mention_list(&am)
                         ),
@@ -274,13 +274,13 @@ async fn vote_choice(
     let user_id = interaction.user.id.get() as i64;
     match db::vote_refresh_choice(&data.db, match_id, user_id, want_refresh).await? {
         RefreshOutcome::AlreadyUsed => {
-            ephemeral(ctx, interaction, "Voting on this match is already over.").await
+            ephemeral(ctx, interaction, "A votação desta partida já acabou.").await
         }
         RefreshOutcome::NotInMatch => {
-            ephemeral(ctx, interaction, "You're not in this match.").await
+            ephemeral(ctx, interaction, "Você não está nesta partida.").await
         }
         RefreshOutcome::AlreadyVoted => {
-            ephemeral(ctx, interaction, "You already voted.").await
+            ephemeral(ctx, interaction, "Você já votou.").await
         }
         RefreshOutcome::Recorded {
             hk,
@@ -298,7 +298,7 @@ async fn vote_choice(
                         &ctx.http,
                         serenity::all::CreateInteractionResponseFollowup::new()
                             .content(format!(
-                                "Vote recorded. Refresh Hiddenking {hk}/{needed} · Archmother {am}/{needed} · No refresh {keep} · Voted {voted}/{total}"
+                                "Voto registrado. Atualizar Hiddenking {hk}/{needed} · Archmother {am}/{needed} · Manter times {keep} · Votos {voted}/{total}"
                             ))
                             .ephemeral(true),
                     )
@@ -310,14 +310,14 @@ async fn vote_choice(
             ack(ctx, interaction).await?;
             let state = db::load_camp(&data.db, camp_id)
                 .await?
-                .ok_or_else(|| anyhow!("camp missing"))?;
+                .ok_or_else(|| anyhow!("camp não encontrado"))?;
             let channel = ChannelId::new(state.camp.channel_id as u64);
             sync::redraw_all(ctx, &data.db, &state).await?;
             let _ = channel
                 .say(
                     &ctx.http,
                     format!(
-                        "Voting complete — teams kept ({voted}/{total}). An admin can start the match."
+                        "Votação encerrada — times mantidos ({voted}/{total}). Um admin pode iniciar a partida."
                     ),
                 )
                 .await;
@@ -330,14 +330,14 @@ async fn vote_choice(
             ack(ctx, interaction).await?;
             let state = db::load_camp(&data.db, camp_id)
                 .await?
-                .ok_or_else(|| anyhow!("camp missing"))?;
+                .ok_or_else(|| anyhow!("camp não encontrado"))?;
             let channel = ChannelId::new(state.camp.channel_id as u64);
             sync::redraw_all(ctx, &data.db, &state).await?;
             let _ = channel
                 .say(
                     &ctx.http,
                     format!(
-                        "Teams refreshed for match.\nHiddenking: {}\nArchmother: {}",
+                        "Times atualizados nesta partida.\nHiddenking: {}\nArchmother: {}",
                         sync::mention_list(&hiddenking),
                         sync::mention_list(&archmother)
                     ),
@@ -357,7 +357,7 @@ async fn start_match(
     match_id: &str,
 ) -> Result<()> {
     if !is_admin(interaction) {
-        return ephemeral(ctx, interaction, "Only server managers can start a match.").await;
+        return ephemeral(ctx, interaction, "Apenas quem gerencia o servidor pode iniciar uma partida.").await;
     }
     let match_id: i64 = match_id.parse().unwrap_or(0);
     ack(ctx, interaction).await?;
@@ -376,7 +376,7 @@ async fn start_match(
                     .create_followup(
                         &ctx.http,
                         serenity::all::CreateInteractionResponseFollowup::new()
-                            .content(format!("Failed to create Deadlock lobby: {err}"))
+                            .content(format!("Falha ao criar o lobby do Deadlock: {err}"))
                             .ephemeral(true),
                     )
                     .await;
@@ -390,7 +390,7 @@ async fn start_match(
     db::start_live_match(&data.db, match_id, party_id, party_code.clone()).await?;
     let state = db::load_camp(&data.db, camp_id)
         .await?
-        .ok_or_else(|| anyhow!("camp missing"))?;
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
     let channel = ChannelId::new(state.camp.channel_id as u64);
     sync::redraw_all(ctx, &data.db, &state).await?;
     if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
@@ -404,9 +404,9 @@ async fn start_match(
         .await;
     }
     let message = if let Some(code) = party_code {
-        format!("Match lobby created. **Party code:** `{code}` — pick heroes in Deadlock.")
+        format!("Lobby da partida criado. **Código da party:** `{code}` — escolham os heróis no Deadlock.")
     } else {
-        "Match is live. Wait for the Admin to provide the match code.".to_string()
+        "A partida está ao vivo. Espere o admin enviar o código da partida.".to_string()
     };
     let _ = channel.say(&ctx.http, message).await;
     Ok(())
@@ -422,12 +422,12 @@ async fn report_win(
     side: &str,
 ) -> Result<()> {
     if !is_admin(interaction) {
-        return ephemeral(ctx, interaction, "Only server managers can report a winner.").await;
+        return ephemeral(ctx, interaction, "Apenas quem gerencia o servidor pode informar o vencedor.").await;
     }
     let match_id: i64 = match_id.parse().unwrap_or(0);
     let before = db::load_camp(&data.db, camp_id)
         .await?
-        .ok_or_else(|| anyhow!("camp missing"))?;
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
     let finished_ids: Vec<i64> = before
         .open_matches
         .iter()
@@ -457,7 +457,7 @@ async fn report_win(
                         serenity::all::EditMessage::new()
                             .embed(
                                 serenity::all::CreateEmbed::new()
-                                    .title(format!("{winner} won"))
+                                    .title(format!("{winner} venceu"))
                                     .description(format!("Camp {}", before.camp.id))
                                     .footer(serenity::all::CreateEmbedFooter::new(format!(
                                         "Camp {}",
@@ -478,7 +478,7 @@ async fn report_win(
             .await;
             let state = db::load_camp(&data.db, camp_id)
                 .await?
-                .ok_or_else(|| anyhow!("camp missing"))?;
+                .ok_or_else(|| anyhow!("camp não encontrado"))?;
             sync::redraw_all(ctx, &data.db, &state).await?;
             let winner = if side == "hiddenking" {
                 "Hiddenking"
@@ -489,7 +489,7 @@ async fn report_win(
                 .say(
                     &ctx.http,
                     format!(
-                        "{winner} wins. +1 point to that side. Players are back in queue — an admin clicks **Create match** when ready."
+                        "{winner} vence. +1 ponto para esse time. Os jogadores voltaram para a fila — um admin clica em **Criar partida** quando quiser."
                     ),
                 )
                 .await;
@@ -506,14 +506,14 @@ async fn end_camp(
     camp_id: &str,
 ) -> Result<()> {
     if !is_admin(interaction) {
-        return ephemeral(ctx, interaction, "Only server managers can end the camp.").await;
+        return ephemeral(ctx, interaction, "Apenas quem gerencia o servidor pode encerrar o camp.").await;
     }
     match db::end_camp(&data.db, camp_id).await {
         Ok(players) => {
             ack(ctx, interaction).await?;
             let state = db::load_camp(&data.db, camp_id)
                 .await?
-                .ok_or_else(|| anyhow!("camp missing"))?;
+                .ok_or_else(|| anyhow!("camp não encontrado"))?;
             let channel = ChannelId::new(state.camp.channel_id as u64);
             let _ = channel
                 .send_message(
