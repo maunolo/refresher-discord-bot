@@ -37,7 +37,7 @@ pub struct PlayerRow {
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
 pub struct MatchRow {
-    pub id: i64,
+    pub id: String,
     pub slot: i64,
     pub status: String,
     pub refresh_used: bool,
@@ -126,6 +126,20 @@ async fn generate_unique_id(tx: &mut Transaction<'_, Sqlite>) -> Result<String> 
     Err(anyhow!("não foi possível gerar um ID único para o camp"))
 }
 
+async fn generate_unique_match_id(tx: &mut Transaction<'_, Sqlite>) -> Result<String> {
+    for _ in 0..16 {
+        let id = queue::generate_camp_id(&mut rand::thread_rng());
+        let exists: Option<i64> = sqlx::query_scalar("SELECT 1 FROM camp_matches WHERE id = ?")
+            .bind(&id)
+            .fetch_optional(&mut **tx)
+            .await?;
+        if exists.is_none() {
+            return Ok(id);
+        }
+    }
+    Err(anyhow!("não foi possível gerar um ID único para a partida"))
+}
+
 pub async fn create_camp(
     pool: &SqlitePool,
     guild_id: i64,
@@ -172,7 +186,7 @@ pub async fn set_board_message_id(pool: &SqlitePool, camp_id: &str, message_id: 
     Ok(())
 }
 
-pub async fn set_match_message_id(pool: &SqlitePool, match_id: i64, message_id: i64) -> Result<()> {
+pub async fn set_match_message_id(pool: &SqlitePool, match_id: &str, message_id: i64) -> Result<()> {
     sqlx::query("UPDATE camp_matches SET message_id = ? WHERE id = ?")
         .bind(message_id)
         .bind(match_id)
@@ -206,6 +220,80 @@ pub async fn load_active_for_guild(pool: &SqlitePool, guild_id: i64) -> Result<O
         return Ok(None);
     };
     Ok(Some(assemble_state(pool, c).await?))
+}
+
+#[derive(Clone, Debug)]
+pub struct HistoricMatch {
+    pub camp_id: String,
+    pub row: MatchRow,
+    pub players: Vec<MatchPlayerRow>,
+}
+
+pub async fn load_match_info(
+    pool: &SqlitePool,
+    match_id: &str,
+    guild_id: i64,
+) -> Result<HistoricMatch> {
+    let row = sqlx::query_as::<
+        _,
+        (
+            String,
+            i64,
+            String,
+            i64,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            i64,
+            String,
+            i64,
+        ),
+    >(
+        "SELECT m.id, m.slot, m.status, m.refresh_used, m.message_id, m.party_id, m.party_code,
+                m.winner_side, m.is_final, m.camp_id, c.guild_id
+         FROM camp_matches m
+         JOIN camps c ON c.id = m.camp_id
+         WHERE m.id = ?",
+    )
+    .bind(match_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| anyhow!("partida não encontrada"))?;
+    if row.10 != guild_id {
+        return Err(anyhow!("essa partida pertence a outro servidor"));
+    }
+    let match_row = MatchRow {
+        id: row.0,
+        slot: row.1,
+        status: row.2,
+        refresh_used: row.3 != 0,
+        message_id: row.4,
+        party_id: row.5,
+        party_code: row.6,
+        winner_side: row.7,
+        is_final: row.8 != 0,
+    };
+    let camp_id = row.9;
+    let mp = sqlx::query_as::<_, (i64, String, Option<i64>)>(
+        "SELECT user_id, side, points_after FROM camp_match_players WHERE match_id = ?",
+    )
+    .bind(match_id)
+    .fetch_all(pool)
+    .await?;
+    let players = mp
+        .into_iter()
+        .map(|p| MatchPlayerRow {
+            user_id: p.0,
+            side: p.1,
+            points_after: p.2,
+        })
+        .collect();
+    Ok(HistoricMatch {
+        camp_id,
+        row: match_row,
+        players,
+    })
 }
 
 pub async fn load_restore_camps(pool: &SqlitePool) -> Result<Vec<CampState>> {
@@ -261,7 +349,7 @@ async fn assemble_state(
     let match_rows = sqlx::query_as::<
         _,
         (
-            i64,
+            String,
             i64,
             String,
             i64,
@@ -295,7 +383,7 @@ async fn assemble_state(
         let mp = sqlx::query_as::<_, (i64, String, Option<i64>)>(
             "SELECT user_id, side, points_after FROM camp_match_players WHERE match_id = ?",
         )
-        .bind(row.id)
+        .bind(&row.id)
         .fetch_all(pool)
         .await?;
         let match_players: Vec<MatchPlayerRow> = mp
@@ -309,7 +397,7 @@ async fn assemble_state(
         let votes: Vec<RefreshVote> = sqlx::query_as::<_, (i64, String)>(
             "SELECT user_id, choice FROM camp_refresh_votes WHERE match_id = ?",
         )
-        .bind(row.id)
+        .bind(&row.id)
         .fetch_all(pool)
         .await?
         .into_iter()
@@ -503,7 +591,7 @@ async fn camp_layout_in_tx(
 async fn pull_match_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     camp_id: &str,
-) -> Result<Option<i64>> {
+) -> Result<Option<String>> {
     let slot = match next_free_slot(tx, camp_id).await? {
         Some(s) => s,
         None => return Ok(None),
@@ -522,22 +610,21 @@ async fn pull_match_in_tx(
     }
     let batch: Vec<i64> = queued.iter().take(layout.match_size).map(|q| q.0).collect();
     let (hiddenking, archmother) = queue::split_teams(batch, &mut rand::thread_rng());
+    let match_id = generate_unique_match_id(tx).await?;
 
     sqlx::query(
-        "INSERT INTO camp_matches (camp_id, slot, status, refresh_used, is_final) VALUES (?, ?, 'voting', 0, 0)",
+        "INSERT INTO camp_matches (id, camp_id, slot, status, refresh_used, is_final) VALUES (?, ?, ?, 'voting', 0, 0)",
     )
+    .bind(&match_id)
     .bind(camp_id)
     .bind(slot)
     .execute(&mut **tx)
     .await?;
-    let match_id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
-        .fetch_one(&mut **tx)
-        .await?;
 
     let location = if slot == 1 { "match_1" } else { "match_2" };
     for user_id in &hiddenking {
         sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'hiddenking')")
-            .bind(match_id)
+            .bind(&match_id)
             .bind(user_id)
             .execute(&mut **tx)
             .await?;
@@ -552,7 +639,7 @@ async fn pull_match_in_tx(
     }
     for user_id in &archmother {
         sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'archmother')")
-            .bind(match_id)
+            .bind(&match_id)
             .bind(user_id)
             .execute(&mut **tx)
             .await?;
@@ -635,7 +722,7 @@ pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<Vec<i64>> {
     Ok(ids)
 }
 
-pub async fn create_match(pool: &SqlitePool, camp_id: &str, guild_id: i64) -> Result<(String, i64)> {
+pub async fn create_match(pool: &SqlitePool, camp_id: &str, guild_id: i64) -> Result<(String, String)> {
     let mut state = load_camp(pool, camp_id)
         .await?
         .ok_or_else(|| anyhow!("camp não encontrado"))?;
@@ -690,7 +777,7 @@ pub async fn create_final_match(
     pool: &SqlitePool,
     camp_id: &str,
     guild_id: i64,
-) -> Result<(String, i64)> {
+) -> Result<(String, String)> {
     let mut state = load_camp(pool, camp_id)
         .await?
         .ok_or_else(|| anyhow!("camp não encontrado"))?;
@@ -731,21 +818,21 @@ pub async fn create_final_match(
         .await?
         .ok_or_else(|| anyhow!("não há vaga livre para partida"))?;
 
+    let match_id = generate_unique_match_id(&mut tx).await?;
+
     sqlx::query(
-        "INSERT INTO camp_matches (camp_id, slot, status, refresh_used, is_final) VALUES (?, ?, 'voting', 0, 1)",
+        "INSERT INTO camp_matches (id, camp_id, slot, status, refresh_used, is_final) VALUES (?, ?, ?, 'voting', 0, 1)",
     )
+    .bind(&match_id)
     .bind(&camp_id)
     .bind(slot)
     .execute(&mut *tx)
     .await?;
-    let match_id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
-        .fetch_one(&mut *tx)
-        .await?;
 
     let location = if slot == 1 { "match_1" } else { "match_2" };
     for user_id in &hiddenking {
         sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'hiddenking')")
-            .bind(match_id)
+            .bind(&match_id)
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
@@ -760,7 +847,7 @@ pub async fn create_final_match(
     }
     for user_id in &archmother {
         sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'archmother')")
-            .bind(match_id)
+            .bind(&match_id)
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
@@ -811,7 +898,7 @@ pub enum RefreshOutcome {
 
 pub async fn vote_refresh_choice(
     pool: &SqlitePool,
-    match_id: i64,
+    match_id: &str,
     user_id: i64,
     want_refresh: bool,
 ) -> Result<RefreshOutcome> {
@@ -950,7 +1037,7 @@ pub async fn vote_refresh_choice(
 
 pub async fn start_live_match(
     pool: &SqlitePool,
-    match_id: i64,
+    match_id: &str,
     party_id: Option<String>,
     party_code: Option<String>,
 ) -> Result<()> {
@@ -972,7 +1059,7 @@ pub async fn start_live_match(
 pub async fn report_winner(
     pool: &SqlitePool,
     camp_id: &str,
-    match_id: i64,
+    match_id: &str,
     winner_side: &str,
 ) -> Result<()> {
     let mut tx = pool.begin().await?;
@@ -1085,6 +1172,7 @@ struct CorrectableMatch {
     slot: i64,
     is_final: bool,
     winner_side: String,
+    party_code: Option<String>,
     roster: Vec<(i64, String)>,
 }
 
@@ -1099,7 +1187,7 @@ fn other_side(side: &str) -> Result<&'static str> {
 async fn require_correctable_match(
     tx: &mut Transaction<'_, Sqlite>,
     camp_id: &str,
-    match_id: i64,
+    match_id: &str,
     require_free_slot: bool,
 ) -> Result<CorrectableMatch> {
     let camp_status: Option<String> = sqlx::query_scalar("SELECT status FROM camps WHERE id = ?")
@@ -1112,15 +1200,16 @@ async fn require_correctable_match(
         None => return Err(anyhow!("camp não encontrado")),
     }
 
-    let row: Option<(String, i64, Option<String>, Option<i64>, i64)> = sqlx::query_as(
-        "SELECT status, slot, winner_side, completed_at, is_final
-         FROM camp_matches WHERE id = ? AND camp_id = ?",
-    )
-    .bind(match_id)
-    .bind(camp_id)
-    .fetch_optional(&mut **tx)
-    .await?;
-    let Some((status, slot, winner_side, _completed_at, is_final)) = row else {
+    let row: Option<(String, i64, Option<String>, Option<i64>, i64, Option<String>)> =
+        sqlx::query_as(
+            "SELECT status, slot, winner_side, completed_at, is_final, party_code
+             FROM camp_matches WHERE id = ? AND camp_id = ?",
+        )
+        .bind(match_id)
+        .bind(camp_id)
+        .fetch_optional(&mut **tx)
+        .await?;
+    let Some((status, slot, winner_side, _completed_at, is_final, party_code)) = row else {
         return Err(anyhow!("partida não encontrada"));
     };
     let Some(winner_side) = winner_side else {
@@ -1130,7 +1219,7 @@ async fn require_correctable_match(
         return Err(anyhow!("não é mais possível corrigir esta partida"));
     }
 
-    let latest: Option<i64> = sqlx::query_scalar(
+    let latest: Option<String> = sqlx::query_scalar(
         "SELECT id FROM camp_matches
          WHERE camp_id = ? AND status = 'completed' AND completed_at IS NOT NULL
          ORDER BY completed_at DESC, id DESC LIMIT 1",
@@ -1138,7 +1227,7 @@ async fn require_correctable_match(
     .bind(camp_id)
     .fetch_optional(&mut **tx)
     .await?;
-    if latest != Some(match_id) {
+    if latest.as_deref() != Some(match_id) {
         return Err(anyhow!("não é mais possível corrigir esta partida"));
     }
 
@@ -1185,6 +1274,7 @@ async fn require_correctable_match(
         slot,
         is_final: is_final != 0,
         winner_side,
+        party_code,
         roster,
     })
 }
@@ -1213,12 +1303,13 @@ async fn reindex_queued(tx: &mut Transaction<'_, Sqlite>, camp_id: &str) -> Resu
 pub struct CompletedMatchView {
     pub is_final: bool,
     pub winner_side: String,
+    pub party_code: Option<String>,
 }
 
 pub async fn correct_winner(
     pool: &SqlitePool,
     camp_id: &str,
-    match_id: i64,
+    match_id: &str,
 ) -> Result<CompletedMatchView> {
     let mut tx = pool.begin().await?;
     let current = require_correctable_match(&mut tx, camp_id, match_id, false).await?;
@@ -1309,10 +1400,11 @@ pub async fn correct_winner(
     Ok(CompletedMatchView {
         is_final: current.is_final,
         winner_side: new_side.to_string(),
+        party_code: current.party_code,
     })
 }
 
-pub async fn reopen_match(pool: &SqlitePool, camp_id: &str, match_id: i64) -> Result<()> {
+pub async fn reopen_match(pool: &SqlitePool, camp_id: &str, match_id: &str) -> Result<()> {
     let mut tx = pool.begin().await?;
     let current = require_correctable_match(&mut tx, camp_id, match_id, true).await?;
     let location = if current.slot == 1 {
@@ -1365,7 +1457,7 @@ pub async fn reopen_match(pool: &SqlitePool, camp_id: &str, match_id: i64) -> Re
 pub async fn other_completed_message_ids(
     pool: &SqlitePool,
     camp_id: &str,
-    except_match_id: i64,
+    except_match_id: &str,
 ) -> Result<Vec<i64>> {
     let ids: Vec<i64> = sqlx::query_scalar(
         "SELECT message_id FROM camp_matches

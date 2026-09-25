@@ -276,9 +276,9 @@ async fn vote_choice(
     match_id: &str,
     want_refresh: bool,
 ) -> Result<()> {
-    let match_id: i64 = match_id.parse().unwrap_or(0);
+    let match_id = match_id.trim().to_uppercase();
     let user_id = interaction.user.id.get() as i64;
-    match db::vote_refresh_choice(&data.db, match_id, user_id, want_refresh).await? {
+    match db::vote_refresh_choice(&data.db, &match_id, user_id, want_refresh).await? {
         RefreshOutcome::AlreadyUsed => {
             ephemeral(ctx, interaction, "A votação desta partida já acabou.").await
         }
@@ -365,7 +365,7 @@ async fn start_match(
     if !is_admin(interaction) {
         return ephemeral(ctx, interaction, "Apenas quem gerencia o servidor pode iniciar uma partida.").await;
     }
-    let match_id: i64 = match_id.parse().unwrap_or(0);
+    let match_id = match_id.trim().to_uppercase();
     ack(ctx, interaction).await?;
 
     let (party_id, party_code) = if data.config.enable_custom_match_create {
@@ -393,7 +393,7 @@ async fn start_match(
         (None, None)
     };
 
-    db::start_live_match(&data.db, match_id, party_id, party_code.clone()).await?;
+    db::start_live_match(&data.db, &match_id, party_id, party_code.clone()).await?;
     let state = db::load_camp(&data.db, camp_id)
         .await?
         .ok_or_else(|| anyhow!("camp não encontrado"))?;
@@ -430,7 +430,7 @@ async fn report_win(
     if !is_admin(interaction) {
         return ephemeral(ctx, interaction, "Apenas quem gerencia o servidor pode informar o vencedor.").await;
     }
-    let match_id: i64 = match_id.parse().unwrap_or(0);
+    let match_id = match_id.trim().to_uppercase();
     let before = db::load_camp(&data.db, camp_id)
         .await?
         .ok_or_else(|| anyhow!("camp não encontrado"))?;
@@ -446,16 +446,16 @@ async fn report_win(
         .find(|m| m.row.id == match_id)
         .and_then(|m| m.row.message_id);
 
-    match db::report_winner(&data.db, camp_id, match_id, side).await {
+    match db::report_winner(&data.db, camp_id, &match_id, side).await {
         Ok(()) => {
             ack(ctx, interaction).await?;
             let channel = ChannelId::new(before.camp.channel_id as u64);
-            let is_final = before
+            let finished = before
                 .open_matches
                 .iter()
-                .find(|m| m.row.id == match_id)
-                .map(|m| m.row.is_final)
-                .unwrap_or(false);
+                .find(|m| m.row.id == match_id);
+            let is_final = finished.map(|m| m.row.is_final).unwrap_or(false);
+            let party_code = finished.and_then(|m| m.row.party_code.clone());
             if let Some(msg_id) = old_message {
                 let _ = channel
                     .edit_message(
@@ -464,18 +464,20 @@ async fn report_win(
                         serenity::all::EditMessage::new()
                             .embed(crate::ui::completed_match_embed(
                                 &before.camp.id,
+                                &match_id,
                                 side,
                                 is_final,
+                                party_code.as_deref(),
                             ))
                             .components(crate::ui::completed_match_components(
                                 &before.camp.id,
-                                match_id,
+                                &match_id,
                             )),
                     )
                     .await;
             }
             if let Ok(previous) =
-                db::other_completed_message_ids(&data.db, camp_id, match_id).await
+                db::other_completed_message_ids(&data.db, camp_id, &match_id).await
             {
                 for msg_id in previous {
                     let _ = channel
@@ -529,8 +531,8 @@ async fn correct_win(
         )
         .await;
     }
-    let match_id: i64 = match_id.parse().unwrap_or(0);
-    match db::correct_winner(&data.db, camp_id, match_id).await {
+    let match_id = match_id.trim().to_uppercase();
+    match db::correct_winner(&data.db, camp_id, &match_id).await {
         Ok(view) => {
             ack(ctx, interaction).await?;
             let state = db::load_camp(&data.db, camp_id)
@@ -545,10 +547,12 @@ async fn correct_win(
                     serenity::all::EditMessage::new()
                         .embed(crate::ui::completed_match_embed(
                             camp_id,
+                            &match_id,
                             &view.winner_side,
                             view.is_final,
+                            view.party_code.as_deref(),
                         ))
-                        .components(crate::ui::completed_match_components(camp_id, match_id)),
+                        .components(crate::ui::completed_match_components(camp_id, &match_id)),
                 )
                 .await;
             sync::redraw_all(ctx, &data.db, &state).await?;
@@ -583,8 +587,8 @@ async fn reopen_match(
         )
         .await;
     }
-    let match_id: i64 = match_id.parse().unwrap_or(0);
-    match db::reopen_match(&data.db, camp_id, match_id).await {
+    let match_id = match_id.trim().to_uppercase();
+    match db::reopen_match(&data.db, camp_id, &match_id).await {
         Ok(()) => {
             ack(ctx, interaction).await?;
             let state = db::load_camp(&data.db, camp_id)

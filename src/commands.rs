@@ -44,7 +44,7 @@ fn guild_id(ctx: Context<'_>) -> Result<GuildId> {
 #[poise::command(
     slash_command,
     guild_only,
-    subcommands("start", "add", "remove", "cancel", "end", "resume", "info")
+    subcommands("start", "add", "remove", "cancel", "end", "resume", "info", "match_info")
 )]
 pub async fn camp(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
@@ -284,6 +284,27 @@ pub async fn info(
     ctx.send(
         CreateReply::default()
             .embed(crate::ui::info_embed(&state))
+            .ephemeral(true),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Mostra times, vencedor e código da party de uma partida.
+#[poise::command(slash_command, guild_only)]
+pub async fn match_info(
+    ctx: Context<'_>,
+    #[description = "ID da partida"] match_id: String,
+) -> Result<(), Error> {
+    if !deny_if_not_admin(ctx).await? {
+        return Ok(());
+    }
+    let guild_id = guild_id(ctx)?;
+    let match_id = match_id.trim().to_uppercase();
+    let info = db::load_match_info(&ctx.data().db, &match_id, guild_id.get() as i64).await?;
+    ctx.send(
+        CreateReply::default()
+            .embed(crate::ui::match_info_embed(&info))
             .ephemeral(true),
     )
     .await?;

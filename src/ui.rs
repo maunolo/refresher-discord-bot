@@ -3,7 +3,7 @@ use serenity::all::{
     CreateSelectMenuKind, Mentionable, UserId,
 };
 
-use crate::db::{CampState, OpenMatch, PlayerRow};
+use crate::db::{CampState, HistoricMatch, MatchPlayerRow, OpenMatch, PlayerRow};
 
 pub fn mention(user_id: i64) -> String {
     UserId::new(user_id as u64).mention().to_string()
@@ -228,15 +228,13 @@ pub fn board_components(state: &CampState) -> Vec<CreateActionRow> {
     ])]
 }
 
-fn match_field(open: &OpenMatch) -> String {
-    let mut hk: Vec<i64> = open
-        .players
+fn teams_text(players: &[MatchPlayerRow], party_code: Option<&str>) -> String {
+    let mut hk: Vec<i64> = players
         .iter()
         .filter(|p| p.side == "hiddenking")
         .map(|p| p.user_id)
         .collect();
-    let mut am: Vec<i64> = open
-        .players
+    let mut am: Vec<i64> = players
         .iter()
         .filter(|p| p.side == "archmother")
         .map(|p| p.user_id)
@@ -248,10 +246,14 @@ fn match_field(open: &OpenMatch) -> String {
         list_mentions(&hk),
         list_mentions(&am)
     );
-    if let Some(code) = &open.row.party_code {
+    if let Some(code) = party_code.filter(|c| !c.is_empty()) {
         text.push_str(&format!("\nCódigo da party: `{code}`"));
     }
     text
+}
+
+fn match_field(open: &OpenMatch) -> String {
+    teams_text(&open.players, open.row.party_code.as_deref())
 }
 
 pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
@@ -299,9 +301,12 @@ pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
     }
     CreateEmbed::new()
         .title(if open.row.is_final {
-            format!("Partida final · Camp {}", state.camp.id)
+            format!("Partida final · ID {} · Camp {}", open.row.id, state.camp.id)
         } else {
-            format!("Partida {} · Camp {}", open.row.slot, state.camp.id)
+            format!(
+                "Partida {} · ID {} · Camp {}",
+                open.row.slot, open.row.id, state.camp.id
+            )
         })
         .description(desc)
         .field("Hiddenking", list_mentions(&hk), true)
@@ -361,7 +366,21 @@ pub fn winner_label(side: &str) -> &'static str {
     }
 }
 
-pub fn completed_match_embed(camp_id: &str, winner_side: &str, is_final: bool) -> CreateEmbed {
+fn completed_match_description(camp_id: &str, match_id: &str, party_code: Option<&str>) -> String {
+    let mut desc = format!("Camp `{camp_id}`\nID da partida: `{match_id}`");
+    if let Some(code) = party_code.filter(|c| !c.is_empty()) {
+        desc.push_str(&format!("\n**Código da party:** `{code}`"));
+    }
+    desc
+}
+
+pub fn completed_match_embed(
+    camp_id: &str,
+    match_id: &str,
+    winner_side: &str,
+    is_final: bool,
+    party_code: Option<&str>,
+) -> CreateEmbed {
     let winner = winner_label(winner_side);
     let title = if is_final {
         format!("{winner} venceu · Partida final")
@@ -370,11 +389,11 @@ pub fn completed_match_embed(camp_id: &str, winner_side: &str, is_final: bool) -
     };
     CreateEmbed::new()
         .title(title)
-        .description(format!("Camp {camp_id}"))
+        .description(completed_match_description(camp_id, match_id, party_code))
         .footer(footer(camp_id))
 }
 
-pub fn completed_match_components(camp_id: &str, match_id: i64) -> Vec<CreateActionRow> {
+pub fn completed_match_components(camp_id: &str, match_id: &str) -> Vec<CreateActionRow> {
     vec![CreateActionRow::Buttons(vec![
         CreateButton::new(format!("correct_win:{camp_id}:{match_id}"))
             .label("Trocar vencedor")
@@ -383,6 +402,55 @@ pub fn completed_match_components(camp_id: &str, match_id: i64) -> Vec<CreateAct
             .label("Reabrir partida")
             .style(ButtonStyle::Primary),
     ])]
+}
+
+pub fn match_info_embed(info: &HistoricMatch) -> CreateEmbed {
+    let kind = if info.row.is_final {
+        "Partida final"
+    } else {
+        "Partida"
+    };
+    let winner = info
+        .row
+        .winner_side
+        .as_deref()
+        .map(winner_label)
+        .unwrap_or("—");
+    let mut desc = format!(
+        "Camp `{}` · Slot **{}** · {}\nID da partida: `{}`\nStatus: **{}** · Vencedor: **{winner}**",
+        info.camp_id,
+        info.row.slot,
+        kind,
+        info.row.id,
+        status_label(&info.row.status),
+    );
+    if let Some(code) = info.row.party_code.as_deref().filter(|c| !c.is_empty()) {
+        desc.push_str(&format!("\n**Código da party:** `{code}`"));
+    }
+    CreateEmbed::new()
+        .title(format!("Partida {}", info.row.id))
+        .description(desc)
+        .field("Hiddenking", {
+            let mut hk: Vec<i64> = info
+                .players
+                .iter()
+                .filter(|p| p.side == "hiddenking")
+                .map(|p| p.user_id)
+                .collect();
+            hk.sort();
+            list_mentions(&hk)
+        }, true)
+        .field("Archmother", {
+            let mut am: Vec<i64> = info
+                .players
+                .iter()
+                .filter(|p| p.side == "archmother")
+                .map(|p| p.user_id)
+                .collect();
+            am.sort();
+            list_mentions(&am)
+        }, true)
+        .footer(footer(&info.camp_id))
 }
 
 pub fn standings_embed(camp_id: &str, match_count: i64, players: &[PlayerRow]) -> CreateEmbed {

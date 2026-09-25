@@ -76,7 +76,7 @@ pub async fn redraw_match(
             CreateMessage::new().embed(embed).components(components),
         )
         .await?;
-    db::set_match_message_id(pool, open.row.id, msg.id.get() as i64).await?;
+    db::set_match_message_id(pool, &open.row.id, msg.id.get() as i64).await?;
     Ok(())
 }
 
