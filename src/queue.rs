@@ -79,6 +79,38 @@ pub fn split_teams(mut ids: Vec<i64>, rng: &mut impl Rng) -> (Vec<i64>, Vec<i64>
     (hiddenking, archmother)
 }
 
+/// Snake-draft the roster by points so 1st/2nd, 3rd/4th, … land on opposite teams.
+/// Ties are shuffled. A coin flip assigns which side is Hiddenking.
+pub fn split_balanced(players: &[(i64, i64)], rng: &mut impl Rng) -> (Vec<i64>, Vec<i64>) {
+    let mut by_points: std::collections::BTreeMap<i64, Vec<i64>> =
+        std::collections::BTreeMap::new();
+    for (user_id, points) in players {
+        by_points.entry(*points).or_default().push(*user_id);
+    }
+    let mut ranked = Vec::with_capacity(players.len());
+    for (_points, mut ids) in by_points.into_iter().rev() {
+        ids.shuffle(rng);
+        ranked.extend(ids);
+    }
+
+    let mut team_a = Vec::new();
+    let mut team_b = Vec::new();
+    for (i, user_id) in ranked.into_iter().enumerate() {
+        // Snake: A B B A A B B A …
+        if i % 4 == 0 || i % 4 == 3 {
+            team_a.push(user_id);
+        } else {
+            team_b.push(user_id);
+        }
+    }
+
+    if rng.gen_bool(0.5) {
+        (team_a, team_b)
+    } else {
+        (team_b, team_a)
+    }
+}
+
 fn shuffle_if_many<T>(items: &mut [T], rng: &mut impl Rng) {
     if items.len() > 2 {
         items.shuffle(rng);

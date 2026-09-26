@@ -811,7 +811,12 @@ pub async fn create_final_match(
         ));
     }
 
-    let (hiddenking, archmother) = queue::split_teams(batch, &mut rng);
+    let points_by_user: std::collections::HashMap<i64, i64> = scored.into_iter().collect();
+    let ranked: Vec<(i64, i64)> = batch
+        .into_iter()
+        .map(|user_id| (user_id, *points_by_user.get(&user_id).unwrap_or(&0)))
+        .collect();
+    let (hiddenking, archmother) = queue::split_balanced(&ranked, &mut rng);
 
     let mut tx = pool.begin().await?;
     let slot = next_free_slot(&mut tx, &camp_id)
@@ -903,8 +908,8 @@ pub async fn vote_refresh_choice(
     want_refresh: bool,
 ) -> Result<RefreshOutcome> {
     let mut tx = pool.begin().await?;
-    let match_row = sqlx::query_as::<_, (String, i64, String)>(
-        "SELECT status, refresh_used, camp_id FROM camp_matches WHERE id = ?",
+    let match_row = sqlx::query_as::<_, (String, i64, String, i64)>(
+        "SELECT status, refresh_used, camp_id, is_final FROM camp_matches WHERE id = ?",
     )
     .bind(match_id)
     .fetch_optional(&mut *tx)
@@ -978,8 +983,23 @@ pub async fn vote_refresh_choice(
     let am_unvoted = am.iter().filter(|id| !voted_ids.contains(id)).count();
 
     if hk_votes >= needed || am_votes >= needed {
-        let batch: Vec<i64> = roster.iter().map(|p| p.0).collect();
-        let (hiddenking, archmother) = queue::split_teams(batch, &mut rand::thread_rng());
+        let (hiddenking, archmother) = if match_row.3 != 0 {
+            let points: Vec<(i64, i64)> = sqlx::query_as(
+                "SELECT user_id, points FROM camp_players WHERE camp_id = ?",
+            )
+            .bind(&match_row.2)
+            .fetch_all(&mut *tx)
+            .await?;
+            let points_by_user: std::collections::HashMap<i64, i64> = points.into_iter().collect();
+            let ranked: Vec<(i64, i64)> = roster
+                .iter()
+                .map(|(user_id, _)| (*user_id, *points_by_user.get(user_id).unwrap_or(&0)))
+                .collect();
+            queue::split_balanced(&ranked, &mut rand::thread_rng())
+        } else {
+            let batch: Vec<i64> = roster.iter().map(|p| p.0).collect();
+            queue::split_teams(batch, &mut rand::thread_rng())
+        };
         sqlx::query("DELETE FROM camp_match_players WHERE match_id = ?")
             .bind(match_id)
             .execute(&mut *tx)
