@@ -17,19 +17,13 @@ pub async fn redraw_board(discord: &Discord, pool: &SqlitePool, state: &CampStat
     } else {
         crate::ui::board_embed(state)
     };
-    let components = if state.camp.status == "signup" {
-        crate::ui::signup_components(state)
-    } else {
-        crate::ui::board_components(state)
-    };
     if let Some(id) = state.camp.board_message_id {
+        // No components: this also clears the admin buttons older versions put here.
         if channel
             .edit_message(
                 &discord.http,
                 id as u64,
-                EditMessage::new()
-                    .embed(embed.clone())
-                    .components(components.clone()),
+                EditMessage::new().embed(embed.clone()).components(Vec::new()),
             )
             .await
             .is_ok()
@@ -38,10 +32,7 @@ pub async fn redraw_board(discord: &Discord, pool: &SqlitePool, state: &CampStat
         }
     }
     let msg = channel
-        .send_message(
-            &discord.http,
-            CreateMessage::new().embed(embed).components(components),
-        )
+        .send_message(&discord.http, CreateMessage::new().embed(embed))
         .await?;
     db::set_board_message_id(pool, &state.camp.id, msg.id.get() as i64).await?;
     Ok(())

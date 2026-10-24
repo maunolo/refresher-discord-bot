@@ -15,8 +15,8 @@ pub struct Config {
     pub match1_archmother_voice_id: Option<u64>,
     pub match2_hiddenking_voice_id: Option<u64>,
     pub match2_archmother_voice_id: Option<u64>,
-    /// The admin web page. `None` keeps it off.
-    pub web: Option<WebConfig>,
+    /// The admin web page, where camps are run.
+    pub web: WebConfig,
 }
 
 /// Settings for the admin web page, which admins sign in to with Discord.
@@ -40,24 +40,26 @@ fn optional_var(name: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn web_from_env() -> Result<Option<WebConfig>> {
-    match (
+fn web_from_env() -> Result<WebConfig> {
+    let (Some(discord_client_id), Some(discord_client_secret)) = (
         optional_var("DISCORD_CLIENT_ID"),
         optional_var("DISCORD_CLIENT_SECRET"),
-    ) {
-        (Some(discord_client_id), Some(discord_client_secret)) => Ok(Some(WebConfig {
-            bind: optional_var("WEB_BIND").unwrap_or_else(|| "127.0.0.1:8080".to_string()),
-            public_url: optional_var("WEB_PUBLIC_URL")
-                .unwrap_or_else(|| "http://localhost:8080".to_string())
-                .trim_end_matches('/')
-                .to_string(),
-            discord_client_id,
-            discord_client_secret,
-            static_dir: optional_var("WEB_STATIC_DIR").unwrap_or_else(|| "web/dist".to_string()),
-        })),
-        (None, None) => Ok(None),
-        _ => bail!("set both DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET to turn on the web admin, or neither"),
-    }
+    ) else {
+        bail!(
+            "DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET are required: camps are run from the admin page, \
+             which admins sign in to with Discord (see README, \"Admin web page\")"
+        );
+    };
+    Ok(WebConfig {
+        bind: optional_var("WEB_BIND").unwrap_or_else(|| "127.0.0.1:8080".to_string()),
+        public_url: optional_var("WEB_PUBLIC_URL")
+            .unwrap_or_else(|| "http://localhost:8080".to_string())
+            .trim_end_matches('/')
+            .to_string(),
+        discord_client_id,
+        discord_client_secret,
+        static_dir: optional_var("WEB_STATIC_DIR").unwrap_or_else(|| "web/dist".to_string()),
+    })
 }
 
 fn env_flag(name: &str, default: bool) -> bool {

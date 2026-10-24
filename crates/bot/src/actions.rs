@@ -26,6 +26,7 @@ pub async fn run(
     match action {
         CampAction::CreateMatch => create_match(discord, data, guild_id, camp_id).await,
         CampAction::CreateFinal => create_final(discord, data, guild_id, camp_id).await,
+        CampAction::CloseVote { match_id } => close_vote(discord, data, camp_id, &normalize(match_id)).await,
         CampAction::StartDraft { match_id } => {
             start_draft(discord, data, guild_id, camp_id, &normalize(match_id)).await
         }
@@ -108,7 +109,7 @@ async fn start_queue(discord: &Discord, data: &Data, guild_id: GuildId, camp_id:
         .say(
             &discord.http,
             format!(
-                "Fila embaralhada do camp `{}`:\n{}\nUm admin clica em **Criar partida** para montar os próximos times.",
+                "Fila embaralhada do camp `{}`:\n{}\nOs times saem da fila quando um admin cria a partida.",
                 state.camp.id,
                 sync::mention_list(&order)
             ),
@@ -209,6 +210,25 @@ async fn create_final(discord: &Discord, data: &Data, guild_id: GuildId, camp_id
             )
             .await;
     }
+    Ok(())
+}
+
+async fn close_vote(discord: &Discord, data: &Data, camp_id: &str, match_id: &str) -> Result<()> {
+    db::close_voting(&data.db, camp_id, match_id).await?;
+    let state = load(data, camp_id).await?;
+    sync::redraw_all(discord, &data.db, &state).await?;
+    let name = state
+        .open_matches
+        .iter()
+        .find(|m| m.row.id == match_id)
+        .map(|m| if m.row.is_final { "da partida final".to_string() } else { format!("da partida {}", m.row.slot) })
+        .unwrap_or_else(|| "da partida".to_string());
+    let _ = channel(&state)
+        .say(
+            &discord.http,
+            format!("Votação {name} encerrada por um admin — times mantidos. O draft vem a seguir."),
+        )
+        .await;
     Ok(())
 }
 
@@ -324,11 +344,11 @@ async fn report_winner(
                 msg_id as u64,
                 EditMessage::new()
                     .embed(ui::completed_match_embed(camp_id, match_id, side, is_final, party_code.as_deref()))
-                    .components(ui::completed_match_components(camp_id, match_id)),
+                    .components(Vec::new()),
             )
             .await;
     }
-    // Only the latest result can be corrected, so older results lose their buttons.
+    // Results have no buttons; this clears the correction buttons older versions left on them.
     if let Ok(previous) = db::other_completed_message_ids(&data.db, camp_id, match_id).await {
         for msg_id in previous {
             let _ = channel
@@ -344,7 +364,7 @@ async fn report_winner(
         .say(
             &discord.http,
             format!(
-                "{winner} vence. +1 ponto para esse time. Os jogadores voltaram para a fila — um admin clica em **Criar partida** quando quiser."
+                "{winner} vence. +1 ponto para esse time. Os jogadores voltaram para a fila."
             ),
         )
         .await;
@@ -378,7 +398,7 @@ async fn correct_winner(
                         view.is_final,
                         view.party_code.as_deref(),
                     ))
-                    .components(ui::completed_match_components(camp_id, match_id)),
+                    .components(Vec::new()),
             )
             .await;
     }

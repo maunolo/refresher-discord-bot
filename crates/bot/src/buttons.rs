@@ -1,24 +1,16 @@
+//! The buttons players press in Discord: the refresh vote and the captains' draft link.
+//! Everything an admin does happens on the web admin page.
+
 use anyhow::{anyhow, Result};
-use refresher_core::link::CampAction;
 use serenity::all::{
-    ChannelId, ComponentInteraction, ComponentInteractionDataKind, Context, CreateInteractionResponse,
-    CreateInteractionResponseFollowup, CreateInteractionResponseMessage, GuildId,
+    ChannelId, ComponentInteraction, Context, CreateInteractionResponse, CreateInteractionResponseFollowup,
+    CreateInteractionResponseMessage,
 };
 
-use crate::actions;
 use crate::db::{self, RefreshOutcome};
 use crate::discord::Discord;
 use crate::state::{with_guild_lock, Data};
 use crate::sync;
-
-fn is_admin(interaction: &ComponentInteraction) -> bool {
-    interaction
-        .member
-        .as_ref()
-        .and_then(|m| m.permissions)
-        .map(|p| p.manage_guild())
-        .unwrap_or(false)
-}
 
 async fn ephemeral(
     ctx: &Context,
@@ -45,7 +37,7 @@ async fn ack(ctx: &Context, interaction: &ComponentInteraction) -> Result<()> {
     Ok(())
 }
 
-/// A private message after `ack`, for errors and notes.
+/// A private message after `ack`.
 async fn followup(ctx: &Context, interaction: &ComponentInteraction, text: impl Into<String>) {
     let _ = interaction
         .create_followup(
@@ -62,144 +54,36 @@ pub async fn handle(ctx: &Context, data: &Data, interaction: &ComponentInteracti
         return ephemeral(ctx, interaction, "Use isso em um servidor.").await;
     };
     with_guild_lock(data, guild_id.get(), || async {
-        handle_locked(ctx, data, interaction, guild_id).await
+        handle_locked(ctx, data, interaction).await
     })
     .await
 }
 
-async fn handle_locked(
-    ctx: &Context,
-    data: &Data,
-    interaction: &ComponentInteraction,
-    guild_id: GuildId,
-) -> Result<()> {
+async fn handle_locked(ctx: &Context, data: &Data, interaction: &ComponentInteraction) -> Result<()> {
     let custom_id = &interaction.data.custom_id;
     let parts: Vec<&str> = custom_id.split(':').collect();
-    let admin = |action: CampAction, camp_id: &str, what: &'static str| {
-        admin_action(ctx, data, interaction, guild_id, camp_id.to_string(), action, what)
-    };
     match parts.as_slice() {
-        ["add_users", camp_id] => add_users(ctx, data, interaction, camp_id).await,
-        ["s_rank", camp_id] => set_s_rank(ctx, data, interaction, camp_id).await,
-        ["start_queue", camp_id] => admin(CampAction::StartQueue, camp_id, "iniciar a fila").await,
-        ["create_match", camp_id] => admin(CampAction::CreateMatch, camp_id, "criar uma partida").await,
-        ["final_match", camp_id] => admin(CampAction::CreateFinal, camp_id, "iniciar a final").await,
         ["refresh", camp_id, match_id] => {
             vote_choice(ctx, data, interaction, camp_id, match_id, true).await
         }
         ["no_refresh", camp_id, match_id] => {
             vote_choice(ctx, data, interaction, camp_id, match_id, false).await
         }
-        ["start_draft", camp_id, match_id] => {
-            let action = CampAction::StartDraft { match_id: match_id.to_string() };
-            admin(action, camp_id, "iniciar o draft").await
-        }
-        ["start_match", camp_id, match_id] => {
-            let action = CampAction::StartMatch { match_id: match_id.to_string() };
-            admin(action, camp_id, "iniciar uma partida").await
-        }
         ["captain_link", camp_id, match_id] => {
             captain_link(ctx, data, interaction, camp_id, match_id).await
         }
-        ["win", camp_id, match_id, side] => {
-            let action = CampAction::ReportWinner {
-                match_id: match_id.to_string(),
-                side: side.to_string(),
-            };
-            admin(action, camp_id, "informar o vencedor").await
+        // Admin buttons left on messages from before the admin page.
+        _ => {
+            ephemeral(
+                ctx,
+                interaction,
+                format!(
+                    "Isso agora é feito no painel admin: {}",
+                    data.config.web.public_url
+                ),
+            )
+            .await
         }
-        ["correct_win", camp_id, match_id] => {
-            let action = CampAction::CorrectWinner { match_id: match_id.to_string() };
-            admin(action, camp_id, "corrigir o resultado").await
-        }
-        ["reopen_match", camp_id, match_id] => {
-            let action = CampAction::ReopenMatch { match_id: match_id.to_string() };
-            admin(action, camp_id, "reabrir a partida").await
-        }
-        ["end_camp", camp_id] => admin(CampAction::EndCamp, camp_id, "encerrar o camp").await,
-        _ => Ok(()),
-    }
-}
-
-/// Answers Discord right away (it allows 3 seconds), then runs the action the web admin also
-/// uses, and tells the admin privately if it failed.
-async fn admin_action(
-    ctx: &Context,
-    data: &Data,
-    interaction: &ComponentInteraction,
-    guild_id: GuildId,
-    camp_id: String,
-    action: CampAction,
-    what: &str,
-) -> Result<()> {
-    if !is_admin(interaction) {
-        return ephemeral(ctx, interaction, format!("Apenas quem gerencia o servidor pode {what}.")).await;
-    }
-    ack(ctx, interaction).await?;
-    if let Err(err) = actions::run(&Discord::from(ctx), data, guild_id, &camp_id, &action).await {
-        followup(ctx, interaction, err.to_string()).await;
-    }
-    Ok(())
-}
-
-async fn add_users(
-    ctx: &Context,
-    data: &Data,
-    interaction: &ComponentInteraction,
-    camp_id: &str,
-) -> Result<()> {
-    if !is_admin(interaction) {
-        return ephemeral(ctx, interaction, "Apenas quem gerencia o servidor pode adicionar jogadores.").await;
-    }
-    let ComponentInteractionDataKind::UserSelect { values } = &interaction.data.kind else {
-        return Ok(());
-    };
-    let ids: Vec<i64> = values.iter().map(|u| u.get() as i64).collect();
-    match db::add_players(&data.db, camp_id, &ids).await {
-        Ok((added, skipped)) => {
-            ack(ctx, interaction).await?;
-            if let Some(state) = db::load_camp(&data.db, camp_id).await? {
-                sync::redraw_board(&Discord::from(ctx), &data.db, &state).await?;
-            }
-            if added == 0 && !skipped.is_empty() {
-                followup(ctx, interaction, "Nenhum jogador novo adicionado (duplicados ou elenco cheio).").await;
-            }
-            Ok(())
-        }
-        Err(err) => ephemeral(ctx, interaction, err.to_string()).await,
-    }
-}
-
-async fn set_s_rank(
-    ctx: &Context,
-    data: &Data,
-    interaction: &ComponentInteraction,
-    camp_id: &str,
-) -> Result<()> {
-    if !is_admin(interaction) {
-        return ephemeral(ctx, interaction, "Apenas quem gerencia o servidor pode escolher os S rank.").await;
-    }
-    let ComponentInteractionDataKind::UserSelect { values } = &interaction.data.kind else {
-        return Ok(());
-    };
-    let ids: Vec<i64> = values.iter().map(|u| u.get() as i64).collect();
-    match db::set_s_rank(&data.db, camp_id, &ids).await {
-        Ok(not_on_roster) => {
-            ack(ctx, interaction).await?;
-            if let Some(state) = db::load_camp(&data.db, camp_id).await? {
-                sync::redraw_board(&Discord::from(ctx), &data.db, &state).await?;
-            }
-            if !not_on_roster.is_empty() {
-                followup(
-                    ctx,
-                    interaction,
-                    format!("Ignorado(s), fora do elenco: {}", sync::mention_list(&not_on_roster)),
-                )
-                .await;
-            }
-            Ok(())
-        }
-        Err(err) => ephemeral(ctx, interaction, err.to_string()).await,
     }
 }
 

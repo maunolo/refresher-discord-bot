@@ -55,9 +55,10 @@ impl BotLink for DemoLink {
                 CampAction::CreateFinal => {
                     db::create_final_match(pool, camp_id, guild).await?;
                 }
+                CampAction::CloseVote { match_id } => {
+                    db::close_voting(pool, camp_id, &match_id).await?;
+                }
                 CampAction::StartDraft { match_id } => {
-                    // Nobody votes in the demo: fill in the missing votes so the match can move on.
-                    let _ = keep_teams(pool, &match_id).await;
                     db::set_draft(pool, &match_id, &fake_draft(&match_id)).await?;
                 }
                 CampAction::StartMatch { match_id } => {

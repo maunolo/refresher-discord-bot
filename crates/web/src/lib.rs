@@ -386,6 +386,8 @@ mod tests {
 
         let (status, _) = post(&state, &path, Some(&token), r#"{"type": "create_match"}"#).await;
         assert_eq!(status, StatusCode::OK);
+        let close = r#"{"type": "close_vote", "match_id": "R4T8WN"}"#;
+        assert_eq!(post(&state, &path, Some(&token), close).await.0, StatusCode::OK);
 
         let actions = link.actions.lock().unwrap();
         assert_eq!(
@@ -400,6 +402,13 @@ mod tests {
                     }
                 ),
                 (111, camp.id.clone(), CampAction::CreateMatch),
+                (
+                    111,
+                    camp.id.clone(),
+                    CampAction::CloseVote {
+                        match_id: "R4T8WN".to_string()
+                    }
+                ),
             ]
         );
     }

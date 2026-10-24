@@ -31,7 +31,7 @@ pub enum CampSize {
 }
 
 impl CampSize {
-    /// `24`, `30`, `4-1v1` or `4-2v2`, as the `/camp iniciar` choices read.
+    /// `24`, `30`, `4-1v1` or `4-2v2`, as the admin page sends them.
     pub fn parse(name: &str) -> Option<Self> {
         match name {
             "24" => Some(Self::TwentyFour),

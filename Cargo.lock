@@ -1623,7 +1623,6 @@ dependencies = [
  "refresher-core",
  "refresher-web",
  "tokio",
- "tracing",
  "tracing-subscriber",
 ]
 
@@ -1652,6 +1651,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sqlx",
+ "tokio",
  "tracing",
 ]
 

@@ -126,10 +126,28 @@ function Actions({ match }: { match: Match }) {
     );
   }
   if (current === 'voting') {
+    const missing = match.players.length - match.votes.length;
     return (
       <div className="actions">
         <button type="button" className="button button-primary" disabled title="Espere a votação terminar no Discord.">
           Iniciar draft
+        </button>
+        <button
+          type="button"
+          className="button"
+          disabled={busy}
+          onClick={() =>
+            run(
+              { type: 'close_vote', match_id: match.id },
+              {
+                confirm: `Encerrar a votação da ${matchName(match)} agora e manter os times? ${
+                  missing === 1 ? 'Falta 1 voto.' : `Faltam ${missing} votos.`
+                } Os botões de voto somem do Discord.`,
+              },
+            )
+          }
+        >
+          Encerrar votação e manter times
         </button>
       </div>
     );

@@ -74,6 +74,8 @@ export interface Match {
   status: 'voting' | 'live' | 'completed';
   is_final: boolean;
   refresh_used: boolean;
+  /** An admin ended the vote early and kept the teams. */
+  vote_closed_by_admin: boolean;
   winner_side: Side | null;
   party_code: string | null;
   draft: Draft | null;
@@ -115,10 +117,11 @@ export interface Member {
   avatar_url: string;
 }
 
-/** An admin action; the bot runs it like the matching Discord button. */
+/** An admin action; the bot makes the change and does its Discord side. */
 export type CampAction =
   | { type: 'create_match' }
   | { type: 'create_final' }
+  | { type: 'close_vote'; match_id: string }
   | { type: 'start_draft'; match_id: string }
   | { type: 'start_match'; match_id: string }
   | { type: 'report_winner'; match_id: string; side: Side }

@@ -56,6 +56,9 @@ export function stage(match: Match): Stage {
 export function voteSummary(camp: Camp, match: Match): string {
   const voted = match.votes.length;
   const total = match.players.length;
+  if (match.vote_closed_by_admin) {
+    return `Votação encerrada por um admin — times mantidos (${voted}/${total} votaram).`;
+  }
   if (match.refresh_used) {
     return voted > 0
       ? `Votação encerrada — times mantidos (${voted}/${total} votos).`

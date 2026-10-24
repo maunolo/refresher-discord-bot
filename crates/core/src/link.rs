@@ -21,11 +21,13 @@ pub struct Profile {
     pub avatar_url: String,
 }
 
-/// An admin action on a camp. The bot runs it exactly like the matching Discord button.
+/// An admin action on a camp, from the admin page. The bot makes the change and updates Discord.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CampAction {
     CreateMatch,
     CreateFinal,
+    /// Ends the refresh vote now and keeps the teams.
+    CloseVote { match_id: String },
     StartDraft { match_id: String },
     StartMatch { match_id: String },
     /// `side` is `hiddenking` or `archmother`.

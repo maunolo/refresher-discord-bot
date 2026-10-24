@@ -130,6 +130,7 @@ pub struct MatchDto {
     status: String,
     is_final: bool,
     refresh_used: bool,
+    vote_closed_by_admin: bool,
     winner_side: Option<String>,
     party_code: Option<String>,
     draft: Option<DraftDto>,
@@ -176,6 +177,7 @@ fn match_dto(camp_id: &str, row: &MatchRow, players: &[MatchPlayerRow], votes: &
         status: row.status.clone(),
         is_final: row.is_final,
         refresh_used: row.refresh_used,
+        vote_closed_by_admin: row.vote_closed_by_admin,
         winner_side: row.winner_side.clone(),
         party_code: row.party_code.clone(),
         draft: row.draft_url.clone().map(|spectator_url| DraftDto {
@@ -479,6 +481,7 @@ pub enum SideRequest {
 pub enum ActionRequest {
     CreateMatch,
     CreateFinal,
+    CloseVote { match_id: String },
     StartDraft { match_id: String },
     StartMatch { match_id: String },
     ReportWinner { match_id: String, side: SideRequest },
@@ -505,6 +508,7 @@ impl TryFrom<ActionRequest> for CampAction {
         Ok(match request {
             ActionRequest::CreateMatch => CampAction::CreateMatch,
             ActionRequest::CreateFinal => CampAction::CreateFinal,
+            ActionRequest::CloseVote { match_id } => CampAction::CloseVote { match_id },
             ActionRequest::StartDraft { match_id } => CampAction::StartDraft { match_id },
             ActionRequest::StartMatch { match_id } => CampAction::StartMatch { match_id },
             ActionRequest::ReportWinner { match_id, side } => CampAction::ReportWinner {

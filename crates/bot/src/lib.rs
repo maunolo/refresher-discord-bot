@@ -8,7 +8,6 @@ use tokio::sync::Mutex;
 
 mod actions;
 mod buttons;
-mod commands;
 mod discord;
 mod link;
 mod state;
@@ -29,27 +28,21 @@ pub type Error = anyhow::Error;
 async fn event_handler(
     ctx: &serenity::Context,
     event: &FullEvent,
-    framework: poise::FrameworkContext<'_, Data, Error>,
+    _framework: poise::FrameworkContext<'_, Data, Error>,
     data: &Data,
 ) -> Result<(), Error> {
     match event {
         FullEvent::Ready { data_about_bot, .. } => {
             tracing::info!("logged in as {}", data_about_bot.user.name);
+            // Redrawing also strips the admin buttons older versions left on these messages.
             if let Err(err) = sync::restore_messages(&Discord::from(ctx), &data.db).await {
                 tracing::error!(error = %err, "camp restore failed");
             }
         }
         FullEvent::GuildCreate { guild, .. } => {
-            if let Err(err) = poise::builtins::register_in_guild(
-                ctx,
-                &framework.options().commands,
-                guild.id,
-            )
-            .await
-            {
-                tracing::error!(error = %err, guild_id = %guild.id, "failed to register slash commands");
-            } else {
-                tracing::info!("registered slash commands in {}", guild.name);
+            // Camps are run from the admin page now: clear the old /camp command from the server.
+            if let Err(err) = guild.id.set_commands(&ctx.http, Vec::new()).await {
+                tracing::warn!(error = %err, guild_id = %guild.id, "failed to clear slash commands");
             }
         }
         FullEvent::VoiceStateUpdate { old, new } => {
@@ -102,7 +95,8 @@ impl Bot {
         ))
     }
 
-    /// Connects to Discord and handles camp commands and buttons until the connection ends.
+    /// Connects to Discord, keeps the camp messages up to date and handles the players' buttons
+    /// until the connection ends.
     pub async fn run(mut self) -> Result<()> {
         self.client.start().await?;
         Ok(())
@@ -115,7 +109,6 @@ async fn build_client(config: Config, data: Data) -> Result<serenity::Client> {
 
     let framework = poise::Framework::builder()
         .options(poise::FrameworkOptions {
-            commands: vec![commands::camp()],
             event_handler: |ctx, event, framework, data| {
                 Box::pin(event_handler(ctx, event, framework, data))
             },
@@ -125,8 +118,7 @@ async fn build_client(config: Config, data: Data) -> Result<serenity::Client> {
         .setup(move |ctx, _ready, _framework| {
             let data = data.clone();
             Box::pin(async move {
-                // Guild commands update immediately. A leftover global /camp
-                // would keep showing the old 24/30-only size list for up to an hour.
+                // The bot has no slash commands; make sure no global ones linger either.
                 serenity::all::Command::set_global_commands(&ctx.http, vec![]).await?;
                 Ok(data)
             })
@@ -140,19 +132,5 @@ async fn build_client(config: Config, data: Data) -> Result<serenity::Client> {
 }
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {
-    match error {
-        poise::FrameworkError::Command { error, ctx, .. } => {
-            tracing::error!(error = %error, "command failed");
-            let _ = ctx
-                .send(
-                    poise::CreateReply::default()
-                        .content(format!("Erro: {error}"))
-                        .ephemeral(true),
-                )
-                .await;
-        }
-        other => {
-            tracing::error!("framework error: {other}");
-        }
-    }
+    tracing::error!("framework error: {error}");
 }

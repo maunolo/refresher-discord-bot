@@ -14,16 +14,7 @@ async fn main() -> Result<()> {
     tokio::fs::create_dir_all("data").await?;
     let db = db::connect(&config.database_url).await?;
     let bot = refresher_bot::Bot::new(config.clone(), db.clone()).await?;
-
-    match config.web {
-        Some(web) => {
-            let link = bot.link();
-            tokio::try_join!(bot.run(), refresher_web::run(web, db, link))?;
-        }
-        None => {
-            tracing::info!("web admin off: set DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET to turn it on");
-            bot.run().await?;
-        }
-    }
+    let link = bot.link();
+    tokio::try_join!(bot.run(), refresher_web::run(config.web, db, link))?;
     Ok(())
 }

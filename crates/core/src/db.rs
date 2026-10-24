@@ -63,6 +63,8 @@ pub struct MatchRow {
     pub draft_hiddenking_url: Option<String>,
     pub draft_archmother_url: Option<String>,
     pub draft_admin_url: Option<String>,
+    /// An admin ended the refresh vote early and kept the teams.
+    pub vote_closed_by_admin: bool,
 }
 
 impl MatchRow {
@@ -396,13 +398,14 @@ pub async fn load_match_info(
             Option<String>,
             Option<String>,
             Option<String>,
+            i64,
             String,
             i64,
         ),
     >(
         "SELECT m.id, m.slot, m.status, m.refresh_used, m.message_id, m.party_id, m.party_code,
                 m.winner_side, m.is_final, m.draft_url, m.draft_hiddenking_url,
-                m.draft_archmother_url, m.draft_admin_url, m.camp_id, c.guild_id
+                m.draft_archmother_url, m.draft_admin_url, m.vote_closed_by_admin, m.camp_id, c.guild_id
          FROM camp_matches m
          JOIN camps c ON c.id = m.camp_id
          WHERE m.id = ?",
@@ -411,7 +414,7 @@ pub async fn load_match_info(
     .fetch_optional(pool)
     .await?
     .ok_or_else(|| anyhow!("partida não encontrada"))?;
-    if row.14 != guild_id {
+    if row.15 != guild_id {
         return Err(anyhow!("essa partida pertence a outro servidor"));
     }
     let match_row = MatchRow {
@@ -428,8 +431,9 @@ pub async fn load_match_info(
         draft_hiddenking_url: row.10,
         draft_archmother_url: row.11,
         draft_admin_url: row.12,
+        vote_closed_by_admin: row.13 != 0,
     };
-    let camp_id = row.13;
+    let camp_id = row.14;
     let mp = sqlx::query_as::<_, (i64, String, Option<i64>, i64)>(
         "SELECT user_id, side, points_after, is_captain FROM camp_match_players WHERE match_id = ?",
     )
@@ -519,10 +523,11 @@ async fn assemble_state(
             Option<String>,
             Option<String>,
             Option<String>,
+            i64,
         ),
     >(
         "SELECT id, slot, status, refresh_used, message_id, party_id, party_code, winner_side, is_final,
-                draft_url, draft_hiddenking_url, draft_archmother_url, draft_admin_url
+                draft_url, draft_hiddenking_url, draft_archmother_url, draft_admin_url, vote_closed_by_admin
          FROM camp_matches WHERE camp_id = ? AND status IN ('voting', 'live') ORDER BY slot",
     )
     .bind(&camp.id)
@@ -545,6 +550,7 @@ async fn assemble_state(
             draft_hiddenking_url: m.10,
             draft_archmother_url: m.11,
             draft_admin_url: m.12,
+            vote_closed_by_admin: m.13 != 0,
         };
         let mp = sqlx::query_as::<_, (i64, String, Option<i64>, i64)>(
             "SELECT user_id, side, points_after, is_captain FROM camp_match_players WHERE match_id = ?",
@@ -740,22 +746,6 @@ pub async fn set_player_s_rank(pool: &SqlitePool, camp_id: &str, user_id: i64, s
         return Err(anyhow!("esse jogador não está no elenco de um camp ativo"));
     }
     Ok(())
-}
-
-/// Flip one player's S-rank flag. Returns the new value.
-pub async fn toggle_s_rank(pool: &SqlitePool, camp_id: &str, user_id: i64) -> Result<bool> {
-    let updated: Option<i64> = sqlx::query_scalar(
-        "UPDATE camp_players SET is_s_rank = 1 - is_s_rank
-         WHERE camp_id = ? AND user_id = ?
-         RETURNING is_s_rank",
-    )
-    .bind(camp_id)
-    .bind(user_id)
-    .fetch_optional(pool)
-    .await?;
-    updated
-        .map(|flag| flag != 0)
-        .ok_or_else(|| anyhow!("esse jogador não está no elenco"))
 }
 
 async fn reindex_signup_queue(tx: &mut Transaction<'_, Sqlite>, camp_id: &str) -> Result<()> {
@@ -1271,6 +1261,24 @@ pub async fn vote_refresh_choice(
     })
 }
 
+/// An admin ends a match's refresh vote early and keeps the teams, e.g. when someone can't vote.
+/// Votes already cast stay; the draft can start right after.
+pub async fn close_voting(pool: &SqlitePool, camp_id: &str, match_id: &str) -> Result<()> {
+    let updated = sqlx::query(
+        "UPDATE camp_matches SET refresh_used = 1, vote_closed_by_admin = 1
+         WHERE id = ? AND camp_id = ? AND status = 'voting' AND refresh_used = 0",
+    )
+    .bind(match_id)
+    .bind(camp_id)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(anyhow!("a votação desta partida já terminou"));
+    }
+    Ok(())
+}
+
 pub async fn start_live_match(
     pool: &SqlitePool,
     match_id: &str,
@@ -1773,4 +1781,86 @@ pub async fn end_camp(pool: &SqlitePool, camp_id: &str) -> Result<Vec<PlayerRow>
         .execute(pool)
         .await?;
     Ok(state.players)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use sqlx::sqlite::SqlitePoolOptions;
+
+    use super::*;
+
+    async fn memory_db() -> SqlitePool {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        migrate(&pool).await.unwrap();
+        pool
+    }
+
+    /// A 2v2 test camp with its first match open for voting.
+    async fn camp_with_match(pool: &SqlitePool) -> (String, String) {
+        let camp = create_camp(pool, 1, 10, 4, 4).await.unwrap();
+        add_players(pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
+        start_queue(pool, &camp.id).await.unwrap();
+        let (_, match_id) = create_match(pool, &camp.id, 1).await.unwrap();
+        (camp.id, match_id)
+    }
+
+    fn sides(state: &CampState) -> HashMap<i64, String> {
+        state.open_matches[0]
+            .players
+            .iter()
+            .map(|p| (p.user_id, p.side.clone()))
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn admin_closes_an_open_vote_and_keeps_the_teams() {
+        let pool = memory_db().await;
+        let (camp_id, match_id) = camp_with_match(&pool).await;
+        vote_refresh_choice(&pool, &match_id, 1, true).await.unwrap();
+        let before = load_camp(&pool, &camp_id).await.unwrap().unwrap();
+
+        close_voting(&pool, &camp_id, &match_id).await.unwrap();
+
+        let after = load_camp(&pool, &camp_id).await.unwrap().unwrap();
+        let open = &after.open_matches[0];
+        assert!(open.row.refresh_used);
+        assert!(open.row.vote_closed_by_admin);
+        assert_eq!(open.votes.len(), 1, "votes already cast stay");
+        assert_eq!(sides(&before), sides(&after), "teams are kept");
+
+        // The vote is over for players too, it can't be closed twice, and the draft can start.
+        assert!(matches!(
+            vote_refresh_choice(&pool, &match_id, 2, true).await.unwrap(),
+            RefreshOutcome::AlreadyUsed
+        ));
+        assert!(close_voting(&pool, &camp_id, &match_id).await.is_err());
+        let draft = CreatedDraft {
+            spectator_url: "https://draft.example/x".to_string(),
+            hiddenking_url: "https://draft.example/x/a".to_string(),
+            archmother_url: "https://draft.example/x/b".to_string(),
+            admin_url: "https://draft.example/links/x".to_string(),
+        };
+        set_draft(&pool, &match_id, &draft).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn closing_needs_an_open_vote_in_that_camp() {
+        let pool = memory_db().await;
+        let (camp_id, match_id) = camp_with_match(&pool).await;
+        let other = create_camp(&pool, 2, 20, 24, 12).await.unwrap();
+
+        assert!(close_voting(&pool, &other.id, &match_id).await.is_err());
+
+        close_voting(&pool, &camp_id, &match_id).await.unwrap();
+        start_live_match(&pool, &match_id, None, None).await.unwrap();
+        assert!(close_voting(&pool, &camp_id, &match_id).await.is_err());
+        let state = load_camp(&pool, &camp_id).await.unwrap().unwrap();
+        assert_eq!(state.open_matches[0].row.status, "live");
+    }
 }
