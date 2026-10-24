@@ -1,0 +1,23 @@
+[package]
+name = "refresher-web"
+description = "Admin web page backend: Discord login and the camp API."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+refresher-core.workspace = true
+
+anyhow.workspace = true
+axum.workspace = true
+axum-extra.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tower.workspace = true

@@ -1,6 +1,6 @@
 [package]
 name = "refresher-app"
-description = "Starts everything: loads config, opens the database and runs the bot."
+description = "Starts everything: loads config, opens the database, runs the bot and the web admin."
 version.workspace = true
 edition.workspace = true
 
@@ -11,7 +11,9 @@ path = "src/main.rs"
 [dependencies]
 refresher-bot.workspace = true
 refresher-core.workspace = true
+refresher-web.workspace = true
 
 anyhow.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 tracing-subscriber.workspace = true

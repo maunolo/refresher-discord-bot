@@ -102,8 +102,31 @@ A Cargo workspace. `cargo run` at the root starts the app crate, which builds th
 | --- | --- |
 | `crates/core` | Camp rules and storage with no Discord code: config, SQLite access (`db.rs`), queue and team splits (`queue.rs`), the draft and Deadlock lobby APIs. |
 | `crates/bot` | The Discord side: `/camp` commands, buttons, embeds, message syncing and voice moves. |
-| `crates/app` | `main.rs`: loads `.env`, opens the database and starts the bot. |
+| `crates/web` | The admin web page backend (axum): Discord login, sessions and the camp API. |
+| `crates/app` | `main.rs`: loads `.env`, opens the database and starts the bot, plus the web admin when it's configured. |
 | `migrations/` | SQLite migrations, applied on startup. |
 | `assets/` | The bot logo. |
 
 `cargo test --workspace` runs every crate's tests.
+
+## Admin web page (in progress)
+
+Camp management is moving from Discord buttons to a web page. For now the page has Discord login and a read-only API; the screens and admin actions come next.
+
+To turn it on:
+
+1. In the [Developer Portal](https://discord.com/developers/applications), open the bot's application, go to **OAuth2**, copy the **Client ID** and reset/copy the **Client Secret**.
+2. Under **Redirects**, add `http://localhost:8080/auth/callback` (or `{WEB_PUBLIC_URL}/auth/callback` if you change the address).
+3. Set `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET` in `.env`, restart, and open `http://localhost:8080`.
+
+Anyone with **Manage Server** in a server the bot is in can sign in and see that server's camps, the same rule as the `/camp` commands. A sign-in lasts 12 hours; sign in again to pick up permission changes.
+
+| Endpoint | Returns |
+| --- | --- |
+| `GET /auth/login`, `GET /auth/callback`, `POST /auth/logout` | Discord sign-in and sign-out. |
+| `GET /api/me` | The signed-in user and the servers they can manage. |
+| `GET /api/guilds/{guild_id}/camps` | That server's camps, newest first. |
+| `GET /api/camps/{camp_id}` | Roster, queue, open matches with teams, votes and draft links. |
+| `GET /api/matches/{match_id}` | One match, finished or not. |
+
+Discord IDs are sent as strings, since they don't fit in a JavaScript number.

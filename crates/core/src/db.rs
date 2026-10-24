@@ -137,8 +137,13 @@ pub fn now() -> i64 {
 pub async fn connect(database_url: &str) -> Result<SqlitePool> {
     let options = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
     let pool = SqlitePool::connect_with(options).await?;
-    sqlx::migrate!("../../migrations").run(&pool).await?;
+    migrate(&pool).await?;
     Ok(pool)
+}
+
+pub async fn migrate(pool: &SqlitePool) -> Result<()> {
+    sqlx::migrate!("../../migrations").run(pool).await?;
+    Ok(())
 }
 
 async fn generate_unique_id(tx: &mut Transaction<'_, Sqlite>) -> Result<String> {
@@ -269,6 +274,51 @@ pub async fn load_active_for_guild(pool: &SqlitePool, guild_id: i64) -> Result<O
         return Ok(None);
     };
     Ok(Some(assemble_state(pool, c).await?))
+}
+
+#[derive(Clone, Debug)]
+pub struct CampSummary {
+    pub id: String,
+    pub channel_id: i64,
+    pub target_size: i64,
+    pub match_size: i64,
+    pub status: String,
+    pub match_count: i64,
+    pub created_at: i64,
+}
+
+/// Every camp of a server, newest first.
+pub async fn list_camps_for_guild(pool: &SqlitePool, guild_id: i64) -> Result<Vec<CampSummary>> {
+    let rows = sqlx::query_as::<_, (String, i64, i64, i64, String, i64, i64)>(
+        "SELECT id, channel_id, target_size, match_size, status, match_count, created_at
+         FROM camps WHERE guild_id = ? ORDER BY created_at DESC, id",
+    )
+    .bind(guild_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| CampSummary {
+            id: r.0,
+            channel_id: r.1,
+            target_size: r.2,
+            match_size: r.3,
+            status: r.4,
+            match_count: r.5,
+            created_at: r.6,
+        })
+        .collect())
+}
+
+/// The server a match belongs to, through its camp.
+pub async fn match_guild_id(pool: &SqlitePool, match_id: &str) -> Result<Option<i64>> {
+    let guild_id = sqlx::query_scalar(
+        "SELECT c.guild_id FROM camp_matches m JOIN camps c ON c.id = m.camp_id WHERE m.id = ?",
+    )
+    .bind(match_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(guild_id)
 }
 
 #[derive(Clone, Debug)]

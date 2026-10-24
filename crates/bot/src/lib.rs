@@ -17,6 +17,7 @@ mod voice;
 use refresher_core::{config, db, deadlock, draft, queue};
 
 use config::Config;
+use refresher_core::shared::BotGuilds;
 pub use state::Data;
 
 pub type Error = anyhow::Error;
@@ -35,6 +36,7 @@ async fn event_handler(
             }
         }
         FullEvent::GuildCreate { guild, .. } => {
+            data.bot_guilds.insert(guild.id.get());
             if let Err(err) = poise::builtins::register_in_guild(
                 ctx,
                 &framework.options().commands,
@@ -46,6 +48,10 @@ async fn event_handler(
             } else {
                 tracing::info!("registered slash commands in {}", guild.name);
             }
+        }
+        // `unavailable` means a Discord outage, not that the bot was removed.
+        FullEvent::GuildDelete { incomplete, .. } if !incomplete.unavailable => {
+            data.bot_guilds.remove(incomplete.id.get());
         }
         FullEvent::VoiceStateUpdate { old, new } => {
             if let Err(err) = sync::place_late_voice_join(ctx, data, old.as_ref(), new).await {
@@ -65,12 +71,14 @@ async fn event_handler(
 }
 
 /// Connects to Discord and handles camp commands and buttons until the connection ends.
-pub async fn run(config: Config, db: SqlitePool) -> Result<()> {
+/// Keeps `bot_guilds` up to date with the servers the bot is in.
+pub async fn run(config: Config, db: SqlitePool, bot_guilds: BotGuilds) -> Result<()> {
     let data = Data {
         config: config.clone(),
         db,
         http: reqwest::Client::new(),
         locks: Arc::new(Mutex::new(HashMap::new())),
+        bot_guilds,
     };
 
     let intents = serenity::GatewayIntents::GUILDS | serenity::GatewayIntents::GUILD_VOICE_STATES;

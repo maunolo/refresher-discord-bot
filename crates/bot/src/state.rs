@@ -4,6 +4,8 @@ use std::sync::Arc;
 use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 
+use refresher_core::shared::BotGuilds;
+
 use crate::config::Config;
 
 #[derive(Clone)]
@@ -12,6 +14,7 @@ pub struct Data {
     pub db: SqlitePool,
     pub http: reqwest::Client,
     pub locks: Arc<Mutex<HashMap<u64, Arc<Mutex<()>>>>>,
+    pub bot_guilds: BotGuilds,
 }
 
 impl Data {
