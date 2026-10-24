@@ -1,0 +1,2 @@
+ALTER TABLE camp_players ADD COLUMN is_s_rank INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE camp_match_players ADD COLUMN is_captain INTEGER NOT NULL DEFAULT 0;

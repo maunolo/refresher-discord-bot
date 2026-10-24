@@ -1,6 +1,6 @@
 # Deadlock camp Discord bot
 
-Rust bot that runs a **24- or 30-player Deadlock camp** as a queue: two concurrent 6v6 custom matches, a one-time team refresh vote, SQLite persistence, and a trophy leaderboard. `/camp start` also has **4-player test** sizes: **4-1v1** (two matches at once) and **4-2v2**.
+Rust bot that runs a **24- or 30-player Deadlock camp** as a queue: two concurrent 6v6 custom matches, a one-time team refresh vote, SQLite persistence, and a trophy leaderboard. `/camp iniciar` also has **4-player test** sizes: **4-1v1** (two matches at once) and **4-2v2**.
 
 Heroes are picked in Deadlock. Discord only sorts Hiddenking / Archmother, tracks the queue, and creates the lobby code via [Deadlock API](https://deadlock-api.com/).
 
@@ -19,11 +19,11 @@ Heroes are picked in Deadlock. Discord only sorts Hiddenking / Archmother, track
 cargo run
 ```
 
-The first start registers `/camp` on each server (updates immediately) and creates `data/camps.db`. After a command change, restart the bot, then type `/camp start` again (reload Discord with Ctrl+R if the size list is stale).
+The first start registers `/camp` on each server (updates immediately) and creates `data/camps.db`. After a command change, restart the bot, then type `/camp iniciar` again (reload Discord with Ctrl+R if the size list is stale).
 
 ### Text vs voice
 
-Run `/camp start` in the **text channel** you want for the camp. Roster, queue status, refresh votes, party codes, winner buttons, and standings all stay in that text channel. There is no env var for it.
+Run `/camp iniciar` in the **text channel** you want for the camp. Roster, queue status, refresh votes, party codes, winner buttons, and standings all stay in that text channel. There is no env var for it.
 
 `QUEUE_VOICE_CHANNEL_ID` and the match IDs below are **voice channels only**, used to move players who are already in voice.
 
@@ -37,7 +37,7 @@ Set the five channel IDs in `.env`, or leave them blank. If blank, the bot looks
 - `Match 2 Hiddenking`
 - `Match 2 Archmother`
 
-Players must already be in a voice channel to be moved at **Start match**. If they join later (Queue is fine), the bot moves them into the team channel automatically. They stay in Queue until an admin clicks **Start match**. After a winner they return to Queue. **Create match** and team refresh do not move anyone.
+Players must already be in a voice channel to be moved at **Start draft**. If they join later (Queue is fine), the bot moves them into the team channel automatically. They stay in Queue until an admin clicks **Start draft**. After a winner they return to Queue. **Create match** and team refresh do not move anyone.
 
 ## Commands
 
@@ -45,27 +45,41 @@ Admins are anyone with **Manage Server**.
 
 | Command | What it does |
 | --- | --- |
-| `/camp start` | Create a camp (`24`, `30`, `4-1v1`, or `4-2v2`). Prints a short camp ID. |
-| `/camp add` | Add Discord users to the roster (or use the user picker on the camp message). |
-| `/camp remove` | Remove a user before the queue starts. |
-| `/camp cancel` | Soft-cancel. Data is kept. Resume with `/camp resume CAMPID`. |
-| `/camp resume` | Restore a cancelled camp in this server. |
-| `/camp end` | Final standings (after at least one scored match). Not resumable. |
+| `/camp iniciar` | Create a camp (`24`, `30`, `4-1v1`, or `4-2v2`). Prints a short camp ID. |
+| `/camp adicionar` | Add Discord users to the roster (or use the user picker on the camp message). |
+| `/camp remover` | Remove a user before the queue starts. |
+| `/camp srank` | Toggle a roster player as S rank (or use the S rank picker on the signup message). Works during signup and while running; applies to matches created afterwards. |
+| `/camp cancelar` | Soft-cancel. Data is kept. Resume with `/camp retomar CAMPID`. |
+| `/camp retomar` | Restore a cancelled camp in this server. |
+| `/camp encerrar` | Final standings (after at least one scored match). Not resumable. |
 | `/camp info` | Roster, queue order, points, consecutive counts, live matches. |
+| `/camp match_info` | Teams, captains, winner, draft link, and party code for one match ID. |
 
 ## Match flow
 
 1. Admin fills the roster to exactly 24, 30, or 4 (test), then **Start queue**. The roster is shuffled; nobody is placed into a match yet.
-2. Admin clicks **Create match** to pull the next group from the queue (12, 4 in a 2v2 test, or 2 in a 1v1 test) and sort Hiddenking / Archmother. Click it again for a second concurrent match when a slot is free. With 30 players, leftover players stay in queue until an admin creates another match.
-3. Players on a match each vote once: **Refresh teams** or **No refresh**. If at least 4 players from either side vote refresh (2 in a 2v2 test, 1 in a 1v1 test), teams are re-sorted. If everyone has voted (or refresh can no longer pass), voting ends and the admin can start. Each match only votes once.
-4. Admin **Start match** marks the game live and moves those players into the team voice channels. If `ENABLE_CUSTOM_MATCH_CREATE=true`, it also creates a Deadlock custom lobby and posts the party code. Players join in-game and draft heroes.
-5. Admin reports the winner. Winners get +1 point. Players re-enter the queue by consecutive-match count (winners before losers in the same count; blocks with more than two players are shuffled). Anyone who sat out has their consecutive count reset to 0. The next match is **not** created until an admin clicks **Create match**.
-6. When no matches are live and at least one has been scored, admin can click **Final match**. That seats the highest-point players (same count as a normal match; ties for the last seats are shuffled) and randomizes Hiddenking / Archmother. Refresh voting works the same as a normal match. After a final is created, **Create match** is locked. After it is scored, **End camp**.
-7. **End camp** posts gold / silver / bronze for the top distinct point totals.
+2. Admin clicks **Create match** to pull the next group from the queue (12, 4 in a 2v2 test, or 2 in a 1v1 test) and sort Hiddenking / Archmother. The first two queued S rank players are always pulled in, one per team (see below). Click it again for a second concurrent match when a slot is free. With 30 players, leftover players stay in queue until an admin creates another match.
+3. Players on a match each vote once: **Refresh teams** or **No refresh**. If at least 4 players from either side vote refresh (2 in a 2v2 test, 1 in a 1v1 test), teams are re-sorted, still keeping S rank players apart. If everyone has voted (or refresh can no longer pass), voting ends and the admin can start the draft. Each match only votes once.
+4. Admin **Start draft** creates a pick/ban draft on [draft.deadlock.pro.br](https://draft.deadlock.pro.br/docs) (no API key needed), DMs each captain their own team's private link, posts the spectator link in the channel, and moves the players into the team voice channels.
+5. Admin **Start match** marks the game live. If `ENABLE_CUSTOM_MATCH_CREATE=true`, it also creates a Deadlock custom lobby and posts the party code.
+6. Admin reports the winner. Winners get +1 point. Players re-enter the queue by consecutive-match count (winners before losers in the same count; blocks with more than two players are shuffled). Anyone who sat out has their consecutive count reset to 0. The next match is **not** created until an admin clicks **Create match**.
+7. When no matches are live and at least one has been scored, admin can click **Final match**. That seats the highest-point players (same count as a normal match; ties for the last seats are shuffled) and balances the teams by points. S rank players are not guaranteed a final seat, but any who make it are kept apart. Refresh voting works the same as a normal match. After a final is created, **Create match** is locked. After it is scored, **End camp**.
+8. **End camp** posts gold / silver / bronze for the top distinct point totals.
+
+### S rank players and captains
+
+Admins mark S rank players (⭐) per camp with the picker on the signup message or `/camp srank`.
+
+- Each new match pulls the first two S rank players in queue order, one per team. Other S rank players keep their place in line. Only when there aren't enough regular players to fill a match does a third one get in; the teams then split 2/1.
+- Every team has a captain (👑): its S rank player, or, if it has none, its highest-points player (ties are random). Captains are chosen when teams are made and again after a refresh.
+- **Start draft** DMs each captain the private link for their own team. Whoever opens a team link picks and bans for that team, so the bot never posts team links in the channel. The spectator link is public, in the channel and on the match message.
+- If a DM fails, the bot mentions that captain in the channel, and they click **Link do capitão** on the match message to see their link privately. `/camp match_info` shows admins the spectator link and the organizer page with every link.
+- Each team gets 2 bans and one pick per player, with a 30-second timer per turn. To run your own copy of the [draft tool](https://github.com/deadlockprobr/draft), set `DRAFT_BASE_URL`.
+- Aim for two S rank players per concurrent match (four in a 24- or 30-player camp). With only two, they play nearly every match.
 
 ### Testing with four accounts
 
-Use `/camp start` and pick **4-1v1** to run two matches at once, or **4-2v2** for a single match. Add your four Discord users, then **Start queue**.
+Use `/camp iniciar` and pick **4-1v1** to run two matches at once, or **4-2v2** for a single match. Add your four Discord users, then **Start queue**.
 
 - **4-1v1:** click **Create match** twice. You get two 1v1s (Match 1 and Match 2). Refresh needs **1 vote from either side**.
 - **4-2v2:** click **Create match** once. You get one Hiddenking vs Archmother match of two players each. Refresh needs **2 votes from either team**.

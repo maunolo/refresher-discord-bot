@@ -10,6 +10,7 @@ mod commands;
 mod config;
 mod db;
 mod deadlock;
+mod draft;
 mod queue;
 mod state;
 mod sync;

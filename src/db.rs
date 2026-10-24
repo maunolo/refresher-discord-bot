@@ -5,7 +5,8 @@ use sqlx::{sqlite::SqliteConnectOptions, SqlitePool, Transaction, Sqlite};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::queue::{self, CampLayout, QueuePlayer};
+use crate::draft::CreatedDraft;
+use crate::queue::{self, CampLayout, QueuePlayer, Seat, TeamSplit};
 
 #[derive(Clone, Debug)]
 pub struct CampRow {
@@ -32,6 +33,17 @@ pub struct PlayerRow {
     pub location: String,
     pub queue_position: Option<i64>,
     pub consecutive_matches: i64,
+    pub s_rank: bool,
+}
+
+impl PlayerRow {
+    pub fn seat(&self) -> Seat {
+        Seat {
+            user_id: self.user_id,
+            points: self.points,
+            s_rank: self.s_rank,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -46,6 +58,22 @@ pub struct MatchRow {
     pub party_code: Option<String>,
     pub winner_side: Option<String>,
     pub is_final: bool,
+    /// Public spectator link. Set once the draft starts.
+    pub draft_url: Option<String>,
+    pub draft_hiddenking_url: Option<String>,
+    pub draft_archmother_url: Option<String>,
+    pub draft_admin_url: Option<String>,
+}
+
+impl MatchRow {
+    /// The private draft link for one side.
+    pub fn team_draft_url(&self, side: &str) -> Option<&str> {
+        match side {
+            "hiddenking" => self.draft_hiddenking_url.as_deref(),
+            "archmother" => self.draft_archmother_url.as_deref(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -54,6 +82,7 @@ pub struct MatchPlayerRow {
     pub user_id: i64,
     pub side: String,
     pub points_after: Option<i64>,
+    pub is_captain: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -195,6 +224,26 @@ pub async fn set_match_message_id(pool: &SqlitePool, match_id: &str, message_id:
     Ok(())
 }
 
+pub async fn set_draft(pool: &SqlitePool, match_id: &str, draft: &CreatedDraft) -> Result<()> {
+    let updated = sqlx::query(
+        "UPDATE camp_matches
+         SET draft_url = ?, draft_hiddenking_url = ?, draft_archmother_url = ?, draft_admin_url = ?
+         WHERE id = ? AND status = 'voting' AND refresh_used != 0 AND draft_url IS NULL",
+    )
+    .bind(&draft.spectator_url)
+    .bind(&draft.hiddenking_url)
+    .bind(&draft.archmother_url)
+    .bind(&draft.admin_url)
+    .bind(match_id)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(anyhow!("não é possível iniciar o draft desta partida"));
+    }
+    Ok(())
+}
+
 pub async fn load_camp(pool: &SqlitePool, camp_id: &str) -> Result<Option<CampState>> {
     let camp = sqlx::query_as::<_, (String, i64, i64, Option<i64>, i64, i64, String, i64)>(
         "SELECT id, guild_id, channel_id, board_message_id, target_size, match_size, status, match_count FROM camps WHERE id = ?",
@@ -246,12 +295,17 @@ pub async fn load_match_info(
             Option<String>,
             Option<String>,
             i64,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
             String,
             i64,
         ),
     >(
         "SELECT m.id, m.slot, m.status, m.refresh_used, m.message_id, m.party_id, m.party_code,
-                m.winner_side, m.is_final, m.camp_id, c.guild_id
+                m.winner_side, m.is_final, m.draft_url, m.draft_hiddenking_url,
+                m.draft_archmother_url, m.draft_admin_url, m.camp_id, c.guild_id
          FROM camp_matches m
          JOIN camps c ON c.id = m.camp_id
          WHERE m.id = ?",
@@ -260,7 +314,7 @@ pub async fn load_match_info(
     .fetch_optional(pool)
     .await?
     .ok_or_else(|| anyhow!("partida não encontrada"))?;
-    if row.10 != guild_id {
+    if row.14 != guild_id {
         return Err(anyhow!("essa partida pertence a outro servidor"));
     }
     let match_row = MatchRow {
@@ -273,10 +327,14 @@ pub async fn load_match_info(
         party_code: row.6,
         winner_side: row.7,
         is_final: row.8 != 0,
+        draft_url: row.9,
+        draft_hiddenking_url: row.10,
+        draft_archmother_url: row.11,
+        draft_admin_url: row.12,
     };
-    let camp_id = row.9;
-    let mp = sqlx::query_as::<_, (i64, String, Option<i64>)>(
-        "SELECT user_id, side, points_after FROM camp_match_players WHERE match_id = ?",
+    let camp_id = row.13;
+    let mp = sqlx::query_as::<_, (i64, String, Option<i64>, i64)>(
+        "SELECT user_id, side, points_after, is_captain FROM camp_match_players WHERE match_id = ?",
     )
     .bind(match_id)
     .fetch_all(pool)
@@ -287,6 +345,7 @@ pub async fn load_match_info(
             user_id: p.0,
             side: p.1,
             points_after: p.2,
+            is_captain: p.3 != 0,
         })
         .collect();
     Ok(HistoricMatch {
@@ -327,8 +386,8 @@ async fn assemble_state(
         status: c.6,
         match_count: c.7,
     };
-    let player_rows = sqlx::query_as::<_, (i64, i64, String, Option<i64>, i64)>(
-        "SELECT user_id, points, location, queue_position, consecutive_matches
+    let player_rows = sqlx::query_as::<_, (i64, i64, String, Option<i64>, i64, i64)>(
+        "SELECT user_id, points, location, queue_position, consecutive_matches, is_s_rank
          FROM camp_players WHERE camp_id = ?
          ORDER BY queue_position IS NULL, queue_position, joined_at, user_id",
     )
@@ -343,6 +402,7 @@ async fn assemble_state(
             location: p.2,
             queue_position: p.3,
             consecutive_matches: p.4,
+            s_rank: p.5 != 0,
         })
         .collect();
 
@@ -358,9 +418,14 @@ async fn assemble_state(
             Option<String>,
             Option<String>,
             i64,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
         ),
     >(
-        "SELECT id, slot, status, refresh_used, message_id, party_id, party_code, winner_side, is_final
+        "SELECT id, slot, status, refresh_used, message_id, party_id, party_code, winner_side, is_final,
+                draft_url, draft_hiddenking_url, draft_archmother_url, draft_admin_url
          FROM camp_matches WHERE camp_id = ? AND status IN ('voting', 'live') ORDER BY slot",
     )
     .bind(&camp.id)
@@ -379,9 +444,13 @@ async fn assemble_state(
             party_code: m.6,
             winner_side: m.7,
             is_final: m.8 != 0,
+            draft_url: m.9,
+            draft_hiddenking_url: m.10,
+            draft_archmother_url: m.11,
+            draft_admin_url: m.12,
         };
-        let mp = sqlx::query_as::<_, (i64, String, Option<i64>)>(
-            "SELECT user_id, side, points_after FROM camp_match_players WHERE match_id = ?",
+        let mp = sqlx::query_as::<_, (i64, String, Option<i64>, i64)>(
+            "SELECT user_id, side, points_after, is_captain FROM camp_match_players WHERE match_id = ?",
         )
         .bind(&row.id)
         .fetch_all(pool)
@@ -392,6 +461,7 @@ async fn assemble_state(
                 user_id: p.0,
                 side: p.1,
                 points_after: p.2,
+                is_captain: p.3 != 0,
             })
             .collect();
         let votes: Vec<RefreshVote> = sqlx::query_as::<_, (i64, String)>(
@@ -524,6 +594,53 @@ pub async fn remove_player(pool: &SqlitePool, camp_id: &str, user_id: i64) -> Re
     Ok(())
 }
 
+/// Replace the camp's S-rank list. Returns the selected users who are not on the roster.
+pub async fn set_s_rank(pool: &SqlitePool, camp_id: &str, user_ids: &[i64]) -> Result<Vec<i64>> {
+    let state = load_camp(pool, camp_id)
+        .await?
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
+    if !matches!(state.camp.status.as_str(), "signup" | "running") {
+        return Err(anyhow!("o camp não está ativo"));
+    }
+    let not_on_roster: Vec<i64> = user_ids
+        .iter()
+        .copied()
+        .filter(|id| !state.players.iter().any(|p| p.user_id == *id))
+        .collect();
+    let mut tx = pool.begin().await?;
+    for player in &state.players {
+        sqlx::query("UPDATE camp_players SET is_s_rank = ? WHERE camp_id = ? AND user_id = ?")
+            .bind(user_ids.contains(&player.user_id))
+            .bind(camp_id)
+            .bind(player.user_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    sqlx::query("UPDATE camps SET updated_at = ? WHERE id = ?")
+        .bind(now())
+        .bind(camp_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(not_on_roster)
+}
+
+/// Flip one player's S-rank flag. Returns the new value.
+pub async fn toggle_s_rank(pool: &SqlitePool, camp_id: &str, user_id: i64) -> Result<bool> {
+    let updated: Option<i64> = sqlx::query_scalar(
+        "UPDATE camp_players SET is_s_rank = 1 - is_s_rank
+         WHERE camp_id = ? AND user_id = ?
+         RETURNING is_s_rank",
+    )
+    .bind(camp_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    updated
+        .map(|flag| flag != 0)
+        .ok_or_else(|| anyhow!("esse jogador não está no elenco"))
+}
+
 async fn reindex_signup_queue(tx: &mut Transaction<'_, Sqlite>, camp_id: &str) -> Result<()> {
     let ids: Vec<i64> = sqlx::query_scalar(
         "SELECT user_id FROM camp_players WHERE camp_id = ? ORDER BY joined_at, user_id",
@@ -588,6 +705,30 @@ async fn camp_layout_in_tx(
     Ok(CampLayout::from_match_size(match_size))
 }
 
+async fn insert_match_players(
+    tx: &mut Transaction<'_, Sqlite>,
+    match_id: &str,
+    split: &TeamSplit,
+) -> Result<()> {
+    for (side, team, captain) in [
+        ("hiddenking", &split.hiddenking, split.hiddenking_captain),
+        ("archmother", &split.archmother, split.archmother_captain),
+    ] {
+        for user_id in team {
+            sqlx::query(
+                "INSERT INTO camp_match_players (match_id, user_id, side, is_captain) VALUES (?, ?, ?, ?)",
+            )
+            .bind(match_id)
+            .bind(user_id)
+            .bind(side)
+            .bind(captain == Some(*user_id))
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+    Ok(())
+}
+
 async fn pull_match_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     camp_id: &str,
@@ -597,19 +738,26 @@ async fn pull_match_in_tx(
         None => return Ok(None),
     };
     let layout = camp_layout_in_tx(tx, camp_id).await?;
-    let queued: Vec<(i64, i64)> = sqlx::query_as(
-        "SELECT user_id, consecutive_matches FROM camp_players
+    let queued: Vec<Seat> = sqlx::query_as::<_, (i64, i64, i64)>(
+        "SELECT user_id, points, is_s_rank FROM camp_players
          WHERE camp_id = ? AND location = 'queued'
          ORDER BY queue_position",
     )
     .bind(camp_id)
     .fetch_all(&mut **tx)
-    .await?;
+    .await?
+    .into_iter()
+    .map(|(user_id, points, s_rank)| Seat {
+        user_id,
+        points,
+        s_rank: s_rank != 0,
+    })
+    .collect();
     if queued.len() < layout.match_size {
         return Ok(None);
     }
-    let batch: Vec<i64> = queued.iter().take(layout.match_size).map(|q| q.0).collect();
-    let (hiddenking, archmother) = queue::split_teams(batch, &mut rand::thread_rng());
+    let seats = queue::pick_match_seats(&queued, layout.match_size);
+    let split = queue::split_match(&seats, false, &mut rand::thread_rng());
     let match_id = generate_unique_match_id(tx).await?;
 
     sqlx::query(
@@ -620,29 +768,10 @@ async fn pull_match_in_tx(
     .bind(slot)
     .execute(&mut **tx)
     .await?;
+    insert_match_players(tx, &match_id, &split).await?;
 
     let location = if slot == 1 { "match_1" } else { "match_2" };
-    for user_id in &hiddenking {
-        sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'hiddenking')")
-            .bind(&match_id)
-            .bind(user_id)
-            .execute(&mut **tx)
-            .await?;
-        sqlx::query(
-            "UPDATE camp_players SET location = ?, queue_position = NULL WHERE camp_id = ? AND user_id = ?",
-        )
-        .bind(location)
-        .bind(camp_id)
-        .bind(user_id)
-        .execute(&mut **tx)
-        .await?;
-    }
-    for user_id in &archmother {
-        sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'archmother')")
-            .bind(&match_id)
-            .bind(user_id)
-            .execute(&mut **tx)
-            .await?;
+    for user_id in split.hiddenking.iter().chain(&split.archmother) {
         sqlx::query(
             "UPDATE camp_players SET location = ?, queue_position = NULL WHERE camp_id = ? AND user_id = ?",
         )
@@ -811,12 +940,12 @@ pub async fn create_final_match(
         ));
     }
 
-    let points_by_user: std::collections::HashMap<i64, i64> = scored.into_iter().collect();
-    let ranked: Vec<(i64, i64)> = batch
-        .into_iter()
-        .map(|user_id| (user_id, *points_by_user.get(&user_id).unwrap_or(&0)))
+    let seats: Vec<Seat> = batch
+        .iter()
+        .filter_map(|user_id| state.players.iter().find(|p| p.user_id == *user_id))
+        .map(PlayerRow::seat)
         .collect();
-    let (hiddenking, archmother) = queue::split_balanced(&ranked, &mut rng);
+    let split = queue::split_match(&seats, true, &mut rng);
 
     let mut tx = pool.begin().await?;
     let slot = next_free_slot(&mut tx, &camp_id)
@@ -833,29 +962,10 @@ pub async fn create_final_match(
     .bind(slot)
     .execute(&mut *tx)
     .await?;
+    insert_match_players(&mut tx, &match_id, &split).await?;
 
     let location = if slot == 1 { "match_1" } else { "match_2" };
-    for user_id in &hiddenking {
-        sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'hiddenking')")
-            .bind(&match_id)
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
-        sqlx::query(
-            "UPDATE camp_players SET location = ?, queue_position = NULL WHERE camp_id = ? AND user_id = ?",
-        )
-        .bind(location)
-        .bind(&camp_id)
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
-    }
-    for user_id in &archmother {
-        sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'archmother')")
-            .bind(&match_id)
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
+    for user_id in split.hiddenking.iter().chain(&split.archmother) {
         sqlx::query(
             "UPDATE camp_players SET location = ?, queue_position = NULL WHERE camp_id = ? AND user_id = ?",
         )
@@ -897,7 +1007,7 @@ pub enum RefreshOutcome {
     AlreadyUsed,
     NotInMatch,
     AlreadyVoted,
-    Refreshed { hiddenking: Vec<i64>, archmother: Vec<i64> },
+    Refreshed,
     Kept { voted: usize, total: usize },
 }
 
@@ -983,41 +1093,33 @@ pub async fn vote_refresh_choice(
     let am_unvoted = am.iter().filter(|id| !voted_ids.contains(id)).count();
 
     if hk_votes >= needed || am_votes >= needed {
-        let (hiddenking, archmother) = if match_row.3 != 0 {
-            let points: Vec<(i64, i64)> = sqlx::query_as(
-                "SELECT user_id, points FROM camp_players WHERE camp_id = ?",
-            )
-            .bind(&match_row.2)
-            .fetch_all(&mut *tx)
-            .await?;
-            let points_by_user: std::collections::HashMap<i64, i64> = points.into_iter().collect();
-            let ranked: Vec<(i64, i64)> = roster
-                .iter()
-                .map(|(user_id, _)| (*user_id, *points_by_user.get(user_id).unwrap_or(&0)))
-                .collect();
-            queue::split_balanced(&ranked, &mut rand::thread_rng())
-        } else {
-            let batch: Vec<i64> = roster.iter().map(|p| p.0).collect();
-            queue::split_teams(batch, &mut rand::thread_rng())
-        };
+        let players: Vec<(i64, i64, i64)> = sqlx::query_as(
+            "SELECT user_id, points, is_s_rank FROM camp_players WHERE camp_id = ?",
+        )
+        .bind(&match_row.2)
+        .fetch_all(&mut *tx)
+        .await?;
+        let seats: Vec<Seat> = roster
+            .iter()
+            .map(|(user_id, _)| {
+                let (points, s_rank) = players
+                    .iter()
+                    .find(|p| p.0 == *user_id)
+                    .map(|p| (p.1, p.2 != 0))
+                    .unwrap_or((0, false));
+                Seat {
+                    user_id: *user_id,
+                    points,
+                    s_rank,
+                }
+            })
+            .collect();
+        let split = queue::split_match(&seats, match_row.3 != 0, &mut rand::thread_rng());
         sqlx::query("DELETE FROM camp_match_players WHERE match_id = ?")
             .bind(match_id)
             .execute(&mut *tx)
             .await?;
-        for user_id in &hiddenking {
-            sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'hiddenking')")
-                .bind(match_id)
-                .bind(user_id)
-                .execute(&mut *tx)
-                .await?;
-        }
-        for user_id in &archmother {
-            sqlx::query("INSERT INTO camp_match_players (match_id, user_id, side) VALUES (?, ?, 'archmother')")
-                .bind(match_id)
-                .bind(user_id)
-                .execute(&mut *tx)
-                .await?;
-        }
+        insert_match_players(&mut tx, match_id, &split).await?;
         sqlx::query("UPDATE camp_matches SET refresh_used = 1 WHERE id = ?")
             .bind(match_id)
             .execute(&mut *tx)
@@ -1027,10 +1129,7 @@ pub async fn vote_refresh_choice(
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
-        return Ok(RefreshOutcome::Refreshed {
-            hiddenking,
-            archmother,
-        });
+        return Ok(RefreshOutcome::Refreshed);
     }
 
     let refresh_impossible =

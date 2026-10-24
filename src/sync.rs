@@ -5,7 +5,7 @@ use serenity::all::{
 use sqlx::SqlitePool;
 
 use crate::config::Config;
-use crate::db::{self, CampState, OpenMatch};
+use crate::db::{self, CampState, MatchPlayerRow, OpenMatch};
 use crate::state::{with_guild_lock, Data};
 use crate::voice::{self, VoiceDest};
 
@@ -160,7 +160,66 @@ pub fn mention_list(ids: &[i64]) -> String {
         .join(" ")
 }
 
-/// If a player joins voice after a live match started, move them to their team channel.
+/// One team's mentions on a single line, captain first.
+pub fn side_mentions(players: &[MatchPlayerRow], side: &str) -> String {
+    let mut team: Vec<&MatchPlayerRow> = players.iter().filter(|p| p.side == side).collect();
+    team.sort_by_key(|p| !p.is_captain);
+    team.iter()
+        .map(|p| {
+            let mention = UserId::new(p.user_id as u64).mention().to_string();
+            if p.is_captain {
+                format!("{mention} {}", crate::ui::CAPTAIN_TAG)
+            } else {
+                mention
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// DM each captain their team's private draft link. The link is never posted in the channel:
+/// a captain who can't be DM'd is pointed at the captain-only button on the match message.
+pub async fn send_draft_to_captains(
+    ctx: &Context,
+    channel: ChannelId,
+    camp_id: &str,
+    open: &OpenMatch,
+) {
+    let match_name = if open.row.is_final {
+        "partida final".to_string()
+    } else {
+        format!("partida {}", open.row.slot)
+    };
+    for captain in open.players.iter().filter(|p| p.is_captain) {
+        let Some(team_url) = open.row.team_draft_url(&captain.side) else {
+            continue;
+        };
+        let team = crate::ui::winner_label(&captain.side);
+        let user = UserId::new(captain.user_id as u64);
+        let text = format!(
+            "Você é o capitão do **{team}** na {match_name} (ID `{}`) do camp `{camp_id}`.\nSeu link do draft — não compartilhe, quem abrir escolhe e bane pelo seu time:\n{team_url}",
+            open.row.id
+        );
+        if let Err(err) = user
+            .direct_message(ctx, CreateMessage::new().content(text))
+            .await
+        {
+            tracing::warn!(%user, error = %err, "failed to DM draft link to captain");
+            let _ = channel
+                .say(
+                    &ctx.http,
+                    format!(
+                        "{} não consegui te mandar DM. Clique em **{}** na mensagem da partida para ver o link do **{team}**.",
+                        user.mention(),
+                        crate::ui::CAPTAIN_LINK_LABEL
+                    ),
+                )
+                .await;
+        }
+    }
+}
+
+/// If a player joins voice after the draft or the live match started, move them to their team channel.
 pub async fn place_late_voice_join(
     ctx: &Context,
     data: &Data,
@@ -183,7 +242,8 @@ pub async fn place_late_voice_join(
         };
         let user_id = new.user_id.get() as i64;
         let Some(open) = state.open_matches.iter().find(|m| {
-            m.row.status == "live" && m.players.iter().any(|p| p.user_id == user_id)
+            m.players.iter().any(|p| p.user_id == user_id)
+                && (m.row.status == "live" || (m.row.status == "voting" && m.row.draft_url.is_some()))
         }) else {
             return Ok(());
         };

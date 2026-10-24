@@ -4,17 +4,39 @@ use serenity::all::{
 };
 
 use crate::db::{CampState, HistoricMatch, MatchPlayerRow, OpenMatch, PlayerRow};
+use crate::queue;
+
+pub const S_RANK_TAG: &str = "⭐";
+pub const CAPTAIN_TAG: &str = "👑";
+pub const CAPTAIN_LINK_LABEL: &str = "Link do capitão";
 
 pub fn mention(user_id: i64) -> String {
     UserId::new(user_id as u64).mention().to_string()
 }
 
-pub fn list_mentions(ids: &[i64]) -> String {
-    if ids.is_empty() {
+fn player_label(player: &PlayerRow) -> String {
+    if player.s_rank {
+        format!("{} {S_RANK_TAG}", mention(player.user_id))
+    } else {
+        mention(player.user_id)
+    }
+}
+
+/// One team's mentions, one per line, captain first.
+fn team_list(players: &[MatchPlayerRow], side: &str) -> String {
+    let mut team: Vec<&MatchPlayerRow> = players.iter().filter(|p| p.side == side).collect();
+    if team.is_empty() {
         return "_vazio_".to_string();
     }
-    ids.iter()
-        .map(|id| mention(*id))
+    team.sort_by_key(|p| (!p.is_captain, p.user_id));
+    team.iter()
+        .map(|p| {
+            if p.is_captain {
+                format!("{} {CAPTAIN_TAG}", mention(p.user_id))
+            } else {
+                mention(p.user_id)
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -74,12 +96,22 @@ fn footer(camp_id: &str) -> CreateEmbedFooter {
 }
 
 pub fn signup_embed(state: &CampState) -> CreateEmbed {
-    let mut ids: Vec<i64> = state.players.iter().map(|p| p.user_id).collect();
-    ids.sort();
+    let mut players: Vec<&PlayerRow> = state.players.iter().collect();
+    players.sort_by_key(|p| p.user_id);
+    let roster = if players.is_empty() {
+        "_vazio_".to_string()
+    } else {
+        players
+            .iter()
+            .map(|p| player_label(p))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let s_rank = state.players.iter().filter(|p| p.s_rank).count();
     CreateEmbed::new()
         .title("Elenco do camp de Deadlock")
         .description(format!(
-            "{}/{} jogadores. O admin adiciona usuários do Discord e depois inicia a fila.{}",
+            "{}/{} jogadores. O admin adiciona usuários do Discord e depois inicia a fila.{}\n{S_RANK_TAG} S rank: **{s_rank}** — capitães, dois por partida, sempre em times separados.",
             state.players.len(),
             state.camp.target_size,
             match state.camp.layout().match_size {
@@ -88,8 +120,29 @@ pub fn signup_embed(state: &CampState) -> CreateEmbed {
                 _ => "",
             }
         ))
-        .field("Jogadores", list_mentions(&ids), false)
+        .field("Jogadores", roster, false)
         .footer(footer(&state.camp.id))
+}
+
+fn s_rank_select(state: &CampState) -> CreateActionRow {
+    let current: Vec<UserId> = state
+        .players
+        .iter()
+        .filter(|p| p.s_rank)
+        .take(25)
+        .map(|p| UserId::new(p.user_id as u64))
+        .collect();
+    CreateActionRow::SelectMenu(
+        CreateSelectMenu::new(
+            format!("s_rank:{}", state.camp.id),
+            CreateSelectMenuKind::User {
+                default_users: (!current.is_empty()).then_some(current),
+            },
+        )
+        .placeholder("Jogadores S rank (capitães)")
+        .min_values(0)
+        .max_values(state.players.len().min(25) as u8),
+    )
 }
 
 pub fn signup_components(state: &CampState) -> Vec<CreateActionRow> {
@@ -109,6 +162,9 @@ pub fn signup_components(state: &CampState) -> Vec<CreateActionRow> {
             .min_values(1)
             .max_values(select_max),
         ));
+    }
+    if !state.players.is_empty() {
+        rows.push(s_rank_select(state));
     }
     rows.push(CreateActionRow::Buttons(vec![CreateButton::new(format!(
         "start_queue:{}",
@@ -135,7 +191,7 @@ fn queue_line(index: usize, player: &PlayerRow, up_next: bool) -> String {
         "`{:>2}.` {} {} ({} seg., {} pts)",
         index + 1,
         if up_next { "→" } else { " " },
-        mention(player.user_id),
+        player_label(player),
         player.consecutive_matches,
         player.points
     )
@@ -163,7 +219,11 @@ fn pack_field_chunks(lines: &[String]) -> Vec<String> {
 
 pub fn board_embed(state: &CampState) -> CreateEmbed {
     let queue = queued_players(state);
-    let next_n = state.camp.layout().match_size;
+    let seats: Vec<queue::Seat> = queue.iter().map(|p| p.seat()).collect();
+    let up_next: Vec<i64> = queue::pick_match_seats(&seats, state.camp.layout().match_size)
+        .iter()
+        .map(|s| s.user_id)
+        .collect();
     let mut embed = CreateEmbed::new()
         .title(format!("Camp de Deadlock {}", state.camp.id))
         .description(format!(
@@ -178,7 +238,7 @@ pub fn board_embed(state: &CampState) -> CreateEmbed {
         let lines: Vec<String> = queue
             .iter()
             .enumerate()
-            .map(|(i, p)| queue_line(i, p, i < next_n))
+            .map(|(i, p)| queue_line(i, p, up_next.contains(&p.user_id)))
             .collect();
         for (i, chunk) in pack_field_chunks(&lines).into_iter().enumerate() {
             let name = if i == 0 {
@@ -229,22 +289,10 @@ pub fn board_components(state: &CampState) -> Vec<CreateActionRow> {
 }
 
 fn teams_text(players: &[MatchPlayerRow], party_code: Option<&str>) -> String {
-    let mut hk: Vec<i64> = players
-        .iter()
-        .filter(|p| p.side == "hiddenking")
-        .map(|p| p.user_id)
-        .collect();
-    let mut am: Vec<i64> = players
-        .iter()
-        .filter(|p| p.side == "archmother")
-        .map(|p| p.user_id)
-        .collect();
-    hk.sort();
-    am.sort();
     let mut text = format!(
         "**Hiddenking**\n{}\n**Archmother**\n{}",
-        list_mentions(&hk),
-        list_mentions(&am)
+        team_list(players, "hiddenking"),
+        team_list(players, "archmother")
     );
     if let Some(code) = party_code.filter(|c| !c.is_empty()) {
         text.push_str(&format!("\nCódigo da party: `{code}`"));
@@ -282,12 +330,14 @@ pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
     let voted = open.votes.len();
     let total = open.players.len();
     let mut desc = if open.row.status == "voting" {
-        if open.row.refresh_used && !open.votes.is_empty() {
+        if open.row.draft_url.is_some() {
+            format!("Draft iniciado — cada capitão ({CAPTAIN_TAG}) recebeu por DM o link do seu time. Um admin pode iniciar a partida.")
+        } else if open.row.refresh_used && !open.votes.is_empty() {
             format!(
-                "Votação encerrada — times mantidos ({voted}/{total}). Um admin pode iniciar a partida."
+                "Votação encerrada — times mantidos ({voted}/{total}). Um admin pode iniciar o draft."
             )
         } else if open.row.refresh_used {
-            "Times atualizados. Um admin pode iniciar a partida.".to_string()
+            "Times atualizados. Um admin pode iniciar o draft.".to_string()
         } else {
             format!(
                 "Atualizar: Hiddenking **{hk_votes}/{needed}** · Archmother **{am_votes}/{needed}**\nManter times: **{keep}** · Votos: **{voted}/{total}**"
@@ -296,6 +346,9 @@ pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
     } else {
         "Partida ao vivo. Entre com o código da party e escolha os heróis no Deadlock.".to_string()
     };
+    if let Some(url) = &open.row.draft_url {
+        desc.push_str(&format!("\n\n**Assistir ao draft:** {url}"));
+    }
     if let Some(code) = &open.row.party_code {
         desc.push_str(&format!("\n\n**Código da party:** `{code}`"));
     }
@@ -309,20 +362,41 @@ pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
             )
         })
         .description(desc)
-        .field("Hiddenking", list_mentions(&hk), true)
-        .field("Archmother", list_mentions(&am), true)
+        .field("Hiddenking", team_list(&open.players, "hiddenking"), true)
+        .field("Archmother", team_list(&open.players, "archmother"), true)
         .footer(footer(&state.camp.id))
+}
+
+fn captain_link_button(state: &CampState, open: &OpenMatch) -> CreateButton {
+    CreateButton::new(format!("captain_link:{}:{}", state.camp.id, open.row.id))
+        .label(CAPTAIN_LINK_LABEL)
+        .emoji('👑')
+        .style(ButtonStyle::Secondary)
 }
 
 pub fn match_components(state: &CampState, open: &OpenMatch) -> Vec<CreateActionRow> {
     let mut rows = Vec::new();
+    let drafted = open.row.draft_url.is_some();
     if open.row.status == "voting" {
         let mut buttons = vec![CreateButton::new(format!(
             "start_match:{}:{}",
             state.camp.id, open.row.id
         ))
         .label("Iniciar partida")
-        .style(ButtonStyle::Success)];
+        .style(ButtonStyle::Success)
+        .disabled(!drafted)];
+        if drafted {
+            buttons.insert(0, captain_link_button(state, open));
+        }
+        if !drafted {
+            buttons.insert(
+                0,
+                CreateButton::new(format!("start_draft:{}:{}", state.camp.id, open.row.id))
+                    .label("Iniciar draft")
+                    .style(ButtonStyle::Primary)
+                    .disabled(!open.row.refresh_used),
+            );
+        }
         if !open.row.refresh_used {
             buttons.insert(
                 0,
@@ -354,6 +428,9 @@ pub fn match_components(state: &CampState, open: &OpenMatch) -> Vec<CreateAction
             .label("Archmother venceu")
             .style(ButtonStyle::Secondary),
         ]));
+        if drafted {
+            rows.push(CreateActionRow::Buttons(vec![captain_link_button(state, open)]));
+        }
     }
     rows
 }
@@ -424,32 +501,20 @@ pub fn match_info_embed(info: &HistoricMatch) -> CreateEmbed {
         info.row.id,
         status_label(&info.row.status),
     );
+    if let Some(url) = info.row.draft_url.as_deref().filter(|u| !u.is_empty()) {
+        desc.push_str(&format!("\n**Draft (espectador):** {url}"));
+    }
+    if let Some(url) = info.row.draft_admin_url.as_deref().filter(|u| !u.is_empty()) {
+        desc.push_str(&format!("\n**Draft (admin, todos os links):** {url}"));
+    }
     if let Some(code) = info.row.party_code.as_deref().filter(|c| !c.is_empty()) {
         desc.push_str(&format!("\n**Código da party:** `{code}`"));
     }
     CreateEmbed::new()
         .title(format!("Partida {}", info.row.id))
         .description(desc)
-        .field("Hiddenking", {
-            let mut hk: Vec<i64> = info
-                .players
-                .iter()
-                .filter(|p| p.side == "hiddenking")
-                .map(|p| p.user_id)
-                .collect();
-            hk.sort();
-            list_mentions(&hk)
-        }, true)
-        .field("Archmother", {
-            let mut am: Vec<i64> = info
-                .players
-                .iter()
-                .filter(|p| p.side == "archmother")
-                .map(|p| p.user_id)
-                .collect();
-            am.sort();
-            list_mentions(&am)
-        }, true)
+        .field("Hiddenking", team_list(&info.players, "hiddenking"), true)
+        .field("Archmother", team_list(&info.players, "archmother"), true)
         .footer(footer(&info.camp_id))
 }
 
@@ -473,7 +538,7 @@ pub fn info_embed(state: &CampState) -> CreateEmbed {
                 format!(
                     "`{:>2}.` {} · {} pts · {} seg. · {}",
                     i + 1,
-                    mention(p.user_id),
+                    player_label(p),
                     p.points,
                     p.consecutive_matches,
                     location_label(&p.location)

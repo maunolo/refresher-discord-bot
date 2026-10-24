@@ -8,6 +8,7 @@ pub struct Config {
     pub database_url: String,
     pub deadlock_server_region: Option<String>,
     pub enable_custom_match_create: bool,
+    pub draft_base_url: String,
     pub queue_voice_channel_id: Option<ChannelId>,
     pub match1_hiddenking_voice_id: Option<ChannelId>,
     pub match1_archmother_voice_id: Option<ChannelId>,
@@ -54,6 +55,10 @@ impl Config {
                 .ok()
                 .filter(|s| !s.trim().is_empty()),
             enable_custom_match_create: env_flag("ENABLE_CUSTOM_MATCH_CREATE", false),
+            draft_base_url: std::env::var("DRAFT_BASE_URL")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+                .unwrap_or_else(|| crate::draft::DEFAULT_BASE_URL.to_string()),
             queue_voice_channel_id: optional_channel("QUEUE_VOICE_CHANNEL_ID")?,
             match1_hiddenking_voice_id: optional_channel("MATCH1_HIDDENKING_VOICE_CHANNEL_ID")?,
             match1_archmother_voice_id: optional_channel("MATCH1_ARCHMOTHER_VOICE_CHANNEL_ID")?,

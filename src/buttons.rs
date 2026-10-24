@@ -63,6 +63,7 @@ async fn handle_locked(
     let parts: Vec<&str> = custom_id.split(':').collect();
     match parts.as_slice() {
         ["add_users", camp_id] => add_users(ctx, data, interaction, camp_id).await,
+        ["s_rank", camp_id] => set_s_rank(ctx, data, interaction, camp_id).await,
         ["start_queue", camp_id] => start_queue(ctx, data, interaction, guild_id, camp_id).await,
         ["create_match", camp_id] => {
             create_match(ctx, data, interaction, guild_id, camp_id).await
@@ -77,7 +78,13 @@ async fn handle_locked(
             vote_choice(ctx, data, interaction, camp_id, match_id, false).await
         }
         ["start_match", camp_id, match_id] => {
-            start_match(ctx, data, interaction, guild_id, camp_id, match_id).await
+            start_match(ctx, data, interaction, camp_id, match_id).await
+        }
+        ["start_draft", camp_id, match_id] => {
+            start_draft(ctx, data, interaction, guild_id, camp_id, match_id).await
+        }
+        ["captain_link", camp_id, match_id] => {
+            captain_link(ctx, data, interaction, camp_id, match_id).await
         }
         ["win", camp_id, match_id, side] => {
             report_win(ctx, data, interaction, guild_id, camp_id, match_id, side).await
@@ -118,6 +125,44 @@ async fn add_users(
                         &ctx.http,
                         serenity::all::CreateInteractionResponseFollowup::new()
                             .content("Nenhum jogador novo adicionado (duplicados ou elenco cheio).")
+                            .ephemeral(true),
+                    )
+                    .await;
+            }
+            Ok(())
+        }
+        Err(err) => ephemeral(ctx, interaction, err.to_string()).await,
+    }
+}
+
+async fn set_s_rank(
+    ctx: &Context,
+    data: &Data,
+    interaction: &ComponentInteraction,
+    camp_id: &str,
+) -> Result<()> {
+    if !is_admin(interaction) {
+        return ephemeral(ctx, interaction, "Apenas quem gerencia o servidor pode escolher os S rank.").await;
+    }
+    let ComponentInteractionDataKind::UserSelect { values } = &interaction.data.kind else {
+        return Ok(());
+    };
+    let ids: Vec<i64> = values.iter().map(|u| u.get() as i64).collect();
+    match db::set_s_rank(&data.db, camp_id, &ids).await {
+        Ok(not_on_roster) => {
+            ack(ctx, interaction).await?;
+            if let Some(state) = db::load_camp(&data.db, camp_id).await? {
+                sync::redraw_board(ctx, &data.db, &state).await?;
+            }
+            if !not_on_roster.is_empty() {
+                let _ = interaction
+                    .create_followup(
+                        &ctx.http,
+                        serenity::all::CreateInteractionResponseFollowup::new()
+                            .content(format!(
+                                "Ignorado(s), fora do elenco: {}",
+                                sync::mention_list(&not_on_roster)
+                            ))
                             .ephemeral(true),
                     )
                     .await;
@@ -190,26 +235,14 @@ async fn create_match(
             let channel = ChannelId::new(state.camp.channel_id as u64);
             sync::redraw_all(ctx, &data.db, &state).await?;
             if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
-                let hk: Vec<i64> = open
-                    .players
-                    .iter()
-                    .filter(|p| p.side == "hiddenking")
-                    .map(|p| p.user_id)
-                    .collect();
-                let am: Vec<i64> = open
-                    .players
-                    .iter()
-                    .filter(|p| p.side == "archmother")
-                    .map(|p| p.user_id)
-                    .collect();
                 let _ = channel
                     .say(
                         &ctx.http,
                         format!(
-                            "Partida {} criada. Votem para atualizar os times; depois um admin inicia a partida.\nHiddenking: {}\nArchmother: {}",
+                            "Partida {} criada. Votem para atualizar os times; depois um admin inicia o draft.\nHiddenking: {}\nArchmother: {}",
                             open.row.slot,
-                            sync::mention_list(&hk),
-                            sync::mention_list(&am)
+                            sync::side_mentions(&open.players, "hiddenking"),
+                            sync::side_mentions(&open.players, "archmother")
                         ),
                     )
                     .await;
@@ -239,25 +272,13 @@ async fn create_final_match(
             let channel = ChannelId::new(state.camp.channel_id as u64);
             sync::redraw_all(ctx, &data.db, &state).await?;
             if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
-                let hk: Vec<i64> = open
-                    .players
-                    .iter()
-                    .filter(|p| p.side == "hiddenking")
-                    .map(|p| p.user_id)
-                    .collect();
-                let am: Vec<i64> = open
-                    .players
-                    .iter()
-                    .filter(|p| p.side == "archmother")
-                    .map(|p| p.user_id)
-                    .collect();
                 let _ = channel
                     .say(
                         &ctx.http,
                         format!(
-                            "Partida final criada com os jogadores de maior pontuação. Votem para atualizar os times; depois um admin inicia a partida.\nHiddenking: {}\nArchmother: {}",
-                            sync::mention_list(&hk),
-                            sync::mention_list(&am)
+                            "Partida final criada com os jogadores de maior pontuação. Votem para atualizar os times; depois um admin inicia o draft.\nHiddenking: {}\nArchmother: {}",
+                            sync::side_mentions(&open.players, "hiddenking"),
+                            sync::side_mentions(&open.players, "archmother")
                         ),
                     )
                     .await;
@@ -329,32 +350,31 @@ async fn vote_choice(
                 .await;
             Ok(())
         }
-        RefreshOutcome::Refreshed {
-            hiddenking,
-            archmother,
-        } => {
+        RefreshOutcome::Refreshed => {
             ack(ctx, interaction).await?;
             let state = db::load_camp(&data.db, camp_id)
                 .await?
                 .ok_or_else(|| anyhow!("camp não encontrado"))?;
             let channel = ChannelId::new(state.camp.channel_id as u64);
             sync::redraw_all(ctx, &data.db, &state).await?;
-            let _ = channel
-                .say(
-                    &ctx.http,
-                    format!(
-                        "Times atualizados nesta partida.\nHiddenking: {}\nArchmother: {}",
-                        sync::mention_list(&hiddenking),
-                        sync::mention_list(&archmother)
-                    ),
-                )
-                .await;
+            if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
+                let _ = channel
+                    .say(
+                        &ctx.http,
+                        format!(
+                            "Times atualizados nesta partida.\nHiddenking: {}\nArchmother: {}",
+                            sync::side_mentions(&open.players, "hiddenking"),
+                            sync::side_mentions(&open.players, "archmother")
+                        ),
+                    )
+                    .await;
+            }
             Ok(())
         }
     }
 }
 
-async fn start_match(
+async fn start_draft(
     ctx: &Context,
     data: &Data,
     interaction: &ComponentInteraction,
@@ -363,9 +383,148 @@ async fn start_match(
     match_id: &str,
 ) -> Result<()> {
     if !is_admin(interaction) {
+        return ephemeral(
+            ctx,
+            interaction,
+            "Apenas quem gerencia o servidor pode iniciar o draft.",
+        )
+        .await;
+    }
+    let match_id = match_id.trim().to_uppercase();
+    let before = db::load_camp(&data.db, camp_id)
+        .await?
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
+    let Some(open) = before.open_matches.iter().find(|m| m.row.id == match_id) else {
+        return ephemeral(ctx, interaction, "Partida não encontrada.").await;
+    };
+    if !open.row.refresh_used {
+        return ephemeral(
+            ctx,
+            interaction,
+            "Espere a votação de Refresh terminar antes do draft.",
+        )
+        .await;
+    }
+    if open.row.draft_url.is_some() {
+        return ephemeral(ctx, interaction, "O draft desta partida já foi iniciado.").await;
+    }
+
+    let draft = match crate::draft::create_draft(
+        &data.http,
+        &data.config.draft_base_url,
+        before.camp.layout().match_size,
+    )
+    .await
+    {
+        Ok(draft) => draft,
+        Err(err) => return ephemeral(ctx, interaction, err.to_string()).await,
+    };
+    if let Err(err) = db::set_draft(&data.db, &match_id, &draft).await {
+        return ephemeral(ctx, interaction, err.to_string()).await;
+    }
+
+    ack(ctx, interaction).await?;
+    let state = db::load_camp(&data.db, camp_id)
+        .await?
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
+    let channel = ChannelId::new(state.camp.channel_id as u64);
+    sync::redraw_all(ctx, &data.db, &state).await?;
+    if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
+        sync::apply_moves(
+            ctx,
+            guild_id,
+            &data.config,
+            channel,
+            &sync::match_voice_moves(open),
+        )
+        .await;
+        let _ = channel
+            .say(
+                &ctx.http,
+                format!(
+                    "Draft criado. Cada capitão ({}) recebeu por DM o link privado do seu time.\nHiddenking: {}\nArchmother: {}\nAssistir ao draft: {}",
+                    crate::ui::CAPTAIN_TAG,
+                    sync::side_mentions(&open.players, "hiddenking"),
+                    sync::side_mentions(&open.players, "archmother"),
+                    draft.spectator_url
+                ),
+            )
+            .await;
+        sync::send_draft_to_captains(ctx, channel, &state.camp.id, open).await;
+    }
+    Ok(())
+}
+
+/// Shows a captain their team's private draft link, in case the DM didn't arrive.
+async fn captain_link(
+    ctx: &Context,
+    data: &Data,
+    interaction: &ComponentInteraction,
+    camp_id: &str,
+    match_id: &str,
+) -> Result<()> {
+    let match_id = match_id.trim().to_uppercase();
+    let state = db::load_camp(&data.db, camp_id)
+        .await?
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
+    let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) else {
+        return ephemeral(ctx, interaction, "Partida não encontrada.").await;
+    };
+    let user_id = interaction.user.id.get() as i64;
+    let Some(captain) = open
+        .players
+        .iter()
+        .find(|p| p.user_id == user_id && p.is_captain)
+    else {
+        return ephemeral(
+            ctx,
+            interaction,
+            format!(
+                "Só os capitães ({}) desta partida têm link do draft.",
+                crate::ui::CAPTAIN_TAG
+            ),
+        )
+        .await;
+    };
+    let Some(url) = open.row.team_draft_url(&captain.side) else {
+        return ephemeral(ctx, interaction, "Não há link de draft do seu time nesta partida.").await;
+    };
+    ephemeral(
+        ctx,
+        interaction,
+        format!(
+            "Seu link do draft (**{}**). Não compartilhe — quem abrir escolhe e bane pelo seu time:\n{url}",
+            crate::ui::winner_label(&captain.side)
+        ),
+    )
+    .await
+}
+
+async fn start_match(
+    ctx: &Context,
+    data: &Data,
+    interaction: &ComponentInteraction,
+    camp_id: &str,
+    match_id: &str,
+) -> Result<()> {
+    if !is_admin(interaction) {
         return ephemeral(ctx, interaction, "Apenas quem gerencia o servidor pode iniciar uma partida.").await;
     }
     let match_id = match_id.trim().to_uppercase();
+    let before = db::load_camp(&data.db, camp_id)
+        .await?
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
+    let Some(open) = before.open_matches.iter().find(|m| m.row.id == match_id) else {
+        return ephemeral(ctx, interaction, "Partida não encontrada.").await;
+    };
+    if open.row.draft_url.is_none() {
+        return ephemeral(
+            ctx,
+            interaction,
+            "Inicie o draft antes de começar a partida.",
+        )
+        .await;
+    }
     ack(ctx, interaction).await?;
 
     let (party_id, party_code) = if data.config.enable_custom_match_create {
@@ -399,16 +558,6 @@ async fn start_match(
         .ok_or_else(|| anyhow!("camp não encontrado"))?;
     let channel = ChannelId::new(state.camp.channel_id as u64);
     sync::redraw_all(ctx, &data.db, &state).await?;
-    if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
-        sync::apply_moves(
-            ctx,
-            guild_id,
-            &data.config,
-            channel,
-            &sync::match_voice_moves(open),
-        )
-        .await;
-    }
     let message = if let Some(code) = party_code {
         format!("Lobby da partida criado. **Código da party:** `{code}` — escolham os heróis no Deadlock.")
     } else {

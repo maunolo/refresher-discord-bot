@@ -44,7 +44,7 @@ fn guild_id(ctx: Context<'_>) -> Result<GuildId> {
 #[poise::command(
     slash_command,
     guild_only,
-    subcommands("start", "add", "remove", "cancel", "end", "resume", "info", "match_info")
+    subcommands("start", "add", "remove", "s_rank", "cancel", "end", "resume", "info", "match_info")
 )]
 pub async fn camp(_ctx: Context<'_>) -> Result<(), Error> {
     Ok(())
@@ -179,6 +179,44 @@ pub async fn remove(
                 .ephemeral(true),
         )
         .await?;
+        Ok(())
+    })
+    .await
+}
+
+/// Marca ou desmarca um jogador como S rank (capitão, sempre em times separados).
+#[poise::command(slash_command, guild_only, rename = "srank")]
+pub async fn s_rank(
+    ctx: Context<'_>,
+    #[rename = "jogador"]
+    #[description = "Jogador"]
+    user: User,
+) -> Result<(), Error> {
+    if !deny_if_not_admin(ctx).await? {
+        return Ok(());
+    }
+    let guild_id = guild_id(ctx)?;
+    with_guild_lock(ctx.data(), guild_id.get(), || async {
+        let camp = db::load_active_for_guild(&ctx.data().db, guild_id.get() as i64)
+            .await?
+            .ok_or_else(|| anyhow!("nenhum camp ativo"))?;
+        let s_rank =
+            db::toggle_s_rank(&ctx.data().db, &camp.camp.id, user.id.get() as i64).await?;
+        let state = db::load_camp(&ctx.data().db, &camp.camp.id)
+            .await?
+            .ok_or_else(|| anyhow!("camp não encontrado"))?;
+        sync::redraw_board(ctx.serenity_context(), &ctx.data().db, &state).await?;
+        let text = if s_rank {
+            format!(
+                "{} agora é S rank {}. Vale a partir da próxima partida criada.",
+                user.mention(),
+                crate::ui::S_RANK_TAG
+            )
+        } else {
+            format!("{} não é mais S rank.", user.mention())
+        };
+        ctx.send(CreateReply::default().content(text).ephemeral(true))
+            .await?;
         Ok(())
     })
     .await
