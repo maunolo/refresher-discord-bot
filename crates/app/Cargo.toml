@@ -1,0 +1,17 @@
+[package]
+name = "refresher-app"
+description = "Starts everything: loads config, opens the database and runs the bot."
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "refresher-discord-bot"
+path = "src/main.rs"
+
+[dependencies]
+refresher-bot.workspace = true
+refresher-core.workspace = true
+
+anyhow.workspace = true
+tokio.workspace = true
+tracing-subscriber.workspace = true

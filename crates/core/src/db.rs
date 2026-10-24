@@ -137,7 +137,7 @@ pub fn now() -> i64 {
 pub async fn connect(database_url: &str) -> Result<SqlitePool> {
     let options = SqliteConnectOptions::from_str(database_url)?.create_if_missing(true);
     let pool = SqlitePool::connect_with(options).await?;
-    sqlx::migrate!("./migrations").run(&pool).await?;
+    sqlx::migrate!("../../migrations").run(&pool).await?;
     Ok(pool)
 }
 

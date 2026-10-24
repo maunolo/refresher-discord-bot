@@ -1,9 +1,16 @@
-[package]
-name = "refresher-discord-bot"
+[workspace]
+members = ["crates/*"]
+default-members = ["crates/app"]
+resolver = "2"
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
+[workspace.dependencies]
+refresher-bot = { path = "crates/bot" }
+refresher-core = { path = "crates/core" }
+
 anyhow = "1"
 dotenvy = "0.15"
 poise = "0.6.1"

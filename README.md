@@ -93,3 +93,17 @@ Every queue change, vote, lobby start, and result is written to SQLite in a tran
 ## Honest in-game gap
 
 The Deadlock API cannot seat Discord users onto Hiddenking / Archmother. After the code is posted, players join the Steam lobby and pick heroes themselves.
+
+## Code layout
+
+A Cargo workspace. `cargo run` at the root starts the app crate, which builds the `refresher-discord-bot` binary.
+
+| Path | What lives there |
+| --- | --- |
+| `crates/core` | Camp rules and storage with no Discord code: config, SQLite access (`db.rs`), queue and team splits (`queue.rs`), the draft and Deadlock lobby APIs. |
+| `crates/bot` | The Discord side: `/camp` commands, buttons, embeds, message syncing and voice moves. |
+| `crates/app` | `main.rs`: loads `.env`, opens the database and starts the bot. |
+| `migrations/` | SQLite migrations, applied on startup. |
+| `assets/` | The bot logo. |
+
+`cargo test --workspace` runs every crate's tests.

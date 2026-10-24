@@ -1,21 +1,20 @@
 use anyhow::Result;
 use poise::serenity_prelude as serenity;
 use serenity::FullEvent;
+use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 mod buttons;
 mod commands;
-mod config;
-mod db;
-mod deadlock;
-mod draft;
-mod queue;
 mod state;
 mod sync;
 mod ui;
 mod voice;
+
+// Camp rules and storage live in refresher-core; the bot modules reach them as `crate::db` etc.
+use refresher_core::{config, db, deadlock, draft, queue};
 
 use config::Config;
 pub use state::Data;
@@ -65,18 +64,8 @@ async fn event_handler(
     Ok(())
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
-
-    let config = Config::from_env()?;
-    tokio::fs::create_dir_all("data").await?;
-    let db = db::connect(&config.database_url).await?;
+/// Connects to Discord and handles camp commands and buttons until the connection ends.
+pub async fn run(config: Config, db: SqlitePool) -> Result<()> {
     let data = Data {
         config: config.clone(),
         db,

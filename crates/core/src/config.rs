@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
-use serenity::model::id::ChannelId;
+use std::num::NonZeroU64;
 
+/// Voice channel IDs are raw Discord snowflakes so this crate stays free of Discord types.
 #[derive(Clone, Debug)]
 pub struct Config {
     pub discord_token: String,
@@ -9,11 +10,11 @@ pub struct Config {
     pub deadlock_server_region: Option<String>,
     pub enable_custom_match_create: bool,
     pub draft_base_url: String,
-    pub queue_voice_channel_id: Option<ChannelId>,
-    pub match1_hiddenking_voice_id: Option<ChannelId>,
-    pub match1_archmother_voice_id: Option<ChannelId>,
-    pub match2_hiddenking_voice_id: Option<ChannelId>,
-    pub match2_archmother_voice_id: Option<ChannelId>,
+    pub queue_voice_channel_id: Option<u64>,
+    pub match1_hiddenking_voice_id: Option<u64>,
+    pub match1_archmother_voice_id: Option<u64>,
+    pub match2_hiddenking_voice_id: Option<u64>,
+    pub match2_archmother_voice_id: Option<u64>,
 }
 
 fn env_flag(name: &str, default: bool) -> bool {
@@ -26,15 +27,15 @@ fn env_flag(name: &str, default: bool) -> bool {
     }
 }
 
-fn optional_channel(name: &str) -> Result<Option<ChannelId>> {
+fn optional_channel(name: &str) -> Result<Option<u64>> {
     match std::env::var(name) {
         Ok(value) if value.trim().is_empty() => Ok(None),
         Ok(value) => {
             let id = value
                 .trim()
-                .parse::<u64>()
+                .parse::<NonZeroU64>()
                 .with_context(|| format!("invalid {name}"))?;
-            Ok(Some(ChannelId::new(id)))
+            Ok(Some(id.get()))
         }
         Err(_) => Ok(None),
     }

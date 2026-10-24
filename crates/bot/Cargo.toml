@@ -1,0 +1,16 @@
+[package]
+name = "refresher-bot"
+description = "Discord side of the camp: slash commands, buttons, messages and voice moves."
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+refresher-core.workspace = true
+
+anyhow.workspace = true
+poise.workspace = true
+reqwest.workspace = true
+serenity.workspace = true
+sqlx.workspace = true
+tokio.workspace = true
+tracing.workspace = true

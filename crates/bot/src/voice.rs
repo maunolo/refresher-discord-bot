@@ -36,7 +36,7 @@ impl VoiceDest {
     }
 
     fn configured_id(self, config: &Config) -> Option<ChannelId> {
-        match self {
+        let id = match self {
             VoiceDest::Queue => config.queue_voice_channel_id,
             VoiceDest::Match {
                 slot: 1,
@@ -55,7 +55,8 @@ impl VoiceDest {
                 hiddenking: false,
             } => config.match2_archmother_voice_id,
             VoiceDest::Match { .. } => None,
-        }
+        };
+        id.map(ChannelId::new)
     }
 }
 
