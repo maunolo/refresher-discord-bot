@@ -1,40 +1,25 @@
 import type { Camp } from '../api';
-import { playerName } from '../camp';
+import { routeHref } from '../route';
 import { MatchCard } from './MatchCard';
 import { HistoryPanel, QueuePanel, RankingPanel } from './Panels';
-import { SRankChip } from './common';
 
-function SignupView({ camp }: { camp: Camp }) {
-  const roster = [...camp.players].sort((a, b) => playerName(camp, a.user_id).localeCompare(playerName(camp, b.user_id)));
+function SignupNote({ camp }: { camp: Camp }) {
   return (
-    <section className="card" aria-labelledby="signup-title">
-      <div className="card-head">
-        <h2 id="signup-title">Inscrição</h2>
-        <span className="mono muted small">
-          {camp.players.length}/{camp.target_size}
-        </span>
-      </div>
+    <section className="card empty-card">
+      <h2>Inscrição aberta</h2>
       <p className="muted small">
-        Montar o elenco e iniciar a fila pelo painel chega na próxima etapa. Por enquanto, use <span className="mono">/camp</span> no Discord.
+        {camp.players.length} de {camp.target_size} jogadores. Monte o elenco e inicie a fila em Jogadores; as partidas
+        aparecem aqui depois.
       </p>
-      {roster.length === 0 ? (
-        <p className="empty">Ninguém no elenco ainda.</p>
-      ) : (
-        <ul className="rows roster">
-          {roster.map((p) => (
-            <li key={p.user_id} className="row row-tall">
-              <span className="ellipsis">{playerName(camp, p.user_id)}</span>
-              {p.s_rank && <SRankChip />}
-            </li>
-          ))}
-        </ul>
-      )}
+      <a className="button button-primary" href={routeHref('players')}>
+        Abrir Jogadores
+      </a>
     </section>
   );
 }
 
 export function LiveView({ camp }: { camp: Camp }) {
-  if (camp.status === 'signup') return <SignupView camp={camp} />;
+  if (camp.status === 'signup') return <SignupNote camp={camp} />;
   return (
     <div className="live">
       <div className="live-top">

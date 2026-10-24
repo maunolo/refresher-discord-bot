@@ -12,7 +12,8 @@ use axum_extra::extract::cookie::CookieJar;
 use refresher_core::config::WebConfig;
 use refresher_core::db::{self, RefreshOutcome};
 use refresher_core::draft::CreatedDraft;
-use refresher_core::link::{BotLink, BoxFuture, CampAction, Profile};
+use refresher_core::link::{BotLink, BoxFuture, CampAction, Profile, TextChannel};
+use refresher_core::queue::CampSize;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 
@@ -21,11 +22,21 @@ use crate::{auth, router, AppState};
 
 const GUILD: u64 = 1;
 const FIRST_USER: u64 = 1001;
-const NAMES: [&str; 30] = [
+/// The first 30 start on the seeded camp's roster; the rest are members to add.
+const NAMES: [&str; 40] = [
     "kaze", "mibr_ana", "duda.fps", "dani", "bento", "tchelo", "zeca", "lulu", "nando", "gui_k",
     "rafinha", "bruxo", "pietra", "soneca", "vini", "caju", "tati", "maya", "joca", "leo", "ravi",
-    "isa", "teco", "fumaça", "nina", "lara", "otto", "cris", "yuri", "miguel",
+    "isa", "teco", "fumaça", "nina", "lara", "otto", "cris", "yuri", "miguel", "luana", "lucas.dl",
+    "beto", "carol", "dudu", "fefe", "gabi", "hugo", "ingrid", "juca",
 ];
+
+fn demo_profile(user_id: u64) -> Option<Profile> {
+    let name = NAMES.get(user_id.checked_sub(FIRST_USER)? as usize)?;
+    Some(Profile {
+        name: name.to_string(),
+        avatar_url: format!("https://cdn.discordapp.com/embed/avatars/{}.png", user_id % 6),
+    })
+}
 
 /// Runs actions on the in-memory database only; nothing goes to Discord.
 struct DemoLink {
@@ -61,8 +72,66 @@ impl BotLink for DemoLink {
                 CampAction::ReopenMatch { match_id } => {
                     db::reopen_match(pool, camp_id, &match_id).await?;
                 }
+                CampAction::AddPlayers { user_ids } => {
+                    let ids: Vec<i64> = user_ids.iter().map(|id| *id as i64).collect();
+                    db::add_players(pool, camp_id, &ids).await?;
+                }
+                CampAction::RemovePlayer { user_id } => {
+                    db::remove_player(pool, camp_id, user_id as i64).await?;
+                }
+                CampAction::SetSRank { user_id, s_rank } => {
+                    db::set_player_s_rank(pool, camp_id, user_id as i64, s_rank).await?;
+                }
+                CampAction::StartQueue => {
+                    db::start_queue(pool, camp_id).await?;
+                }
+                CampAction::CancelCamp => db::cancel_camp(pool, camp_id).await?,
+                CampAction::ResumeCamp => {
+                    db::resume_camp(pool, camp_id, guild).await?;
+                }
+                CampAction::EndCamp => {
+                    db::end_camp(pool, camp_id).await?;
+                }
             }
             Ok(())
+        })
+    }
+
+    fn text_channels(&self, _guild_id: u64) -> Vec<TextChannel> {
+        vec![
+            TextChannel { id: 10, name: "camp-deadlock".to_string() },
+            TextChannel { id: 11, name: "testes-bot".to_string() },
+        ]
+    }
+
+    fn search_members<'a>(
+        &'a self,
+        _guild_id: u64,
+        query: &'a str,
+        limit: u64,
+    ) -> BoxFuture<'a, Result<Vec<(u64, Profile)>>> {
+        Box::pin(async move {
+            let query = query.to_lowercase();
+            Ok((0..NAMES.len() as u64)
+                .map(|i| FIRST_USER + i)
+                .filter_map(|id| demo_profile(id).map(|p| (id, p)))
+                .filter(|(_, p)| p.name.starts_with(&query))
+                .take(limit as usize)
+                .collect())
+        })
+    }
+
+    fn queue_voice_members(&self, _guild_id: u64) -> Vec<u64> {
+        (30..36).map(|i| FIRST_USER + i).collect()
+    }
+
+    fn create_camp<'a>(&'a self, _guild_id: u64, channel_id: u64, size: CampSize) -> BoxFuture<'a, Result<String>> {
+        Box::pin(async move {
+            if db::load_active_for_guild(&self.db, GUILD as i64).await?.is_some() {
+                anyhow::bail!("Este servidor já tem um camp ativo. Cancele ou encerre o atual primeiro.");
+            }
+            let camp = db::create_camp(&self.db, GUILD as i64, channel_id as i64, size.target_size(), size.match_size()).await?;
+            Ok(camp.id)
         })
     }
 
@@ -74,16 +143,7 @@ impl BotLink for DemoLink {
         Box::pin(async move {
             user_ids
                 .iter()
-                .filter_map(|id| {
-                    let name = NAMES.get(id.checked_sub(FIRST_USER)? as usize)?;
-                    Some((
-                        *id,
-                        Profile {
-                            name: name.to_string(),
-                            avatar_url: format!("https://cdn.discordapp.com/embed/avatars/{}.png", id % 6),
-                        },
-                    ))
-                })
+                .filter_map(|id| demo_profile(*id).map(|p| (*id, p)))
                 .collect()
         })
     }

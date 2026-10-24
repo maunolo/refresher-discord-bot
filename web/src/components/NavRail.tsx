@@ -1,24 +1,30 @@
 import type { ReactNode } from 'react';
 
+import { routeHref, type Route } from '../route';
 import { CampsIcon, LiveIcon, MatchesIcon, PlayersIcon, QueueIcon, SettingsIcon, TrophyIcon } from './Icons';
 
-const SECTIONS: { label: string; icon: ReactNode; ready: boolean }[] = [
-  { label: 'Ao vivo', icon: <LiveIcon />, ready: true },
-  { label: 'Fila', icon: <QueueIcon />, ready: false },
-  { label: 'Jogadores', icon: <PlayersIcon />, ready: false },
-  { label: 'Partidas', icon: <MatchesIcon />, ready: false },
-  { label: 'Ranking', icon: <TrophyIcon />, ready: false },
-  { label: 'Camps', icon: <CampsIcon />, ready: false },
-  { label: 'Configurações', icon: <SettingsIcon />, ready: false },
+const SECTIONS: { label: string; icon: ReactNode; route?: Route }[] = [
+  { label: 'Ao vivo', icon: <LiveIcon />, route: 'live' },
+  { label: 'Jogadores', icon: <PlayersIcon />, route: 'players' },
+  { label: 'Camps', icon: <CampsIcon />, route: 'camps' },
+  { label: 'Fila', icon: <QueueIcon /> },
+  { label: 'Partidas', icon: <MatchesIcon /> },
+  { label: 'Ranking', icon: <TrophyIcon /> },
+  { label: 'Configurações', icon: <SettingsIcon /> },
 ];
 
-/** Only "Ao vivo" exists so far; the other sections come with the next steps. */
-export function NavRail() {
+/** Sections without a route aren't built yet; the live view covers queue, matches and ranking. */
+export function NavRail({ route }: { route: Route }) {
   return (
     <nav className="nav" aria-label="Seções">
       {SECTIONS.map((s) =>
-        s.ready ? (
-          <a key={s.label} href="/" className="nav-item nav-item-active" aria-current="page">
+        s.route ? (
+          <a
+            key={s.label}
+            href={routeHref(s.route)}
+            className={s.route === route ? 'nav-item nav-item-active' : 'nav-item'}
+            aria-current={s.route === route ? 'page' : undefined}
+          >
             {s.icon}
             {s.label}
           </a>

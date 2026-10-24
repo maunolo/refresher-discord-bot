@@ -3,11 +3,12 @@
 
 use std::collections::HashMap;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
 use axum::Json;
 use refresher_core::db::{self, CampState, CampSummary, MatchPlayerRow, MatchRow, PlayerRow, RecentMatch, RefreshVote};
 use refresher_core::link::{CampAction, Profile};
-use refresher_core::queue;
+use refresher_core::queue::{self, CampSize};
 use serde::{Deserialize, Serialize};
 
 use crate::session::Session;
@@ -69,6 +70,21 @@ pub struct CampDto {
     recent_matches: Vec<RecentMatchDto>,
     /// Name and avatar per user ID, for everyone on the roster Discord could find.
     members: HashMap<String, MemberDto>,
+    /// During signup: who is in the Queue voice channel right now, roster or not.
+    queue_voice: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct ChannelDto {
+    id: String,
+    name: String,
+}
+
+#[derive(Serialize)]
+pub struct MemberSearchDto {
+    id: String,
+    name: String,
+    avatar_url: String,
 }
 
 #[derive(Serialize)]
@@ -233,7 +249,12 @@ fn recent_dto(state: &CampState, recent: &[RecentMatch]) -> Vec<RecentMatchDto> 
         .collect()
 }
 
-fn camp_dto(state: &CampState, recent: &[RecentMatch], profiles: &HashMap<u64, Profile>) -> CampDto {
+fn camp_dto(
+    state: &CampState,
+    recent: &[RecentMatch],
+    profiles: &HashMap<u64, Profile>,
+    queue_voice: Vec<u64>,
+) -> CampDto {
     CampDto {
         id: state.camp.id.clone(),
         guild_id: state.camp.guild_id.to_string(),
@@ -277,6 +298,7 @@ fn camp_dto(state: &CampState, recent: &[RecentMatch], profiles: &HashMap<u64, P
                 )
             })
             .collect(),
+        queue_voice: queue_voice.iter().map(u64::to_string).collect(),
     }
 }
 
@@ -348,7 +370,100 @@ async fn camp_response(state: &AppState, camp: CampState) -> Result<Json<CampDto
         .link
         .profiles(camp.camp.guild_id as u64, &user_ids)
         .await;
-    Ok(Json(camp_dto(&camp, &recent, &profiles)))
+    let queue_voice = if camp.camp.status == "signup" {
+        state.link.queue_voice_members(camp.camp.guild_id as u64)
+    } else {
+        Vec::new()
+    };
+    Ok(Json(camp_dto(&camp, &recent, &profiles, queue_voice)))
+}
+
+/// A server the admin manages and the bot is in, or 404.
+fn managed_guild(state: &AppState, session: &Session, guild_id: u64) -> Result<(), ApiError> {
+    if session.is_admin_of(guild_id) && state.link.in_guild(guild_id) {
+        Ok(())
+    } else {
+        Err(ApiError::NotFound)
+    }
+}
+
+pub async fn guild_channels(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+) -> Result<Json<Vec<ChannelDto>>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    Ok(Json(
+        state
+            .link
+            .text_channels(guild_id)
+            .into_iter()
+            .map(|c| ChannelDto {
+                id: c.id.to_string(),
+                name: c.name,
+            })
+            .collect(),
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct MemberQuery {
+    query: String,
+}
+
+/// Server members whose name starts with `query`, for adding players.
+pub async fn search_members(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+    Query(params): Query<MemberQuery>,
+) -> Result<Json<Vec<MemberSearchDto>>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    let query = params.query.trim();
+    if query.is_empty() {
+        return Ok(Json(Vec::new()));
+    }
+    let members = state.link.search_members(guild_id, query, 10).await?;
+    Ok(Json(
+        members
+            .into_iter()
+            .map(|(id, p)| MemberSearchDto {
+                id: id.to_string(),
+                name: p.name,
+                avatar_url: p.avatar_url,
+            })
+            .collect(),
+    ))
+}
+
+#[derive(Deserialize)]
+pub struct CreateCampRequest {
+    channel_id: String,
+    /// `24`, `30`, `4-1v1` or `4-2v2`.
+    size: String,
+}
+
+pub async fn create_camp(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+    Json(request): Json<CreateCampRequest>,
+) -> Result<(StatusCode, Json<CampDto>), ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    let channel_id: u64 = request
+        .channel_id
+        .parse()
+        .map_err(|_| ApiError::BadRequest("canal inválido".to_string()))?;
+    let size = CampSize::parse(&request.size)
+        .ok_or_else(|| ApiError::BadRequest("tamanho inválido".to_string()))?;
+    tracing::info!(user_id = session.user_id, guild_id, channel_id, ?size, "camp created from the web");
+    let camp_id = state
+        .link
+        .create_camp(guild_id, channel_id, size)
+        .await
+        .map_err(|err| ApiError::Conflict(err.to_string()))?;
+    let camp = admin_camp(&state, &session, &camp_id).await?;
+    Ok((StatusCode::CREATED, camp_response(&state, camp).await?))
 }
 
 #[derive(Debug, Deserialize)]
@@ -369,11 +484,25 @@ pub enum ActionRequest {
     ReportWinner { match_id: String, side: SideRequest },
     CorrectWinner { match_id: String },
     ReopenMatch { match_id: String },
+    AddPlayers { user_ids: Vec<String> },
+    RemovePlayer { user_id: String },
+    SetSRank { user_id: String, s_rank: bool },
+    StartQueue,
+    CancelCamp,
+    ResumeCamp,
+    EndCamp,
 }
 
-impl From<ActionRequest> for CampAction {
-    fn from(request: ActionRequest) -> Self {
-        match request {
+fn user_id(id: &str) -> Result<u64, ApiError> {
+    id.parse()
+        .map_err(|_| ApiError::BadRequest(format!("ID de usuário inválido: {id}")))
+}
+
+impl TryFrom<ActionRequest> for CampAction {
+    type Error = ApiError;
+
+    fn try_from(request: ActionRequest) -> Result<Self, ApiError> {
+        Ok(match request {
             ActionRequest::CreateMatch => CampAction::CreateMatch,
             ActionRequest::CreateFinal => CampAction::CreateFinal,
             ActionRequest::StartDraft { match_id } => CampAction::StartDraft { match_id },
@@ -388,7 +517,19 @@ impl From<ActionRequest> for CampAction {
             },
             ActionRequest::CorrectWinner { match_id } => CampAction::CorrectWinner { match_id },
             ActionRequest::ReopenMatch { match_id } => CampAction::ReopenMatch { match_id },
-        }
+            ActionRequest::AddPlayers { user_ids } => CampAction::AddPlayers {
+                user_ids: user_ids.iter().map(|id| user_id(id)).collect::<Result<_, _>>()?,
+            },
+            ActionRequest::RemovePlayer { user_id: id } => CampAction::RemovePlayer { user_id: user_id(&id)? },
+            ActionRequest::SetSRank { user_id: id, s_rank } => CampAction::SetSRank {
+                user_id: user_id(&id)?,
+                s_rank,
+            },
+            ActionRequest::StartQueue => CampAction::StartQueue,
+            ActionRequest::CancelCamp => CampAction::CancelCamp,
+            ActionRequest::ResumeCamp => CampAction::ResumeCamp,
+            ActionRequest::EndCamp => CampAction::EndCamp,
+        })
     }
 }
 
@@ -401,7 +542,7 @@ pub async fn act(
     Json(request): Json<ActionRequest>,
 ) -> Result<Json<CampDto>, ApiError> {
     let camp = admin_camp(&state, &session, &camp_id).await?;
-    let action = CampAction::from(request);
+    let action = CampAction::try_from(request)?;
     tracing::info!(user_id = session.user_id, camp = %camp.camp.id, ?action, "admin action from the web");
     if let Err(err) = state
         .link

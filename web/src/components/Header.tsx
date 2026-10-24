@@ -61,7 +61,10 @@ function CampButtons({ camp }: { camp: Camp }) {
         onClick={() =>
           run(
             { type: 'create_final' },
-            'Criar a partida final com os jogadores de maior pontuação? Depois dela não dá para criar outras partidas.',
+            {
+              confirm:
+                'Criar a partida final com os jogadores de maior pontuação? Depois dela não dá para criar outras partidas.',
+            },
           )
         }
       >

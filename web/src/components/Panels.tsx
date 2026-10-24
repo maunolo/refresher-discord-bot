@@ -20,7 +20,9 @@ function Corrections({ match }: { match: RecentMatch }) {
         onClick={() =>
           run(
             { type: 'correct_winner', match_id: match.id },
-            `Trocar o vencedor da partida #${match.number} para ${SIDE_LABEL[other]}? Os pontos e a fila são refeitos.`,
+            {
+              confirm: `Trocar o vencedor da partida #${match.number} para ${SIDE_LABEL[other]}? Os pontos e a fila são refeitos.`,
+            },
           )
         }
       >
@@ -34,7 +36,9 @@ function Corrections({ match }: { match: RecentMatch }) {
         onClick={() =>
           run(
             { type: 'reopen_match', match_id: match.id },
-            `Reabrir a partida #${match.number}? O ponto dos vencedores é desfeito e os jogadores voltam para os canais do time.`,
+            {
+              confirm: `Reabrir a partida #${match.number}? O ponto dos vencedores é desfeito e os jogadores voltam para os canais do time.`,
+            },
           )
         }
       >

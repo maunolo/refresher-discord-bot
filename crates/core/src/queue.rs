@@ -21,6 +21,44 @@ pub fn generate_camp_id(rng: &mut impl Rng) -> String {
         .collect()
 }
 
+/// The camp sizes an admin can pick. The two 4-player sizes are for testing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CampSize {
+    TwentyFour,
+    Thirty,
+    FourOneVOne,
+    FourTwoVTwo,
+}
+
+impl CampSize {
+    /// `24`, `30`, `4-1v1` or `4-2v2`, as the `/camp iniciar` choices read.
+    pub fn parse(name: &str) -> Option<Self> {
+        match name {
+            "24" => Some(Self::TwentyFour),
+            "30" => Some(Self::Thirty),
+            "4-1v1" => Some(Self::FourOneVOne),
+            "4-2v2" => Some(Self::FourTwoVTwo),
+            _ => None,
+        }
+    }
+
+    pub fn target_size(self) -> i64 {
+        match self {
+            Self::FourOneVOne | Self::FourTwoVTwo => 4,
+            Self::TwentyFour => 24,
+            Self::Thirty => 30,
+        }
+    }
+
+    pub fn match_size(self) -> i64 {
+        match self {
+            Self::FourOneVOne => 2,
+            Self::FourTwoVTwo => 4,
+            Self::TwentyFour | Self::Thirty => 12,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CampLayout {
     pub match_size: usize,

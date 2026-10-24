@@ -2,7 +2,16 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
+use crate::queue::CampSize;
+
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// A text channel a camp can post in.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TextChannel {
+    pub id: u64,
+    pub name: String,
+}
 
 /// How a Discord user appears on the admin page.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,6 +32,18 @@ pub enum CampAction {
     ReportWinner { match_id: String, side: String },
     CorrectWinner { match_id: String },
     ReopenMatch { match_id: String },
+    /// Signup only. Users already on the roster, or past the camp's size, are skipped.
+    AddPlayers { user_ids: Vec<u64> },
+    /// Signup only.
+    RemovePlayer { user_id: u64 },
+    /// Signup or running; matches created afterwards use it.
+    SetSRank { user_id: u64, s_rank: bool },
+    StartQueue,
+    /// Soft: the camp keeps its data and can be resumed.
+    CancelCamp,
+    ResumeCamp,
+    /// Posts the final ranking. Can't be undone.
+    EndCamp,
 }
 
 /// What the web admin asks of the running bot, answered through its Discord connection.
@@ -45,4 +66,27 @@ pub trait BotLink: Send + Sync {
         camp_id: &'a str,
         action: CampAction,
     ) -> BoxFuture<'a, anyhow::Result<()>>;
+
+    /// Text channels of a server, in Discord's order.
+    fn text_channels(&self, guild_id: u64) -> Vec<TextChannel>;
+
+    /// Members whose name or nickname starts with `query`, at most `limit`.
+    fn search_members<'a>(
+        &'a self,
+        guild_id: u64,
+        query: &'a str,
+        limit: u64,
+    ) -> BoxFuture<'a, anyhow::Result<Vec<(u64, Profile)>>>;
+
+    /// Users in the server's Queue voice channel right now.
+    fn queue_voice_members(&self, guild_id: u64) -> Vec<u64>;
+
+    /// Opens signup for a new camp in a text channel of this server and posts its message there.
+    /// Returns the camp ID. A server has one active camp at a time.
+    fn create_camp<'a>(
+        &'a self,
+        guild_id: u64,
+        channel_id: u64,
+        size: CampSize,
+    ) -> BoxFuture<'a, anyhow::Result<String>>;
 }

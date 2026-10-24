@@ -10,15 +10,17 @@ interface Loaded<T> {
  * Loads `load(key)` now and again every `everyMs` while the tab is visible.
  * A new key starts over; the last good data stays on screen if a later load fails.
  * `load` must be a stable function (defined outside the component).
- * `replace` swaps in fresher data, e.g. what an action returned.
+ * `replace` swaps in fresher data, e.g. what an action returned; `refresh` loads again now.
  */
 export function usePolling<T>(
   key: string | null,
   load: (key: string) => Promise<T>,
   everyMs: number,
-): { data: T | null; error: Error | null; replace: (data: T) => void } {
+): { data: T | null; error: Error | null; replace: (data: T) => void; refresh: () => void } {
   const [state, setState] = useState<Loaded<T>>({ key: null, data: null, error: null });
+  const [nonce, setNonce] = useState(0);
   const replace = useCallback((data: T) => setState((s) => ({ key: s.key, data, error: null })), []);
+  const refresh = useCallback(() => setNonce((n) => n + 1), []);
 
   useEffect(() => {
     if (key === null) return;
@@ -42,11 +44,11 @@ export function usePolling<T>(
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [key, load, everyMs]);
+  }, [key, load, everyMs, nonce]);
 
   return state.key === key
-    ? { data: state.data, error: state.error, replace }
-    : { data: null, error: null, replace };
+    ? { data: state.data, error: state.error, replace, refresh }
+    : { data: null, error: null, replace, refresh };
 }
 
 /** A value kept in localStorage, for remembering the chosen server and camp. */

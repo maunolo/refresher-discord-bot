@@ -81,7 +81,7 @@ async fn handle_locked(
     match parts.as_slice() {
         ["add_users", camp_id] => add_users(ctx, data, interaction, camp_id).await,
         ["s_rank", camp_id] => set_s_rank(ctx, data, interaction, camp_id).await,
-        ["start_queue", camp_id] => start_queue(ctx, data, interaction, guild_id, camp_id).await,
+        ["start_queue", camp_id] => admin(CampAction::StartQueue, camp_id, "iniciar a fila").await,
         ["create_match", camp_id] => admin(CampAction::CreateMatch, camp_id, "criar uma partida").await,
         ["final_match", camp_id] => admin(CampAction::CreateFinal, camp_id, "iniciar a final").await,
         ["refresh", camp_id, match_id] => {
@@ -116,7 +116,7 @@ async fn handle_locked(
             let action = CampAction::ReopenMatch { match_id: match_id.to_string() };
             admin(action, camp_id, "reabrir a partida").await
         }
-        ["end_camp", camp_id] => end_camp(ctx, data, interaction, camp_id).await,
+        ["end_camp", camp_id] => admin(CampAction::EndCamp, camp_id, "encerrar o camp").await,
         _ => Ok(()),
     }
 }
@@ -197,50 +197,6 @@ async fn set_s_rank(
                 )
                 .await;
             }
-            Ok(())
-        }
-        Err(err) => ephemeral(ctx, interaction, err.to_string()).await,
-    }
-}
-
-async fn start_queue(
-    ctx: &Context,
-    data: &Data,
-    interaction: &ComponentInteraction,
-    guild_id: GuildId,
-    camp_id: &str,
-) -> Result<()> {
-    if !is_admin(interaction) {
-        return ephemeral(ctx, interaction, "Apenas quem gerencia o servidor pode iniciar a fila.").await;
-    }
-    match db::start_queue(&data.db, camp_id).await {
-        Ok(order) => {
-            ack(ctx, interaction).await?;
-            let discord = Discord::from(ctx);
-            let state = db::load_camp(&data.db, camp_id)
-                .await?
-                .ok_or_else(|| anyhow!("camp não encontrado"))?;
-            let channel = ChannelId::new(state.camp.channel_id as u64);
-            let queued_ids: Vec<i64> = state.players.iter().map(|p| p.user_id).collect();
-            sync::redraw_all(&discord, &data.db, &state).await?;
-            sync::apply_moves(
-                &discord,
-                guild_id,
-                &data.config,
-                channel,
-                &sync::queue_voice_moves(&queued_ids),
-            )
-            .await;
-            let _ = channel
-                .say(
-                    &ctx.http,
-                    format!(
-                        "Fila embaralhada do camp `{}`:\n{}\nUm admin clica em **Criar partida** para montar os próximos times.",
-                        state.camp.id,
-                        sync::mention_list(&order)
-                    ),
-                )
-                .await;
             Ok(())
         }
         Err(err) => ephemeral(ctx, interaction, err.to_string()).await,
@@ -374,51 +330,4 @@ async fn captain_link(
         ),
     )
     .await
-}
-
-async fn end_camp(
-    ctx: &Context,
-    data: &Data,
-    interaction: &ComponentInteraction,
-    camp_id: &str,
-) -> Result<()> {
-    if !is_admin(interaction) {
-        return ephemeral(ctx, interaction, "Apenas quem gerencia o servidor pode encerrar o camp.").await;
-    }
-    match db::end_camp(&data.db, camp_id).await {
-        Ok(players) => {
-            ack(ctx, interaction).await?;
-            let state = db::load_camp(&data.db, camp_id)
-                .await?
-                .ok_or_else(|| anyhow!("camp não encontrado"))?;
-            let channel = ChannelId::new(state.camp.channel_id as u64);
-            let _ = channel
-                .send_message(
-                    &ctx.http,
-                    serenity::all::CreateMessage::new().embed(crate::ui::standings_embed(
-                        camp_id,
-                        state.camp.match_count,
-                        &players,
-                    )),
-                )
-                .await;
-            if let Some(board_id) = state.camp.board_message_id {
-                let _ = channel
-                    .edit_message(
-                        &ctx.http,
-                        board_id as u64,
-                        serenity::all::EditMessage::new()
-                            .embed(crate::ui::standings_embed(
-                                camp_id,
-                                state.camp.match_count,
-                                &players,
-                            ))
-                            .components(Vec::new()),
-                    )
-                    .await;
-            }
-            Ok(())
-        }
-        Err(err) => ephemeral(ctx, interaction, err.to_string()).await,
-    }
 }

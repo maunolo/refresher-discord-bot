@@ -3,10 +3,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { ActionsContext, type Actions } from './actions';
 import { Unauthorized, api, type Camp, type CampSummary, type Me } from './api';
 import { isActive } from './camp';
+import { CampsView } from './components/CampsView';
 import { FullPage } from './components/common';
 import { Header } from './components/Header';
 import { LiveView } from './components/LiveView';
 import { NavRail } from './components/NavRail';
+import { PlayersView } from './components/PlayersView';
+import { routeHref, useRoute } from './route';
 import { remember, remembered, usePolling } from './usePolling';
 
 const loadMe = () => api.me();
@@ -27,7 +30,20 @@ function pick<T extends { id: string }>(items: T[], stored: string | null, fallb
   return items.find((i) => i.id === stored) ?? fallback(items);
 }
 
+function NoCamp() {
+  return (
+    <section className="card empty-card">
+      <h2>Nenhum camp neste servidor</h2>
+      <p className="muted small">Abra a inscrição de um camp para começar.</p>
+      <a className="button button-primary" href={routeHref('camps')}>
+        Criar camp
+      </a>
+    </section>
+  );
+}
+
 function Admin({ me }: { me: Me }) {
+  const [route, go] = useRoute();
   const [guildId, setGuildId] = useState(() => pick(me.guilds, remembered('guild'), (g) => g[0])?.id ?? null);
   const camps = usePolling<CampSummary[]>(guildId, api.camps, 30_000);
   const [campId, setCampId] = useState<string | null>(null);
@@ -44,23 +60,29 @@ function Admin({ me }: { me: Me }) {
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const replaceCamp = camp.replace;
+  const refreshCamps = camps.refresh;
 
   const actions = useMemo<Actions>(
     () => ({
       busy,
-      run: (action, confirm) => {
-        if (!campId || busy) return;
-        if (confirm && !window.confirm(confirm)) return;
+      run: (action, options = {}) => {
+        const target = options.campId ?? campId;
+        if (!target || busy) return;
+        if (options.confirm && !window.confirm(options.confirm)) return;
         setBusy(true);
         setNotice(null);
         api
-          .act(campId, action)
-          .then(replaceCamp)
+          .act(target, action)
+          .then((updated) => {
+            if (updated.id === campId) replaceCamp(updated);
+            refreshCamps();
+            options.then?.(updated);
+          })
           .catch((error: Error) => setNotice(error.message))
           .finally(() => setBusy(false));
       },
     }),
-    [busy, campId, replaceCamp],
+    [busy, campId, replaceCamp, refreshCamps],
   );
 
   if (camp.error instanceof Unauthorized || camps.error instanceof Unauthorized) return <Login />;
@@ -83,17 +105,26 @@ function Admin({ me }: { me: Me }) {
         <p className="muted small">Você não gerencia nenhum servidor onde o bot está.</p>
       </section>
     );
-  } else if (camps.data && camps.data.length === 0) {
+  } else if (route === 'camps') {
     content = (
-      <section className="card empty-card">
-        <h2>Nenhum camp neste servidor</h2>
-        <p className="muted small">
-          Crie um com <span className="mono">/camp iniciar</span> no Discord. Criar camps pelo painel chega na próxima etapa.
-        </p>
-      </section>
+      <CampsView
+        guildId={guildId}
+        camps={camps.data ?? []}
+        onOpen={(id) => {
+          chooseCamp(id);
+          go('live');
+        }}
+        onCreated={(created) => {
+          chooseCamp(created.id);
+          refreshCamps();
+          go('players');
+        }}
+      />
     );
+  } else if (camps.data && camps.data.length === 0) {
+    content = <NoCamp />;
   } else if (camp.data) {
-    content = <LiveView camp={camp.data} />;
+    content = route === 'players' ? <PlayersView camp={camp.data} /> : <LiveView camp={camp.data} />;
   } else {
     content = <p className="muted">{camp.error?.message ?? camps.error?.message ?? 'Carregando…'}</p>;
   }
@@ -127,7 +158,7 @@ function Admin({ me }: { me: Me }) {
           </div>
         )}
         <div className="body">
-          <NavRail />
+          <NavRail route={route} />
           <main className="main">{content}</main>
         </div>
       </div>

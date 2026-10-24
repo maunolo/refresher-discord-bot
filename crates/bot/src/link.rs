@@ -3,8 +3,9 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use poise::serenity_prelude as serenity;
-use refresher_core::link::{BotLink, BoxFuture, CampAction, Profile};
-use serenity::all::{GuildId, UserId};
+use refresher_core::link::{BotLink, BoxFuture, CampAction, Profile, TextChannel};
+use refresher_core::queue::CampSize;
+use serenity::all::{ChannelType, GuildId, Member, UserId};
 
 use crate::actions;
 use crate::discord::Discord;
@@ -29,22 +30,33 @@ impl SerenityLink {
         }
     }
 
+    fn remember(&self, guild_id: u64, user_id: u64, profile: &Profile) {
+        self.profiles
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert((guild_id, user_id), (profile.clone(), Instant::now()));
+    }
+
     async fn fetch(&self, guild_id: u64, user_id: u64) -> Option<Profile> {
         let user = UserId::new(user_id);
         match GuildId::new(guild_id)
             .member((&self.discord.cache, &*self.discord.http), user)
             .await
         {
-            Ok(member) => Some(Profile {
-                name: member.display_name().to_string(),
-                avatar_url: member.face(),
-            }),
+            Ok(member) => Some(member_profile(&member)),
             // No longer in the server: fall back to the account itself.
             Err(_) => self.discord.http.get_user(user).await.ok().map(|user| Profile {
                 name: user.display_name().to_string(),
                 avatar_url: user.face(),
             }),
         }
+    }
+}
+
+fn member_profile(member: &Member) -> Profile {
+    Profile {
+        name: member.display_name().to_string(),
+        avatar_url: member.face(),
     }
 }
 
@@ -76,14 +88,89 @@ impl BotLink for SerenityLink {
                 missing.iter().map(|id| self.fetch(guild_id, *id)),
             )
             .await;
-            let mut cached = self.profiles.lock().unwrap_or_else(PoisonError::into_inner);
             for (id, profile) in missing.into_iter().zip(fetched) {
                 if let Some(profile) = profile {
-                    cached.insert((guild_id, id), (profile.clone(), Instant::now()));
+                    self.remember(guild_id, id, &profile);
                     found.insert(id, profile);
                 }
             }
             found
+        })
+    }
+
+    fn text_channels(&self, guild_id: u64) -> Vec<TextChannel> {
+        let Some(guild) = self.discord.cache.guild(GuildId::new(guild_id)) else {
+            return Vec::new();
+        };
+        let mut channels: Vec<_> = guild
+            .channels
+            .values()
+            .filter(|c| c.kind == ChannelType::Text)
+            .map(|c| (c.position, c.id.get(), c.name.clone()))
+            .collect();
+        channels.sort();
+        channels
+            .into_iter()
+            .map(|(_, id, name)| TextChannel { id, name })
+            .collect()
+    }
+
+    fn search_members<'a>(
+        &'a self,
+        guild_id: u64,
+        query: &'a str,
+        limit: u64,
+    ) -> BoxFuture<'a, anyhow::Result<Vec<(u64, Profile)>>> {
+        Box::pin(async move {
+            let members = GuildId::new(guild_id)
+                .search_members(&self.discord.http, query, Some(limit))
+                .await?;
+            Ok(members
+                .iter()
+                .filter(|m| !m.user.bot)
+                .map(|m| {
+                    let profile = member_profile(m);
+                    self.remember(guild_id, m.user.id.get(), &profile);
+                    (m.user.id.get(), profile)
+                })
+                .collect())
+        })
+    }
+
+    fn queue_voice_members(&self, guild_id: u64) -> Vec<u64> {
+        let Some(guild) = self.discord.cache.guild(GuildId::new(guild_id)) else {
+            return Vec::new();
+        };
+        // The same channel the bot moves waiting players to: the configured one, else "Queue".
+        let queue = self.data.config.queue_voice_channel_id.or_else(|| {
+            guild
+                .channels
+                .values()
+                .find(|c| c.kind == ChannelType::Voice && c.name.eq_ignore_ascii_case("Queue"))
+                .map(|c| c.id.get())
+        });
+        let Some(queue) = queue else {
+            return Vec::new();
+        };
+        guild
+            .voice_states
+            .values()
+            .filter(|v| v.channel_id.map(|c| c.get()) == Some(queue))
+            .map(|v| v.user_id.get())
+            .collect()
+    }
+
+    fn create_camp<'a>(
+        &'a self,
+        guild_id: u64,
+        channel_id: u64,
+        size: CampSize,
+    ) -> BoxFuture<'a, anyhow::Result<String>> {
+        Box::pin(async move {
+            with_guild_lock(&self.data, guild_id, || {
+                actions::create_camp(&self.discord, &self.data, GuildId::new(guild_id), channel_id, size)
+            })
+            .await
         })
     }
 

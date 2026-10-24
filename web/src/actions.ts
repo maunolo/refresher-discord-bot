@@ -2,9 +2,18 @@ import { createContext, useContext } from 'react';
 
 import type { Camp, CampAction } from './api';
 
+export interface RunOptions {
+  /** Ask first, with this question. */
+  confirm?: string;
+  /** Act on this camp instead of the one on screen. */
+  campId?: string;
+  /** Called with the camp after the action. */
+  then?: (camp: Camp) => void;
+}
+
 export interface Actions {
-  /** Runs an action, after `confirm` if given. One at a time. */
-  run: (action: CampAction, confirm?: string) => void;
+  /** Runs an action through the bot. One at a time. */
+  run: (action: CampAction, options?: RunOptions) => void;
   /** An action is running; buttons wait for it. */
   busy: boolean;
 }

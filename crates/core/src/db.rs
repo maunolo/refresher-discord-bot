@@ -722,6 +722,26 @@ pub async fn set_s_rank(pool: &SqlitePool, camp_id: &str, user_ids: &[i64]) -> R
     Ok(not_on_roster)
 }
 
+/// Set one player's S-rank flag. Works during signup and while running; matches created
+/// afterwards use it.
+pub async fn set_player_s_rank(pool: &SqlitePool, camp_id: &str, user_id: i64, s_rank: bool) -> Result<()> {
+    let updated = sqlx::query(
+        "UPDATE camp_players SET is_s_rank = ?
+         WHERE camp_id = ? AND user_id = ?
+           AND camp_id IN (SELECT id FROM camps WHERE status IN ('signup', 'running'))",
+    )
+    .bind(s_rank)
+    .bind(camp_id)
+    .bind(user_id)
+    .execute(pool)
+    .await?
+    .rows_affected();
+    if updated == 0 {
+        return Err(anyhow!("esse jogador não está no elenco de um camp ativo"));
+    }
+    Ok(())
+}
+
 /// Flip one player's S-rank flag. Returns the new value.
 pub async fn toggle_s_rank(pool: &SqlitePool, camp_id: &str, user_id: i64) -> Result<bool> {
     let updated: Option<i64> = sqlx::query_scalar(

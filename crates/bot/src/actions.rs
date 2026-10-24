@@ -3,7 +3,8 @@
 
 use anyhow::{anyhow, bail, Result};
 use refresher_core::link::CampAction;
-use serenity::all::{ChannelId, EditMessage, GuildId};
+use refresher_core::queue::CampSize;
+use serenity::all::{ChannelId, CreateMessage, EditMessage, GuildId};
 
 use crate::db::{self, CampState};
 use crate::discord::Discord;
@@ -40,7 +41,122 @@ pub async fn run(
         CampAction::ReopenMatch { match_id } => {
             reopen_match(discord, data, guild_id, camp_id, &normalize(match_id)).await
         }
+        CampAction::AddPlayers { user_ids } => {
+            let ids: Vec<i64> = user_ids.iter().map(|id| *id as i64).collect();
+            db::add_players(&data.db, camp_id, &ids).await?;
+            redraw_board(discord, data, camp_id).await
+        }
+        CampAction::RemovePlayer { user_id } => {
+            db::remove_player(&data.db, camp_id, *user_id as i64).await?;
+            redraw_board(discord, data, camp_id).await
+        }
+        CampAction::SetSRank { user_id, s_rank } => {
+            db::set_player_s_rank(&data.db, camp_id, *user_id as i64, *s_rank).await?;
+            redraw_board(discord, data, camp_id).await
+        }
+        CampAction::StartQueue => start_queue(discord, data, guild_id, camp_id).await,
+        CampAction::CancelCamp => cancel_camp(discord, data, camp_id).await,
+        CampAction::ResumeCamp => resume_camp(discord, data, guild_id, camp_id).await,
+        CampAction::EndCamp => end_camp(discord, data, camp_id).await,
     }
+}
+
+/// Opens signup for a new camp and posts its message in `channel_id`. Returns the camp ID.
+pub async fn create_camp(
+    discord: &Discord,
+    data: &Data,
+    guild_id: GuildId,
+    channel_id: u64,
+    size: CampSize,
+) -> Result<String> {
+    let channel_here = discord
+        .cache
+        .guild(guild_id)
+        .map(|g| g.channels.contains_key(&ChannelId::new(channel_id)))
+        .unwrap_or(false);
+    if !channel_here {
+        bail!("Esse canal não é deste servidor.");
+    }
+    if db::load_active_for_guild(&data.db, guild_id.get() as i64).await?.is_some() {
+        bail!("Este servidor já tem um camp ativo. Cancele ou encerre o atual primeiro.");
+    }
+    let camp = db::create_camp(
+        &data.db,
+        guild_id.get() as i64,
+        channel_id as i64,
+        size.target_size(),
+        size.match_size(),
+    )
+    .await?;
+    redraw_board(discord, data, &camp.id).await?;
+    Ok(camp.id)
+}
+
+async fn redraw_board(discord: &Discord, data: &Data, camp_id: &str) -> Result<()> {
+    let state = load(data, camp_id).await?;
+    sync::redraw_board(discord, &data.db, &state).await
+}
+
+async fn start_queue(discord: &Discord, data: &Data, guild_id: GuildId, camp_id: &str) -> Result<()> {
+    let order = db::start_queue(&data.db, camp_id).await?;
+    let state = load(data, camp_id).await?;
+    let channel = channel(&state);
+    let queued_ids: Vec<i64> = state.players.iter().map(|p| p.user_id).collect();
+    sync::redraw_all(discord, &data.db, &state).await?;
+    sync::apply_moves(discord, guild_id, &data.config, channel, &sync::queue_voice_moves(&queued_ids)).await;
+    let _ = channel
+        .say(
+            &discord.http,
+            format!(
+                "Fila embaralhada do camp `{}`:\n{}\nUm admin clica em **Criar partida** para montar os próximos times.",
+                state.camp.id,
+                sync::mention_list(&order)
+            ),
+        )
+        .await;
+    Ok(())
+}
+
+async fn cancel_camp(discord: &Discord, data: &Data, camp_id: &str) -> Result<()> {
+    db::cancel_camp(&data.db, camp_id).await?;
+    let state = load(data, camp_id).await?;
+    let _ = sync::redraw_board(discord, &data.db, &state).await;
+    let _ = channel(&state)
+        .say(
+            &discord.http,
+            format!("Camp `{camp_id}` cancelado. Elenco, fila e pontos ficam guardados para retomar depois."),
+        )
+        .await;
+    Ok(())
+}
+
+async fn resume_camp(discord: &Discord, data: &Data, guild_id: GuildId, camp_id: &str) -> Result<()> {
+    let state = db::resume_camp(&data.db, camp_id, guild_id.get() as i64).await?;
+    sync::redraw_all(discord, &data.db, &state).await?;
+    let _ = channel(&state)
+        .say(&discord.http, format!("Camp `{camp_id}` retomado."))
+        .await;
+    Ok(())
+}
+
+async fn end_camp(discord: &Discord, data: &Data, camp_id: &str) -> Result<()> {
+    let players = db::end_camp(&data.db, camp_id).await?;
+    let state = load(data, camp_id).await?;
+    let channel = channel(&state);
+    let standings = || ui::standings_embed(camp_id, state.camp.match_count, &players);
+    let _ = channel
+        .send_message(&discord.http, CreateMessage::new().embed(standings()))
+        .await;
+    if let Some(board_id) = state.camp.board_message_id {
+        let _ = channel
+            .edit_message(
+                &discord.http,
+                board_id as u64,
+                EditMessage::new().embed(standings()).components(Vec::new()),
+            )
+            .await;
+    }
+    Ok(())
 }
 
 fn normalize(match_id: &str) -> String {

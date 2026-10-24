@@ -112,7 +112,7 @@ function Actions({ match }: { match: Match }) {
     const win = (side: Side) =>
       run(
         { type: 'report_winner', match_id: match.id, side },
-        `Confirmar: ${SIDE_LABEL[side]} venceu a ${matchName(match)}?`,
+        { confirm: `Confirmar: ${SIDE_LABEL[side]} venceu a ${matchName(match)}?` },
       );
     return (
       <div className="actions two">

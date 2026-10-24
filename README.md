@@ -112,7 +112,14 @@ A Cargo workspace. `cargo run` at the root starts the app crate, which builds th
 
 ## Admin web page (in progress)
 
-Camp management is moving from Discord buttons to a web page. The live view shows both matches, the queue, recent results and the ranking, refreshes every few seconds, and runs the match actions: **Criar partida**, **Partida final**, **Iniciar draft**, **Iniciar partida**, the winner buttons, and **Trocar vencedor** / **Reabrir** on the latest result. Each one does exactly what the Discord button does, including the Discord side: the camp and match messages are redrawn, the channel gets the same announcement, players are moved between voice channels and captains get their draft DMs. Page clicks and Discord buttons wait for each other, so they can't clash. Building the roster, starting the queue and ending a camp are still done in Discord for now.
+Camp management is moving from Discord buttons to a web page. The live view shows both matches, the queue, recent results and the ranking, refreshes every few seconds, and runs the match actions: **Criar partida**, **Partida final**, **Iniciar draft**, **Iniciar partida**, the winner buttons, and **Trocar vencedor** / **Reabrir** on the latest result. Each one does exactly what the Discord button does, including the Discord side: the camp and match messages are redrawn, the channel gets the same announcement, players are moved between voice channels and captains get their draft DMs. Page clicks and Discord buttons wait for each other, so they can't clash.
+
+The page covers the whole camp, too:
+
+- **Camps:** every camp of the server, with **Novo camp** (text channel and size), **Cancelar**, **Retomar**, **Encerrar** and the final ranking. One active camp per server, as before.
+- **Jogadores:** during signup, search server members by name and add them, add everyone in the Queue voice channel at once, mark S rank, remove players, and **Iniciar fila** once the roster is full. After that, the roster with points, consecutive matches and where each player is; S rank can still change for the next matches.
+
+The `/camp` commands and the admin buttons in Discord still work for now.
 
 To turn it on:
 
@@ -137,8 +144,11 @@ Anyone with **Manage Server** in a server the bot is in can sign in and see that
 | `GET /auth/login`, `GET /auth/callback`, `POST /auth/logout` | Discord sign-in and sign-out. |
 | `GET /api/me` | The signed-in user and the servers they can manage. |
 | `GET /api/guilds/{guild_id}/camps` | That server's camps, newest first. |
+| `POST /api/guilds/{guild_id}/camps` | Opens signup for a new camp: `{"channel_id": "…", "size": "24"}` (`24`, `30`, `4-1v1`, `4-2v2`). |
+| `GET /api/guilds/{guild_id}/channels` | The server's text channels. |
+| `GET /api/guilds/{guild_id}/members?query=` | Members whose name starts with `query` (up to 10). |
 | `GET /api/camps/{camp_id}` | Roster with names, queue and who goes next, open matches with teams, votes and draft links, recent results. |
 | `GET /api/matches/{match_id}` | One match, finished or not. |
-| `POST /api/camps/{camp_id}/actions` | Runs an admin action and returns the camp afterwards. Body: `{"type": "create_match"}`, `create_final`, or `start_draft` / `start_match` / `correct_winner` / `reopen_match` with `"match_id"`, or `report_winner` with `"match_id"` and `"side"` (`hiddenking` / `archmother`). A refusal (e.g. a draft before the vote ended) is a 409 with the bot's message. |
+| `POST /api/camps/{camp_id}/actions` | Runs an admin action and returns the camp afterwards. Body: `{"type": "create_match"}`, `create_final`, or `start_draft` / `start_match` / `correct_winner` / `reopen_match` with `"match_id"`, or `report_winner` with `"match_id"` and `"side"` (`hiddenking` / `archmother`); for the roster, `add_players` (`"user_ids"`), `remove_player` and `set_s_rank` (`"user_id"`, `"s_rank"`); and `start_queue`, `cancel_camp`, `resume_camp`, `end_camp`. A refusal (e.g. a draft before the vote ended) is a 409 with the bot's message. |
 
 Discord IDs are sent as strings, since they don't fit in a JavaScript number.
