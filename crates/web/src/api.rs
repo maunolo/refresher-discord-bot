@@ -1,9 +1,13 @@
 //! Read-only JSON for the admin page. Discord IDs go out as strings: they don't fit in a
 //! JavaScript number.
 
+use std::collections::HashMap;
+
 use axum::extract::{Path, State};
 use axum::Json;
-use refresher_core::db::{self, CampState, CampSummary, MatchPlayerRow, MatchRow, RefreshVote};
+use refresher_core::db::{self, CampState, CampSummary, MatchPlayerRow, MatchRow, PlayerRow, RecentMatch, RefreshVote};
+use refresher_core::link::Profile;
+use refresher_core::queue;
 use serde::Serialize;
 
 use crate::auth::Admin;
@@ -54,8 +58,40 @@ pub struct CampDto {
     has_final: bool,
     can_create_match: bool,
     can_create_final: bool,
+    /// Refresh votes one team needs to re-sort a match.
+    refresh_votes: usize,
     players: Vec<PlayerDto>,
+    /// Who the next match would take from the queue, by the bot's seating rule.
+    up_next: Vec<String>,
     open_matches: Vec<MatchDto>,
+    recent_matches: Vec<RecentMatchDto>,
+    /// Name and avatar per user ID, for everyone on the roster Discord could find.
+    members: HashMap<String, MemberDto>,
+}
+
+#[derive(Serialize)]
+struct MemberDto {
+    name: String,
+    avatar_url: String,
+}
+
+#[derive(Serialize)]
+struct RecentMatchDto {
+    id: String,
+    /// Position among the camp's finished matches, 1 being the first.
+    number: i64,
+    winner_side: String,
+    is_final: bool,
+    completed_at: i64,
+    captains: Vec<CaptainDto>,
+    /// The bot's rule: only the latest result, and only while its players are all back in the queue.
+    correctable: bool,
+}
+
+#[derive(Serialize)]
+struct CaptainDto {
+    user_id: String,
+    side: String,
 }
 
 #[derive(Serialize)]
@@ -149,7 +185,53 @@ fn match_dto(camp_id: &str, row: &MatchRow, players: &[MatchPlayerRow], votes: &
     }
 }
 
-fn camp_dto(state: &CampState) -> CampDto {
+fn up_next(state: &CampState) -> Vec<String> {
+    let mut queued: Vec<&PlayerRow> = state
+        .players
+        .iter()
+        .filter(|p| p.location == "queued")
+        .collect();
+    queued.sort_by_key(|p| p.queue_position.unwrap_or(i64::MAX));
+    let seats: Vec<queue::Seat> = queued.iter().map(|p| p.seat()).collect();
+    queue::pick_match_seats(&seats, state.camp.layout().match_size)
+        .iter()
+        .map(|s| s.user_id.to_string())
+        .collect()
+}
+
+fn recent_dto(state: &CampState, recent: &[RecentMatch]) -> Vec<RecentMatchDto> {
+    let queued = |user_id: i64| {
+        state
+            .players
+            .iter()
+            .any(|p| p.user_id == user_id && p.location == "queued")
+    };
+    recent
+        .iter()
+        .enumerate()
+        .map(|(i, m)| RecentMatchDto {
+            id: m.id.clone(),
+            number: state.camp.match_count - i as i64,
+            winner_side: m.winner_side.clone(),
+            is_final: m.is_final,
+            completed_at: m.completed_at,
+            captains: m
+                .players
+                .iter()
+                .filter(|p| p.is_captain)
+                .map(|p| CaptainDto {
+                    user_id: p.user_id.to_string(),
+                    side: p.side.clone(),
+                })
+                .collect(),
+            correctable: i == 0
+                && state.camp.status == "running"
+                && m.players.iter().all(|p| queued(p.user_id)),
+        })
+        .collect()
+}
+
+fn camp_dto(state: &CampState, recent: &[RecentMatch], profiles: &HashMap<u64, Profile>) -> CampDto {
     CampDto {
         id: state.camp.id.clone(),
         guild_id: state.camp.guild_id.to_string(),
@@ -161,6 +243,7 @@ fn camp_dto(state: &CampState) -> CampDto {
         has_final: state.has_final,
         can_create_match: state.can_create_match(),
         can_create_final: state.can_create_final(),
+        refresh_votes: state.camp.layout().refresh_votes,
         players: state
             .players
             .iter()
@@ -173,10 +256,24 @@ fn camp_dto(state: &CampState) -> CampDto {
                 s_rank: p.s_rank,
             })
             .collect(),
+        up_next: up_next(state),
         open_matches: state
             .open_matches
             .iter()
             .map(|m| match_dto(&state.camp.id, &m.row, &m.players, &m.votes))
+            .collect(),
+        recent_matches: recent_dto(state, recent),
+        members: profiles
+            .iter()
+            .map(|(id, p)| {
+                (
+                    id.to_string(),
+                    MemberDto {
+                        name: p.name.clone(),
+                        avatar_url: p.avatar_url.clone(),
+                    },
+                )
+            })
             .collect(),
     }
 }
@@ -203,7 +300,7 @@ pub async fn me(State(state): State<AppState>, Admin(session): Admin) -> Json<Me
         guilds: session
             .admin_guilds
             .iter()
-            .filter(|g| state.bot_guilds.contains(g.id))
+            .filter(|g| state.link.in_guild(g.id))
             .map(|g| GuildDto {
                 id: g.id.to_string(),
                 name: g.name.clone(),
@@ -234,7 +331,13 @@ pub async fn camp(
         .await?
         .filter(|c| session.is_admin_of(c.camp.guild_id as u64))
         .ok_or(ApiError::NotFound)?;
-    Ok(Json(camp_dto(&camp)))
+    let recent = db::recent_matches(&state.db, &camp.camp.id, 5).await?;
+    let user_ids: Vec<u64> = camp.players.iter().map(|p| p.user_id as u64).collect();
+    let profiles = state
+        .link
+        .profiles(camp.camp.guild_id as u64, &user_ids)
+        .await;
+    Ok(Json(camp_dto(&camp, &recent, &profiles)))
 }
 
 pub async fn match_info(

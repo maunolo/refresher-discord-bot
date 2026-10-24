@@ -310,6 +310,53 @@ pub async fn list_camps_for_guild(pool: &SqlitePool, guild_id: i64) -> Result<Ve
         .collect())
 }
 
+#[derive(Clone, Debug)]
+pub struct RecentMatch {
+    pub id: String,
+    pub winner_side: String,
+    pub is_final: bool,
+    pub completed_at: i64,
+    pub players: Vec<MatchPlayerRow>,
+}
+
+/// A camp's finished matches, newest first.
+pub async fn recent_matches(pool: &SqlitePool, camp_id: &str, limit: i64) -> Result<Vec<RecentMatch>> {
+    let rows = sqlx::query_as::<_, (String, String, i64, i64)>(
+        "SELECT id, winner_side, is_final, completed_at FROM camp_matches
+         WHERE camp_id = ? AND status = 'completed' AND winner_side IS NOT NULL AND completed_at IS NOT NULL
+         ORDER BY completed_at DESC, id DESC LIMIT ?",
+    )
+    .bind(camp_id)
+    .bind(limit)
+    .fetch_all(pool)
+    .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for (id, winner_side, is_final, completed_at) in rows {
+        let players = sqlx::query_as::<_, (i64, String, Option<i64>, i64)>(
+            "SELECT user_id, side, points_after, is_captain FROM camp_match_players WHERE match_id = ?",
+        )
+        .bind(&id)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|p| MatchPlayerRow {
+            user_id: p.0,
+            side: p.1,
+            points_after: p.2,
+            is_captain: p.3 != 0,
+        })
+        .collect();
+        out.push(RecentMatch {
+            id,
+            winner_side,
+            is_final: is_final != 0,
+            completed_at,
+            players,
+        });
+    }
+    Ok(out)
+}
+
 /// The server a match belongs to, through its camp.
 pub async fn match_guild_id(pool: &SqlitePool, match_id: &str) -> Result<Option<i64>> {
     let guild_id = sqlx::query_scalar(

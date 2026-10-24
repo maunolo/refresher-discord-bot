@@ -102,7 +102,8 @@ A Cargo workspace. `cargo run` at the root starts the app crate, which builds th
 | --- | --- |
 | `crates/core` | Camp rules and storage with no Discord code: config, SQLite access (`db.rs`), queue and team splits (`queue.rs`), the draft and Deadlock lobby APIs. |
 | `crates/bot` | The Discord side: `/camp` commands, buttons, embeds, message syncing and voice moves. |
-| `crates/web` | The admin web page backend (axum): Discord login, sessions and the camp API. |
+| `crates/web` | The admin web page backend (axum): Discord login, sessions, the camp API, and serving the built page. |
+| `web/` | The admin page itself: React + Vite + TypeScript. |
 | `crates/app` | `main.rs`: loads `.env`, opens the database and starts the bot, plus the web admin when it's configured. |
 | `migrations/` | SQLite migrations, applied on startup. |
 | `assets/` | The bot logo. |
@@ -111,13 +112,23 @@ A Cargo workspace. `cargo run` at the root starts the app crate, which builds th
 
 ## Admin web page (in progress)
 
-Camp management is moving from Discord buttons to a web page. For now the page has Discord login and a read-only API; the screens and admin actions come next.
+Camp management is moving from Discord buttons to a web page. For now the page shows the live view (both matches, the queue, recent results and the ranking) and refreshes every few seconds; its buttons stay disabled until admin actions land, so keep using the Discord buttons meanwhile.
 
 To turn it on:
 
 1. In the [Developer Portal](https://discord.com/developers/applications), open the bot's application, go to **OAuth2**, copy the **Client ID** and reset/copy the **Client Secret**.
 2. Under **Redirects**, add `http://localhost:8080/auth/callback` (or `{WEB_PUBLIC_URL}/auth/callback` if you change the address).
-3. Set `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET` in `.env`, restart, and open `http://localhost:8080`.
+3. Set `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET` in `.env`.
+4. Build the page once (needs [Node.js](https://nodejs.org) 20 or newer): `cd web`, `npm install`, `npm run build`. The server serves `web/dist` (change it with `WEB_STATIC_DIR`).
+5. Restart the bot and open `http://localhost:8080`.
+
+### Working on the page
+
+- **Without Discord:** `cargo run -p refresher-web --example demo --features demo` starts a made-up camp at `http://127.0.0.1:8090`. Open `/demo/login` to sign in as a test admin. Nothing touches Discord or `data/camps.db`.
+- **With hot reload:** run the bot (or the demo) and, in `web/`, `npm run dev`. Vite serves the page on `http://localhost:5173` and forwards `/api` and `/auth` to port 8080 (`API_TARGET=http://127.0.0.1:8090 npm run dev` for the demo). To sign in through Discord on 5173, set `WEB_PUBLIC_URL=http://localhost:5173` and add `http://localhost:5173/auth/callback` to the app's redirects.
+- `npm run typecheck` checks the TypeScript.
+
+Player names come from the bot: it looks members up on Discord (server nickname, then display name) and keeps them for 10 minutes.
 
 Anyone with **Manage Server** in a server the bot is in can sign in and see that server's camps, the same rule as the `/camp` commands. A sign-in lasts 12 hours; sign in again to pick up permission changes.
 
@@ -126,7 +137,7 @@ Anyone with **Manage Server** in a server the bot is in can sign in and see that
 | `GET /auth/login`, `GET /auth/callback`, `POST /auth/logout` | Discord sign-in and sign-out. |
 | `GET /api/me` | The signed-in user and the servers they can manage. |
 | `GET /api/guilds/{guild_id}/camps` | That server's camps, newest first. |
-| `GET /api/camps/{camp_id}` | Roster, queue, open matches with teams, votes and draft links. |
+| `GET /api/camps/{camp_id}` | Roster with names, queue and who goes next, open matches with teams, votes and draft links, recent results. |
 | `GET /api/matches/{match_id}` | One match, finished or not. |
 
 Discord IDs are sent as strings, since they don't fit in a JavaScript number.

@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 
 mod buttons;
 mod commands;
+mod link;
 mod state;
 mod sync;
 mod ui;
@@ -17,7 +18,7 @@ mod voice;
 use refresher_core::{config, db, deadlock, draft, queue};
 
 use config::Config;
-use refresher_core::shared::BotGuilds;
+use refresher_core::link::BotLink;
 pub use state::Data;
 
 pub type Error = anyhow::Error;
@@ -36,7 +37,6 @@ async fn event_handler(
             }
         }
         FullEvent::GuildCreate { guild, .. } => {
-            data.bot_guilds.insert(guild.id.get());
             if let Err(err) = poise::builtins::register_in_guild(
                 ctx,
                 &framework.options().commands,
@@ -48,10 +48,6 @@ async fn event_handler(
             } else {
                 tracing::info!("registered slash commands in {}", guild.name);
             }
-        }
-        // `unavailable` means a Discord outage, not that the bot was removed.
-        FullEvent::GuildDelete { incomplete, .. } if !incomplete.unavailable => {
-            data.bot_guilds.remove(incomplete.id.get());
         }
         FullEvent::VoiceStateUpdate { old, new } => {
             if let Err(err) = sync::place_late_voice_join(ctx, data, old.as_ref(), new).await {
@@ -70,15 +66,39 @@ async fn event_handler(
     Ok(())
 }
 
-/// Connects to Discord and handles camp commands and buttons until the connection ends.
-/// Keeps `bot_guilds` up to date with the servers the bot is in.
-pub async fn run(config: Config, db: SqlitePool, bot_guilds: BotGuilds) -> Result<()> {
+/// The Discord client, built but not yet connected.
+pub struct Bot {
+    client: serenity::Client,
+}
+
+impl Bot {
+    pub async fn new(config: Config, db: SqlitePool) -> Result<Self> {
+        Ok(Self {
+            client: build_client(config, db).await?,
+        })
+    }
+
+    /// Lets the web admin look things up through this bot's connection.
+    pub fn link(&self) -> Arc<dyn BotLink> {
+        Arc::new(link::SerenityLink::new(
+            self.client.http.clone(),
+            self.client.cache.clone(),
+        ))
+    }
+
+    /// Connects to Discord and handles camp commands and buttons until the connection ends.
+    pub async fn run(mut self) -> Result<()> {
+        self.client.start().await?;
+        Ok(())
+    }
+}
+
+async fn build_client(config: Config, db: SqlitePool) -> Result<serenity::Client> {
     let data = Data {
         config: config.clone(),
         db,
         http: reqwest::Client::new(),
         locks: Arc::new(Mutex::new(HashMap::new())),
-        bot_guilds,
     };
 
     let intents = serenity::GatewayIntents::GUILDS | serenity::GatewayIntents::GUILD_VOICE_STATES;
@@ -104,11 +124,10 @@ pub async fn run(config: Config, db: SqlitePool, bot_guilds: BotGuilds) -> Resul
         })
         .build();
 
-    let mut client = serenity::ClientBuilder::new(token, intents)
+    let client = serenity::ClientBuilder::new(token, intents)
         .framework(framework)
         .await?;
-    client.start().await?;
-    Ok(())
+    Ok(client)
 }
 
 async fn on_error(error: poise::FrameworkError<'_, Data, Error>) {

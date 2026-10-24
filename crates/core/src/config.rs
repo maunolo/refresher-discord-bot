@@ -29,6 +29,8 @@ pub struct WebConfig {
     pub public_url: String,
     pub discord_client_id: String,
     pub discord_client_secret: String,
+    /// The built admin page (`npm run build` in `web/`).
+    pub static_dir: String,
 }
 
 fn optional_var(name: &str) -> Option<String> {
@@ -51,6 +53,7 @@ fn web_from_env() -> Result<Option<WebConfig>> {
                 .to_string(),
             discord_client_id,
             discord_client_secret,
+            static_dir: optional_var("WEB_STATIC_DIR").unwrap_or_else(|| "web/dist".to_string()),
         })),
         (None, None) => Ok(None),
         _ => bail!("set both DISCORD_CLIENT_ID and DISCORD_CLIENT_SECRET to turn on the web admin, or neither"),

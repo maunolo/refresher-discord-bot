@@ -1,8 +1,12 @@
 [package]
 name = "refresher-web"
-description = "Admin web page backend: Discord login and the camp API."
+description = "Admin web page backend: Discord login, the camp API and the built page."
 version.workspace = true
 edition.workspace = true
+
+[features]
+# A seeded in-memory camp with a login shortcut, for working on the page without Discord.
+demo = []
 
 [dependencies]
 refresher-core.workspace = true
@@ -17,7 +21,12 @@ serde_json.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
 tokio.workspace = true
+tower-http.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
 tower.workspace = true
+
+[[example]]
+name = "demo"
+required-features = ["demo"]

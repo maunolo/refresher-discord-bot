@@ -45,6 +45,10 @@ fn redirect_uri(state: &AppState) -> String {
     format!("{}/auth/callback", state.config.public_url)
 }
 
+pub(crate) fn session_cookie(state: &AppState, token: String) -> Cookie<'static> {
+    cookie(state, session::COOKIE_NAME, token)
+}
+
 fn cookie(state: &AppState, name: &'static str, value: String) -> Cookie<'static> {
     Cookie::build((name, value))
         .path("/")
@@ -118,7 +122,7 @@ pub async fn callback(
     };
     let token = session::create(&state.db, &session).await?;
     tracing::info!(user_id = session.user_id, servers = session.admin_guilds.len(), "admin signed in");
-    Ok((jar.add(cookie(&state, session::COOKIE_NAME, token)), Redirect::to("/")))
+    Ok((jar.add(session_cookie(&state, token)), Redirect::to("/")))
 }
 
 pub async fn logout(State(state): State<AppState>, jar: CookieJar) -> Result<(CookieJar, Redirect), ApiError> {
