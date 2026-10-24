@@ -1,0 +1,3 @@
+# sqlx stores a checksum of each applied migration, so its bytes must never change.
+# Keep migration files exactly as committed: no line-ending conversion on checkout.
+migrations/*.sql -text
