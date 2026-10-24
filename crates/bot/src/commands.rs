@@ -3,6 +3,7 @@ use poise::CreateReply;
 use serenity::all::{GuildId, Mentionable, User};
 
 use crate::db;
+use crate::discord::Discord;
 use crate::state::with_guild_lock;
 use crate::sync;
 use crate::Error;
@@ -86,7 +87,7 @@ pub async fn start(
         let state = db::load_camp(&ctx.data().db, &camp.id)
             .await?
             .ok_or_else(|| anyhow!("camp não encontrado"))?;
-        sync::redraw_board(ctx.serenity_context(), &ctx.data().db, &state).await?;
+        sync::redraw_board(&Discord::from(ctx.serenity_context()), &ctx.data().db, &state).await?;
         ctx.send(
             CreateReply::default().content(format!(
                 "Camp `{}` criado para {} jogadores{}. Adicione os usuários e inicie a fila.",
@@ -137,7 +138,7 @@ pub async fn add(
         let state = db::load_camp(&ctx.data().db, &camp.camp.id)
             .await?
             .ok_or_else(|| anyhow!("camp não encontrado"))?;
-        sync::redraw_board(ctx.serenity_context(), &ctx.data().db, &state).await?;
+        sync::redraw_board(&Discord::from(ctx.serenity_context()), &ctx.data().db, &state).await?;
         ctx.send(
             CreateReply::default()
                 .content(format!(
@@ -172,7 +173,7 @@ pub async fn remove(
         let state = db::load_camp(&ctx.data().db, &camp.camp.id)
             .await?
             .ok_or_else(|| anyhow!("camp não encontrado"))?;
-        sync::redraw_board(ctx.serenity_context(), &ctx.data().db, &state).await?;
+        sync::redraw_board(&Discord::from(ctx.serenity_context()), &ctx.data().db, &state).await?;
         ctx.send(
             CreateReply::default()
                 .content(format!("Removido {}.", user.mention()))
@@ -205,7 +206,7 @@ pub async fn s_rank(
         let state = db::load_camp(&ctx.data().db, &camp.camp.id)
             .await?
             .ok_or_else(|| anyhow!("camp não encontrado"))?;
-        sync::redraw_board(ctx.serenity_context(), &ctx.data().db, &state).await?;
+        sync::redraw_board(&Discord::from(ctx.serenity_context()), &ctx.data().db, &state).await?;
         let text = if s_rank {
             format!(
                 "{} agora é S rank {}. Vale a partir da próxima partida criada.",
@@ -235,7 +236,7 @@ pub async fn cancel(ctx: Context<'_>) -> Result<(), Error> {
             .ok_or_else(|| anyhow!("nenhum camp ativo"))?;
         db::cancel_camp(&ctx.data().db, &camp.camp.id).await?;
         if let Some(state) = db::load_camp(&ctx.data().db, &camp.camp.id).await? {
-            let _ = sync::redraw_board(ctx.serenity_context(), &ctx.data().db, &state).await;
+            let _ = sync::redraw_board(&Discord::from(ctx.serenity_context()), &ctx.data().db, &state).await;
         }
         ctx.send(
             CreateReply::default().content(format!(
@@ -288,7 +289,7 @@ pub async fn resume(
     with_guild_lock(ctx.data(), guild_id.get(), || async {
         let id = id.trim().to_uppercase();
         let state = db::resume_camp(&ctx.data().db, &id, guild_id.get() as i64).await?;
-        sync::redraw_all(ctx.serenity_context(), &ctx.data().db, &state).await?;
+        sync::redraw_all(&Discord::from(ctx.serenity_context()), &ctx.data().db, &state).await?;
         ctx.send(CreateReply::default().content(format!("Camp `{}` retomado.", state.camp.id)))
             .await?;
         Ok(())

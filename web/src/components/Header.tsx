@@ -1,6 +1,6 @@
+import { createFinalBlocked, createMatchBlocked, useActions } from '../actions';
 import type { Camp, CampSummary, Guild, Me } from '../api';
 import { campStatusLabel, formatLabel } from '../camp';
-import { SOON } from './common';
 
 interface HeaderProps {
   me: Me;
@@ -38,6 +38,39 @@ function GuildPicker({ guilds, value, onChange }: { guilds: Guild[]; value: stri
   );
 }
 
+function CampButtons({ camp }: { camp: Camp }) {
+  const { run, busy } = useActions();
+  const matchBlocked = createMatchBlocked(camp);
+  const finalBlocked = createFinalBlocked(camp);
+  return (
+    <>
+      <button
+        type="button"
+        className="button"
+        disabled={busy || matchBlocked !== undefined}
+        title={matchBlocked}
+        onClick={() => run({ type: 'create_match' })}
+      >
+        Criar partida
+      </button>
+      <button
+        type="button"
+        className="button"
+        disabled={busy || finalBlocked !== undefined}
+        title={finalBlocked}
+        onClick={() =>
+          run(
+            { type: 'create_final' },
+            'Criar a partida final com os jogadores de maior pontuação? Depois dela não dá para criar outras partidas.',
+          )
+        }
+      >
+        Partida final
+      </button>
+    </>
+  );
+}
+
 export function Header({ me, guildId, onGuild, camps, campId, onCamp, camp }: HeaderProps) {
   const sRank = camp?.players.filter((p) => p.s_rank).length ?? 0;
   return (
@@ -70,16 +103,7 @@ export function Header({ me, guildId, onGuild, camps, campId, onCamp, camp }: He
         )}
       </div>
       <div className="header-group">
-        {camp?.status === 'running' && (
-          <>
-            <button type="button" className="button" disabled title={SOON}>
-              Criar partida
-            </button>
-            <button type="button" className="button" disabled title={SOON}>
-              Partida final
-            </button>
-          </>
-        )}
+        {camp?.status === 'running' && <CampButtons camp={camp} />}
         <div className="account">
           {me.user.avatar_url && <img src={me.user.avatar_url} alt="" width={32} height={32} className="avatar" />}
           <span className="small">{me.user.name}</span>

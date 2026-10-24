@@ -232,6 +232,30 @@ input {
   font-size: 13px;
 }
 
+.working {
+  padding: 8px 24px;
+  background: var(--active);
+  color: var(--mint);
+  font-size: 13px;
+}
+
+.notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px 8px 24px;
+  background: var(--live-bg);
+  color: var(--live);
+  font-size: 13px;
+}
+
+.notice .icon-button {
+  border-color: transparent;
+  color: var(--live);
+  font-size: 18px;
+}
+
 .full-page {
   min-height: 100vh;
   display: flex;

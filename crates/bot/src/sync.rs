@@ -1,15 +1,16 @@
 use anyhow::Result;
 use serenity::all::{
-    ChannelId, Context, CreateMessage, EditMessage, GuildId, Mentionable, UserId, VoiceState,
+    ChannelId, CreateMessage, EditMessage, GuildId, Mentionable, UserId, VoiceState,
 };
 use sqlx::SqlitePool;
 
 use crate::config::Config;
 use crate::db::{self, CampState, MatchPlayerRow, OpenMatch};
+use crate::discord::Discord;
 use crate::state::{with_guild_lock, Data};
 use crate::voice::{self, VoiceDest};
 
-pub async fn redraw_board(ctx: &Context, pool: &SqlitePool, state: &CampState) -> Result<()> {
+pub async fn redraw_board(discord: &Discord, pool: &SqlitePool, state: &CampState) -> Result<()> {
     let channel = ChannelId::new(state.camp.channel_id as u64);
     let embed = if state.camp.status == "signup" {
         crate::ui::signup_embed(state)
@@ -24,7 +25,7 @@ pub async fn redraw_board(ctx: &Context, pool: &SqlitePool, state: &CampState) -
     if let Some(id) = state.camp.board_message_id {
         if channel
             .edit_message(
-                &ctx.http,
+                &discord.http,
                 id as u64,
                 EditMessage::new()
                     .embed(embed.clone())
@@ -38,7 +39,7 @@ pub async fn redraw_board(ctx: &Context, pool: &SqlitePool, state: &CampState) -
     }
     let msg = channel
         .send_message(
-            &ctx.http,
+            &discord.http,
             CreateMessage::new().embed(embed).components(components),
         )
         .await?;
@@ -47,7 +48,7 @@ pub async fn redraw_board(ctx: &Context, pool: &SqlitePool, state: &CampState) -
 }
 
 pub async fn redraw_match(
-    ctx: &Context,
+    discord: &Discord,
     pool: &SqlitePool,
     state: &CampState,
     open: &OpenMatch,
@@ -58,7 +59,7 @@ pub async fn redraw_match(
     if let Some(id) = open.row.message_id {
         if channel
             .edit_message(
-                &ctx.http,
+                &discord.http,
                 id as u64,
                 EditMessage::new()
                     .embed(embed.clone())
@@ -72,7 +73,7 @@ pub async fn redraw_match(
     }
     let msg = channel
         .send_message(
-            &ctx.http,
+            &discord.http,
             CreateMessage::new().embed(embed).components(components),
         )
         .await?;
@@ -80,18 +81,18 @@ pub async fn redraw_match(
     Ok(())
 }
 
-pub async fn redraw_all(ctx: &Context, pool: &SqlitePool, state: &CampState) -> Result<()> {
-    redraw_board(ctx, pool, state).await?;
+pub async fn redraw_all(discord: &Discord, pool: &SqlitePool, state: &CampState) -> Result<()> {
+    redraw_board(discord, pool, state).await?;
     let fresh = db::load_camp(pool, &state.camp.id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("camp não encontrado"))?;
     for open in &fresh.open_matches {
-        redraw_match(ctx, pool, &fresh, open).await?;
+        redraw_match(discord, pool, &fresh, open).await?;
     }
     Ok(())
 }
 
-pub async fn restore_messages(ctx: &Context, pool: &SqlitePool) -> Result<()> {
+pub async fn restore_messages(discord: &Discord, pool: &SqlitePool) -> Result<()> {
     let camps = match db::load_restore_camps(pool).await {
         Ok(c) => c,
         Err(err) => {
@@ -100,20 +101,20 @@ pub async fn restore_messages(ctx: &Context, pool: &SqlitePool) -> Result<()> {
         }
     };
     for state in camps {
-        if let Err(err) = restore_one(ctx, pool, &state).await {
+        if let Err(err) = restore_one(discord, pool, &state).await {
             tracing::error!(camp = %state.camp.id, error = %err, "failed to restore camp messages");
         }
     }
     Ok(())
 }
 
-async fn restore_one(ctx: &Context, pool: &SqlitePool, state: &CampState) -> Result<()> {
-    redraw_board(ctx, pool, state).await?;
+async fn restore_one(discord: &Discord, pool: &SqlitePool, state: &CampState) -> Result<()> {
+    redraw_board(discord, pool, state).await?;
     let fresh = db::load_camp(pool, &state.camp.id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("camp não encontrado após restaurar"))?;
     for open in &fresh.open_matches {
-        redraw_match(ctx, pool, &fresh, open).await?;
+        redraw_match(discord, pool, &fresh, open).await?;
     }
     Ok(())
 }
@@ -141,15 +142,15 @@ pub fn queue_voice_moves(user_ids: &[i64]) -> Vec<(UserId, VoiceDest)> {
 }
 
 pub async fn apply_moves(
-    ctx: &Context,
+    discord: &Discord,
     guild_id: GuildId,
     config: &Config,
     channel: ChannelId,
     moves: &[(UserId, VoiceDest)],
 ) {
-    let skipped = voice::move_players(ctx, guild_id, config, moves).await;
-    if let Some(text) = voice::skipped_message(ctx, guild_id, config, &skipped).await {
-        let _ = channel.say(&ctx.http, text).await;
+    let skipped = voice::move_players(discord, guild_id, config, moves).await;
+    if let Some(text) = voice::skipped_message(discord, guild_id, config, &skipped).await {
+        let _ = channel.say(&discord.http, text).await;
     }
 }
 
@@ -180,7 +181,7 @@ pub fn side_mentions(players: &[MatchPlayerRow], side: &str) -> String {
 /// DM each captain their team's private draft link. The link is never posted in the channel:
 /// a captain who can't be DM'd is pointed at the captain-only button on the match message.
 pub async fn send_draft_to_captains(
-    ctx: &Context,
+    discord: &Discord,
     channel: ChannelId,
     camp_id: &str,
     open: &OpenMatch,
@@ -201,13 +202,13 @@ pub async fn send_draft_to_captains(
             open.row.id
         );
         if let Err(err) = user
-            .direct_message(ctx, CreateMessage::new().content(text))
+            .direct_message((&discord.cache, &*discord.http), CreateMessage::new().content(text))
             .await
         {
             tracing::warn!(%user, error = %err, "failed to DM draft link to captain");
             let _ = channel
                 .say(
-                    &ctx.http,
+                    &discord.http,
                     format!(
                         "{} não consegui te mandar DM. Clique em **{}** na mensagem da partida para ver o link do **{team}**.",
                         user.mention(),
@@ -221,7 +222,7 @@ pub async fn send_draft_to_captains(
 
 /// If a player joins voice after the draft or the live match started, move them to their team channel.
 pub async fn place_late_voice_join(
-    ctx: &Context,
+    discord: &Discord,
     data: &Data,
     old: Option<&VoiceState>,
     new: &VoiceState,
@@ -251,7 +252,7 @@ pub async fn place_late_voice_join(
             return Ok(());
         };
         voice::move_to_dest(
-            ctx,
+            discord,
             guild_id,
             &data.config,
             new.user_id,

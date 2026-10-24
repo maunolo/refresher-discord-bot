@@ -100,11 +100,21 @@ export interface Member {
   avatar_url: string;
 }
 
+/** An admin action; the bot runs it like the matching Discord button. */
+export type CampAction =
+  | { type: 'create_match' }
+  | { type: 'create_final' }
+  | { type: 'start_draft'; match_id: string }
+  | { type: 'start_match'; match_id: string }
+  | { type: 'report_winner'; match_id: string; side: Side }
+  | { type: 'correct_winner'; match_id: string }
+  | { type: 'reopen_match'; match_id: string };
+
 /** The session is missing or expired: show the login screen. */
 export class Unauthorized extends Error {}
 
-async function getJson<T>(path: string): Promise<T> {
-  const response = await fetch(path, { credentials: 'same-origin' });
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(path, { credentials: 'same-origin', ...init });
   if (response.status === 401) throw new Unauthorized('Faça login com o Discord');
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -114,7 +124,14 @@ async function getJson<T>(path: string): Promise<T> {
 }
 
 export const api = {
-  me: () => getJson<Me>('/api/me'),
-  camps: (guildId: string) => getJson<CampSummary[]>(`/api/guilds/${guildId}/camps`),
-  camp: (campId: string) => getJson<Camp>(`/api/camps/${campId}`),
+  me: () => request<Me>('/api/me'),
+  camps: (guildId: string) => request<CampSummary[]>(`/api/guilds/${guildId}/camps`),
+  camp: (campId: string) => request<Camp>(`/api/camps/${campId}`),
+  /** Resolves with the camp once the bot has also updated Discord. */
+  act: (campId: string, action: CampAction) =>
+    request<Camp>(`/api/camps/${campId}/actions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(action),
+    }),
 };

@@ -34,6 +34,7 @@ pub fn router(state: AppState) -> Router {
         .route("/me", get(api::me))
         .route("/guilds/{guild_id}/camps", get(api::guild_camps))
         .route("/camps/{camp_id}", get(api::camp))
+        .route("/camps/{camp_id}/actions", post(api::act))
         .route("/matches/{match_id}", get(api::match_info))
         .fallback(|| async { ApiError::NotFound });
     let app = Router::new()
@@ -96,10 +97,11 @@ async fn placeholder_page() -> Html<&'static str> {
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
+    use std::sync::Mutex;
 
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
-    use refresher_core::link::{BoxFuture, Profile};
+    use refresher_core::link::{BoxFuture, CampAction, Profile};
     use sqlx::sqlite::SqlitePoolOptions;
     use tower::ServiceExt;
 
@@ -110,6 +112,10 @@ mod tests {
     struct FakeLink {
         guilds: Vec<u64>,
         names: HashMap<u64, String>,
+        /// What `act` was asked to do: (server, camp, action).
+        actions: Mutex<Vec<(u64, String, CampAction)>>,
+        /// When set, `act` fails with this message, like the bot refusing an action.
+        refuse: Option<String>,
     }
 
     impl BotLink for FakeLink {
@@ -139,9 +145,31 @@ mod tests {
                     .collect()
             })
         }
+
+        fn act<'a>(
+            &'a self,
+            guild_id: u64,
+            camp_id: &'a str,
+            action: CampAction,
+        ) -> BoxFuture<'a, anyhow::Result<()>> {
+            Box::pin(async move {
+                self.actions
+                    .lock()
+                    .unwrap()
+                    .push((guild_id, camp_id.to_string(), action));
+                match &self.refuse {
+                    Some(message) => Err(anyhow::anyhow!(message.clone())),
+                    None => Ok(()),
+                }
+            })
+        }
     }
 
     async fn test_state(link: FakeLink) -> AppState {
+        test_state_with(Arc::new(link)).await
+    }
+
+    async fn test_state_with(link: Arc<FakeLink>) -> AppState {
         let db = SqlitePoolOptions::new()
             .max_connections(1)
             .connect("sqlite::memory:")
@@ -158,8 +186,22 @@ mod tests {
                 static_dir: "does-not-exist".to_string(),
             }),
             http: reqwest::Client::new(),
-            link: Arc::new(link),
+            link,
         }
+    }
+
+    async fn post(state: &AppState, path: &str, token: Option<&str>, body: &str) -> (StatusCode, serde_json::Value) {
+        let mut request = Request::post(path).header("content-type", "application/json");
+        if let Some(token) = token {
+            request = request.header("cookie", format!("{}={token}", session::COOKIE_NAME));
+        }
+        let response = router(state.clone())
+            .oneshot(request.body(Body::from(body.to_string())).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        (status, serde_json::from_slice(&body).unwrap_or(serde_json::Value::Null))
     }
 
     async fn sign_in(state: &AppState, admin_of: &[u64]) -> String {
@@ -248,6 +290,7 @@ mod tests {
         let state = test_state(FakeLink {
             guilds: vec![111, 222],
             names: HashMap::from([(5, "kaze".to_string())]),
+            ..FakeLink::default()
         })
         .await;
         let mine = refresher_core::db::create_camp(&state.db, 111, 900, 24, 12).await.unwrap();
@@ -274,6 +317,92 @@ mod tests {
             StatusCode::NOT_FOUND
         );
         assert_eq!(get(&state, "/api/matches/ZZZZZZ", Some(&token)).await.0, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn actions_run_on_the_bot_and_return_the_camp() {
+        let link = Arc::new(FakeLink::default());
+        let state = test_state_with(link.clone()).await;
+        let camp = refresher_core::db::create_camp(&state.db, 111, 900, 24, 12).await.unwrap();
+        let token = sign_in(&state, &[111]).await;
+
+        let path = format!("/api/camps/{}/actions", camp.id.to_lowercase());
+        let body = r#"{"type": "report_winner", "match_id": "R4T8WN", "side": "archmother"}"#;
+        let (status, response) = post(&state, &path, Some(&token), body).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(response["id"], camp.id.as_str());
+
+        let (status, _) = post(&state, &path, Some(&token), r#"{"type": "create_match"}"#).await;
+        assert_eq!(status, StatusCode::OK);
+
+        let actions = link.actions.lock().unwrap();
+        assert_eq!(
+            *actions,
+            [
+                (
+                    111,
+                    camp.id.clone(),
+                    CampAction::ReportWinner {
+                        match_id: "R4T8WN".to_string(),
+                        side: "archmother".to_string()
+                    }
+                ),
+                (111, camp.id.clone(), CampAction::CreateMatch),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn actions_are_limited_to_managed_servers() {
+        let link = Arc::new(FakeLink::default());
+        let state = test_state_with(link.clone()).await;
+        let other = refresher_core::db::create_camp(&state.db, 222, 901, 24, 12).await.unwrap();
+        let token = sign_in(&state, &[111]).await;
+        let path = format!("/api/camps/{}/actions", other.id);
+
+        assert_eq!(post(&state, &path, None, r#"{"type": "create_match"}"#).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            post(&state, &path, Some(&token), r#"{"type": "create_match"}"#).await.0,
+            StatusCode::NOT_FOUND
+        );
+        assert!(link.actions.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn bad_actions_never_reach_the_bot() {
+        let link = Arc::new(FakeLink::default());
+        let state = test_state_with(link.clone()).await;
+        let camp = refresher_core::db::create_camp(&state.db, 111, 900, 24, 12).await.unwrap();
+        let token = sign_in(&state, &[111]).await;
+        let path = format!("/api/camps/{}/actions", camp.id);
+
+        let bad_side = r#"{"type": "report_winner", "match_id": "R4T8WN", "side": "everyone"}"#;
+        assert!(post(&state, &path, Some(&token), bad_side).await.0.is_client_error());
+        assert!(post(&state, &path, Some(&token), r#"{"type": "delete_everything"}"#)
+            .await
+            .0
+            .is_client_error());
+        assert!(link.actions.lock().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn refused_actions_come_back_as_conflicts() {
+        let state = test_state(FakeLink {
+            refuse: Some("Espere a votação de Refresh terminar antes do draft.".to_string()),
+            ..FakeLink::default()
+        })
+        .await;
+        let camp = refresher_core::db::create_camp(&state.db, 111, 900, 24, 12).await.unwrap();
+        let token = sign_in(&state, &[111]).await;
+        let (status, body) = post(
+            &state,
+            &format!("/api/camps/{}/actions", camp.id),
+            Some(&token),
+            r#"{"type": "start_draft", "match_id": "R4T8WN"}"#,
+        )
+        .await;
+        assert_eq!(status, StatusCode::CONFLICT);
+        assert_eq!(body["error"], "Espere a votação de Refresh terminar antes do draft.");
     }
 
     #[tokio::test]

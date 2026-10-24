@@ -1,6 +1,11 @@
+import { useActions } from '../actions';
 import type { Camp, Draft, Match, Side } from '../api';
 import { SIDES, SIDE_LABEL, playerById, playerName, points, stage, voteSummary, type Stage } from '../camp';
-import { Captain, CopyButton, SOON, SRankChip } from './common';
+import { Captain, CopyButton, SRankChip } from './common';
+
+function matchName(match: Match): string {
+  return match.is_final ? 'Partida final' : `Partida ${match.slot}`;
+}
 
 const STEPS = ['Votação', 'Draft', 'Ao vivo', 'Resultado'];
 const STEP_INDEX: Record<Stage, number> = { voting: 0, draft: 1, live: 2 };
@@ -101,25 +106,55 @@ function DraftLinks({ camp, match, draft }: { camp: Camp; match: Match; draft: D
 }
 
 function Actions({ match }: { match: Match }) {
+  const { run, busy } = useActions();
   const current = stage(match);
   if (current === 'live') {
+    const win = (side: Side) =>
+      run(
+        { type: 'report_winner', match_id: match.id, side },
+        `Confirmar: ${SIDE_LABEL[side]} venceu a ${matchName(match)}?`,
+      );
     return (
       <div className="actions two">
-        <button type="button" className="button button-hk" disabled title={SOON}>
+        <button type="button" className="button button-hk" disabled={busy} onClick={() => win('hiddenking')}>
           Hiddenking venceu
         </button>
-        <button type="button" className="button button-am" disabled title={SOON}>
+        <button type="button" className="button button-am" disabled={busy} onClick={() => win('archmother')}>
           Archmother venceu
         </button>
       </div>
     );
   }
-  const label = current === 'draft' && match.draft ? 'Iniciar partida' : 'Iniciar draft';
+  if (current === 'voting') {
+    return (
+      <div className="actions">
+        <button type="button" className="button button-primary" disabled title="Espere a votação terminar no Discord.">
+          Iniciar draft
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="actions">
-      <button type="button" className="button button-primary" disabled title={SOON}>
-        {label}
-      </button>
+      {match.draft ? (
+        <button
+          type="button"
+          className="button button-primary"
+          disabled={busy}
+          onClick={() => run({ type: 'start_match', match_id: match.id })}
+        >
+          Iniciar partida
+        </button>
+      ) : (
+        <button
+          type="button"
+          className="button button-primary"
+          disabled={busy}
+          onClick={() => run({ type: 'start_draft', match_id: match.id })}
+        >
+          Iniciar draft
+        </button>
+      )}
     </div>
   );
 }
@@ -130,7 +165,7 @@ export function MatchCard({ camp, match }: { camp: Camp; match: Match }) {
     <section className="card match" aria-labelledby={titleId}>
       <div className="card-head">
         <div className="title-row">
-          <h2 id={titleId}>{match.is_final ? 'Partida final' : `Partida ${match.slot}`}</h2>
+          <h2 id={titleId}>{matchName(match)}</h2>
           <span className="mono muted small">{match.id}</span>
         </div>
         <StagePill match={match} />

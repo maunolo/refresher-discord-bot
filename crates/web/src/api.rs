@@ -6,9 +6,11 @@ use std::collections::HashMap;
 use axum::extract::{Path, State};
 use axum::Json;
 use refresher_core::db::{self, CampState, CampSummary, MatchPlayerRow, MatchRow, PlayerRow, RecentMatch, RefreshVote};
-use refresher_core::link::Profile;
+use refresher_core::link::{CampAction, Profile};
 use refresher_core::queue;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+
+use crate::session::Session;
 
 use crate::auth::Admin;
 use crate::error::ApiError;
@@ -322,15 +324,24 @@ pub async fn guild_camps(
     Ok(Json(camps.into_iter().map(summary_dto).collect()))
 }
 
+/// A camp in a server the admin manages, or 404.
+async fn admin_camp(state: &AppState, session: &Session, camp_id: &str) -> Result<CampState, ApiError> {
+    db::load_camp(&state.db, &camp_id.trim().to_uppercase())
+        .await?
+        .filter(|c| session.is_admin_of(c.camp.guild_id as u64))
+        .ok_or(ApiError::NotFound)
+}
+
 pub async fn camp(
     State(state): State<AppState>,
     Admin(session): Admin,
     Path(camp_id): Path<String>,
 ) -> Result<Json<CampDto>, ApiError> {
-    let camp = db::load_camp(&state.db, &camp_id.trim().to_uppercase())
-        .await?
-        .filter(|c| session.is_admin_of(c.camp.guild_id as u64))
-        .ok_or(ApiError::NotFound)?;
+    let camp = admin_camp(&state, &session, &camp_id).await?;
+    camp_response(&state, camp).await
+}
+
+async fn camp_response(state: &AppState, camp: CampState) -> Result<Json<CampDto>, ApiError> {
     let recent = db::recent_matches(&state.db, &camp.camp.id, 5).await?;
     let user_ids: Vec<u64> = camp.players.iter().map(|p| p.user_id as u64).collect();
     let profiles = state
@@ -338,6 +349,69 @@ pub async fn camp(
         .profiles(camp.camp.guild_id as u64, &user_ids)
         .await;
     Ok(Json(camp_dto(&camp, &recent, &profiles)))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SideRequest {
+    Hiddenking,
+    Archmother,
+}
+
+/// The JSON body of `POST /api/camps/{id}/actions`, e.g. `{"type": "start_draft", "match_id": "R4T8WN"}`.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ActionRequest {
+    CreateMatch,
+    CreateFinal,
+    StartDraft { match_id: String },
+    StartMatch { match_id: String },
+    ReportWinner { match_id: String, side: SideRequest },
+    CorrectWinner { match_id: String },
+    ReopenMatch { match_id: String },
+}
+
+impl From<ActionRequest> for CampAction {
+    fn from(request: ActionRequest) -> Self {
+        match request {
+            ActionRequest::CreateMatch => CampAction::CreateMatch,
+            ActionRequest::CreateFinal => CampAction::CreateFinal,
+            ActionRequest::StartDraft { match_id } => CampAction::StartDraft { match_id },
+            ActionRequest::StartMatch { match_id } => CampAction::StartMatch { match_id },
+            ActionRequest::ReportWinner { match_id, side } => CampAction::ReportWinner {
+                match_id,
+                side: match side {
+                    SideRequest::Hiddenking => "hiddenking",
+                    SideRequest::Archmother => "archmother",
+                }
+                .to_string(),
+            },
+            ActionRequest::CorrectWinner { match_id } => CampAction::CorrectWinner { match_id },
+            ActionRequest::ReopenMatch { match_id } => CampAction::ReopenMatch { match_id },
+        }
+    }
+}
+
+/// Runs an admin action through the bot, which also updates Discord, and answers with the camp
+/// as it is afterwards.
+pub async fn act(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(camp_id): Path<String>,
+    Json(request): Json<ActionRequest>,
+) -> Result<Json<CampDto>, ApiError> {
+    let camp = admin_camp(&state, &session, &camp_id).await?;
+    let action = CampAction::from(request);
+    tracing::info!(user_id = session.user_id, camp = %camp.camp.id, ?action, "admin action from the web");
+    if let Err(err) = state
+        .link
+        .act(camp.camp.guild_id as u64, &camp.camp.id, action)
+        .await
+    {
+        return Err(ApiError::Conflict(err.to_string()));
+    }
+    let camp = admin_camp(&state, &session, &camp.camp.id).await?;
+    camp_response(&state, camp).await
 }
 
 pub async fn match_info(

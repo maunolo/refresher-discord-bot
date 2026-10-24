@@ -1,6 +1,48 @@
-import type { Camp } from '../api';
+import { useActions } from '../actions';
+import type { Camp, RecentMatch } from '../api';
 import { SIDE_LABEL, playerName, points, queuedPlayers, ranking } from '../camp';
-import { SOON, SRankChip } from './common';
+import { SRankChip } from './common';
+
+const PLAYERS_MOVED_ON = 'Os jogadores já estão em outra partida.';
+
+function Corrections({ match }: { match: RecentMatch }) {
+  const { run, busy } = useActions();
+  const other = match.winner_side === 'hiddenking' ? 'archmother' : 'hiddenking';
+  const off = busy || !match.correctable;
+  const why = match.correctable ? undefined : PLAYERS_MOVED_ON;
+  return (
+    <div className="inline-actions">
+      <button
+        type="button"
+        className="button button-ghost button-small"
+        disabled={off}
+        title={why}
+        onClick={() =>
+          run(
+            { type: 'correct_winner', match_id: match.id },
+            `Trocar o vencedor da partida #${match.number} para ${SIDE_LABEL[other]}? Os pontos e a fila são refeitos.`,
+          )
+        }
+      >
+        Trocar vencedor
+      </button>
+      <button
+        type="button"
+        className="button button-ghost button-small"
+        disabled={off}
+        title={why}
+        onClick={() =>
+          run(
+            { type: 'reopen_match', match_id: match.id },
+            `Reabrir a partida #${match.number}? O ponto dos vencedores é desfeito e os jogadores voltam para os canais do time.`,
+          )
+        }
+      >
+        Reabrir
+      </button>
+    </div>
+  );
+}
 
 export function QueuePanel({ camp }: { camp: Camp }) {
   const queue = queuedPlayers(camp);
@@ -85,24 +127,7 @@ export function HistoryPanel({ camp }: { camp: Camp }) {
                   <td className="muted">{m.captains.map((c) => playerName(camp, c.user_id)).join(' · ') || '—'}</td>
                   <td className="align-end">
                     {i === 0 ? (
-                      <div className="inline-actions">
-                        <button
-                          type="button"
-                          className="button button-ghost button-small"
-                          disabled
-                          title={m.correctable ? SOON : 'Os jogadores já estão em outra partida'}
-                        >
-                          Trocar vencedor
-                        </button>
-                        <button
-                          type="button"
-                          className="button button-ghost button-small"
-                          disabled
-                          title={m.correctable ? SOON : 'Os jogadores já estão em outra partida'}
-                        >
-                          Reabrir
-                        </button>
-                      </div>
+                      <Corrections match={m} />
                     ) : (
                       <span className="faint">—</span>
                     )}

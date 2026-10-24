@@ -112,7 +112,7 @@ A Cargo workspace. `cargo run` at the root starts the app crate, which builds th
 
 ## Admin web page (in progress)
 
-Camp management is moving from Discord buttons to a web page. For now the page shows the live view (both matches, the queue, recent results and the ranking) and refreshes every few seconds; its buttons stay disabled until admin actions land, so keep using the Discord buttons meanwhile.
+Camp management is moving from Discord buttons to a web page. The live view shows both matches, the queue, recent results and the ranking, refreshes every few seconds, and runs the match actions: **Criar partida**, **Partida final**, **Iniciar draft**, **Iniciar partida**, the winner buttons, and **Trocar vencedor** / **Reabrir** on the latest result. Each one does exactly what the Discord button does, including the Discord side: the camp and match messages are redrawn, the channel gets the same announcement, players are moved between voice channels and captains get their draft DMs. Page clicks and Discord buttons wait for each other, so they can't clash. Building the roster, starting the queue and ending a camp are still done in Discord for now.
 
 To turn it on:
 
@@ -139,5 +139,6 @@ Anyone with **Manage Server** in a server the bot is in can sign in and see that
 | `GET /api/guilds/{guild_id}/camps` | That server's camps, newest first. |
 | `GET /api/camps/{camp_id}` | Roster with names, queue and who goes next, open matches with teams, votes and draft links, recent results. |
 | `GET /api/matches/{match_id}` | One match, finished or not. |
+| `POST /api/camps/{camp_id}/actions` | Runs an admin action and returns the camp afterwards. Body: `{"type": "create_match"}`, `create_final`, or `start_draft` / `start_match` / `correct_winner` / `reopen_match` with `"match_id"`, or `report_winner` with `"match_id"` and `"side"` (`hiddenking` / `archmother`). A refusal (e.g. a draft before the vote ended) is a 409 with the bot's message. |
 
 Discord IDs are sent as strings, since they don't fit in a JavaScript number.

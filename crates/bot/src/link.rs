@@ -1,26 +1,30 @@
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use poise::serenity_prelude as serenity;
-use refresher_core::link::{BotLink, BoxFuture, Profile};
-use serenity::all::{Cache, GuildId, Http, UserId};
+use refresher_core::link::{BotLink, BoxFuture, CampAction, Profile};
+use serenity::all::{GuildId, UserId};
+
+use crate::actions;
+use crate::discord::Discord;
+use crate::state::{with_guild_lock, Data};
 
 /// Names change rarely; this spares Discord thirty member lookups on every page refresh.
 const PROFILE_TTL: Duration = Duration::from_secs(10 * 60);
 
 /// Answers the web admin through the bot's Discord connection.
 pub struct SerenityLink {
-    http: Arc<Http>,
-    cache: Arc<Cache>,
+    discord: Discord,
+    data: Data,
     profiles: Mutex<HashMap<(u64, u64), (Profile, Instant)>>,
 }
 
 impl SerenityLink {
-    pub fn new(http: Arc<Http>, cache: Arc<Cache>) -> Self {
+    pub fn new(discord: Discord, data: Data) -> Self {
         Self {
-            http,
-            cache,
+            discord,
+            data,
             profiles: Mutex::new(HashMap::new()),
         }
     }
@@ -28,7 +32,7 @@ impl SerenityLink {
     async fn fetch(&self, guild_id: u64, user_id: u64) -> Option<Profile> {
         let user = UserId::new(user_id);
         match GuildId::new(guild_id)
-            .member((&self.cache, &*self.http), user)
+            .member((&self.discord.cache, &*self.discord.http), user)
             .await
         {
             Ok(member) => Some(Profile {
@@ -36,7 +40,7 @@ impl SerenityLink {
                 avatar_url: member.face(),
             }),
             // No longer in the server: fall back to the account itself.
-            Err(_) => self.http.get_user(user).await.ok().map(|user| Profile {
+            Err(_) => self.discord.http.get_user(user).await.ok().map(|user| Profile {
                 name: user.display_name().to_string(),
                 avatar_url: user.face(),
             }),
@@ -46,7 +50,7 @@ impl SerenityLink {
 
 impl BotLink for SerenityLink {
     fn in_guild(&self, guild_id: u64) -> bool {
-        self.cache.guild(GuildId::new(guild_id)).is_some()
+        self.discord.cache.guild(GuildId::new(guild_id)).is_some()
     }
 
     fn profiles<'a>(
@@ -80,6 +84,21 @@ impl BotLink for SerenityLink {
                 }
             }
             found
+        })
+    }
+
+    fn act<'a>(
+        &'a self,
+        guild_id: u64,
+        camp_id: &'a str,
+        action: CampAction,
+    ) -> BoxFuture<'a, anyhow::Result<()>> {
+        Box::pin(async move {
+            // The same lock the Discord buttons take, so a web click and a button can't interleave.
+            with_guild_lock(&self.data, guild_id, || {
+                actions::run(&self.discord, &self.data, GuildId::new(guild_id), camp_id, &action)
+            })
+            .await
         })
     }
 }

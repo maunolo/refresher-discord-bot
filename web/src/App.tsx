@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
+import { ActionsContext, type Actions } from './actions';
 import { Unauthorized, api, type Camp, type CampSummary, type Me } from './api';
 import { isActive } from './camp';
 import { FullPage } from './components/common';
@@ -40,6 +41,27 @@ function Admin({ me }: { me: Me }) {
   }, [camps.data]);
 
   const camp = usePolling<Camp>(campId, api.camp, 4_000);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const replaceCamp = camp.replace;
+
+  const actions = useMemo<Actions>(
+    () => ({
+      busy,
+      run: (action, confirm) => {
+        if (!campId || busy) return;
+        if (confirm && !window.confirm(confirm)) return;
+        setBusy(true);
+        setNotice(null);
+        api
+          .act(campId, action)
+          .then(replaceCamp)
+          .catch((error: Error) => setNotice(error.message))
+          .finally(() => setBusy(false));
+      },
+    }),
+    [busy, campId, replaceCamp],
+  );
 
   if (camp.error instanceof Unauthorized || camps.error instanceof Unauthorized) return <Login />;
 
@@ -77,26 +99,39 @@ function Admin({ me }: { me: Me }) {
   }
 
   return (
-    <div className="app">
-      <Header
-        me={me}
-        guildId={guildId ?? ''}
-        onGuild={chooseGuild}
-        camps={camps.data ?? []}
-        campId={campId}
-        onCamp={chooseCamp}
-        camp={camp.data}
-      />
-      {camp.data && camp.error && (
-        <p className="banner" role="status">
-          Sem conexão com o servidor: {camp.error.message}. Mostrando os últimos dados.
-        </p>
-      )}
-      <div className="body">
-        <NavRail />
-        <main className="main">{content}</main>
+    <ActionsContext.Provider value={actions}>
+      <div className="app">
+        <Header
+          me={me}
+          guildId={guildId ?? ''}
+          onGuild={chooseGuild}
+          camps={camps.data ?? []}
+          campId={campId}
+          onCamp={chooseCamp}
+          camp={camp.data}
+        />
+        {camp.data && camp.error && (
+          <p className="banner" role="status">
+            Sem conexão com o servidor: {camp.error.message}. Mostrando os últimos dados.
+          </p>
+        )}
+        <div className="status-area" role="status">
+          {busy && <p className="working">Enviando ao bot… o Discord é atualizado junto.</p>}
+        </div>
+        {notice && (
+          <div className="notice" role="alert">
+            <span>{notice}</span>
+            <button type="button" className="icon-button" aria-label="Fechar aviso" onClick={() => setNotice(null)}>
+              ×
+            </button>
+          </div>
+        )}
+        <div className="body">
+          <NavRail />
+          <main className="main">{content}</main>
+        </div>
       </div>
-    </div>
+    </ActionsContext.Provider>
   );
 }
 

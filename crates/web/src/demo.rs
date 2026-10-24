@@ -12,7 +12,7 @@ use axum_extra::extract::cookie::CookieJar;
 use refresher_core::config::WebConfig;
 use refresher_core::db::{self, RefreshOutcome};
 use refresher_core::draft::CreatedDraft;
-use refresher_core::link::{BotLink, BoxFuture, Profile};
+use refresher_core::link::{BotLink, BoxFuture, CampAction, Profile};
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 
@@ -27,9 +27,45 @@ const NAMES: [&str; 30] = [
     "isa", "teco", "fumaça", "nina", "lara", "otto", "cris", "yuri", "miguel",
 ];
 
-struct DemoLink;
+/// Runs actions on the in-memory database only; nothing goes to Discord.
+struct DemoLink {
+    db: SqlitePool,
+}
 
 impl BotLink for DemoLink {
+    fn act<'a>(&'a self, _guild_id: u64, camp_id: &'a str, action: CampAction) -> BoxFuture<'a, Result<()>> {
+        Box::pin(async move {
+            let pool = &self.db;
+            let guild = GUILD as i64;
+            match action {
+                CampAction::CreateMatch => {
+                    db::create_match(pool, camp_id, guild).await?;
+                }
+                CampAction::CreateFinal => {
+                    db::create_final_match(pool, camp_id, guild).await?;
+                }
+                CampAction::StartDraft { match_id } => {
+                    // Nobody votes in the demo: fill in the missing votes so the match can move on.
+                    let _ = keep_teams(pool, &match_id).await;
+                    db::set_draft(pool, &match_id, &fake_draft(&match_id)).await?;
+                }
+                CampAction::StartMatch { match_id } => {
+                    db::start_live_match(pool, &match_id, None, None).await?;
+                }
+                CampAction::ReportWinner { match_id, side } => {
+                    db::report_winner(pool, camp_id, &match_id, &side).await?;
+                }
+                CampAction::CorrectWinner { match_id } => {
+                    db::correct_winner(pool, camp_id, &match_id).await?;
+                }
+                CampAction::ReopenMatch { match_id } => {
+                    db::reopen_match(pool, camp_id, &match_id).await?;
+                }
+            }
+            Ok(())
+        })
+    }
+
     fn in_guild(&self, guild_id: u64) -> bool {
         guild_id == GUILD
     }
@@ -136,6 +172,7 @@ pub async fn run(bind: &str, static_dir: &str) -> Result<()> {
         .await?;
     db::migrate(&db).await?;
     seed(&db).await?;
+    let link = Arc::new(DemoLink { db: db.clone() });
     let state = AppState {
         db,
         config: Arc::new(WebConfig {
@@ -146,7 +183,7 @@ pub async fn run(bind: &str, static_dir: &str) -> Result<()> {
             static_dir: static_dir.to_string(),
         }),
         http: reqwest::Client::new(),
-        link: Arc::new(DemoLink),
+        link,
     };
     let login_state = state.clone();
     let app = router(state).route(

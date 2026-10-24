@@ -6,6 +6,8 @@ use axum::Json;
 #[derive(Debug)]
 pub enum ApiError {
     BadRequest(String),
+    /// An action the camp's current state doesn't allow, e.g. a draft before the vote ended.
+    Conflict(String),
     Unauthorized,
     /// Also used for things in servers the admin doesn't manage, so their existence isn't revealed.
     NotFound,
@@ -16,6 +18,7 @@ impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let (status, message) = match self {
             ApiError::BadRequest(message) => (StatusCode::BAD_REQUEST, message),
+            ApiError::Conflict(message) => (StatusCode::CONFLICT, message),
             ApiError::Unauthorized => (StatusCode::UNAUTHORIZED, "faça login com o Discord".to_string()),
             ApiError::NotFound => (StatusCode::NOT_FOUND, "não encontrado".to_string()),
             ApiError::Internal(err) => {

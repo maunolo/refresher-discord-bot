@@ -2,9 +2,6 @@ import { useState, type ReactNode } from 'react';
 
 import { CheckIcon, CopyIcon, CrownIcon } from './Icons';
 
-/** Title on actions the page shows but can't do yet. */
-export const SOON = 'Em breve pelo painel. Por enquanto, use os botões no Discord.';
-
 export function SRankChip() {
   return (
     <span className="chip chip-s" title="S rank">

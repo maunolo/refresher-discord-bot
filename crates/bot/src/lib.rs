@@ -6,8 +6,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+mod actions;
 mod buttons;
 mod commands;
+mod discord;
 mod link;
 mod state;
 mod sync;
@@ -18,6 +20,7 @@ mod voice;
 use refresher_core::{config, db, deadlock, draft, queue};
 
 use config::Config;
+use discord::Discord;
 use refresher_core::link::BotLink;
 pub use state::Data;
 
@@ -32,7 +35,7 @@ async fn event_handler(
     match event {
         FullEvent::Ready { data_about_bot, .. } => {
             tracing::info!("logged in as {}", data_about_bot.user.name);
-            if let Err(err) = sync::restore_messages(ctx, &data.db).await {
+            if let Err(err) = sync::restore_messages(&Discord::from(ctx), &data.db).await {
                 tracing::error!(error = %err, "camp restore failed");
             }
         }
@@ -50,7 +53,8 @@ async fn event_handler(
             }
         }
         FullEvent::VoiceStateUpdate { old, new } => {
-            if let Err(err) = sync::place_late_voice_join(ctx, data, old.as_ref(), new).await {
+            let discord = Discord::from(ctx);
+            if let Err(err) = sync::place_late_voice_join(&discord, data, old.as_ref(), new).await {
                 tracing::warn!(error = %err, "late voice placement failed");
             }
         }
@@ -69,20 +73,32 @@ async fn event_handler(
 /// The Discord client, built but not yet connected.
 pub struct Bot {
     client: serenity::Client,
+    /// Shared with the event handlers, so web actions use the same per-server locks.
+    data: Data,
 }
 
 impl Bot {
     pub async fn new(config: Config, db: SqlitePool) -> Result<Self> {
+        let data = Data {
+            config: config.clone(),
+            db,
+            http: reqwest::Client::new(),
+            locks: Arc::new(Mutex::new(HashMap::new())),
+        };
         Ok(Self {
-            client: build_client(config, db).await?,
+            client: build_client(config, data.clone()).await?,
+            data,
         })
     }
 
-    /// Lets the web admin look things up through this bot's connection.
+    /// Lets the web admin look things up and run actions through this bot's connection.
     pub fn link(&self) -> Arc<dyn BotLink> {
         Arc::new(link::SerenityLink::new(
-            self.client.http.clone(),
-            self.client.cache.clone(),
+            Discord {
+                http: self.client.http.clone(),
+                cache: self.client.cache.clone(),
+            },
+            self.data.clone(),
         ))
     }
 
@@ -93,14 +109,7 @@ impl Bot {
     }
 }
 
-async fn build_client(config: Config, db: SqlitePool) -> Result<serenity::Client> {
-    let data = Data {
-        config: config.clone(),
-        db,
-        http: reqwest::Client::new(),
-        locks: Arc::new(Mutex::new(HashMap::new())),
-    };
-
+async fn build_client(config: Config, data: Data) -> Result<serenity::Client> {
     let intents = serenity::GatewayIntents::GUILDS | serenity::GatewayIntents::GUILD_VOICE_STATES;
     let token = config.discord_token.clone();
 

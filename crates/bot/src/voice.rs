@@ -1,9 +1,10 @@
 use anyhow::Result;
 use serenity::all::{
-    ChannelId, ChannelType, Context, CreateChannel, GuildId, Mentionable, UserId,
+    ChannelId, ChannelType, CreateChannel, GuildId, Mentionable, UserId,
 };
 
 use crate::config::Config;
+use crate::discord::Discord;
 
 #[derive(Clone, Copy)]
 pub enum VoiceDest {
@@ -61,7 +62,7 @@ impl VoiceDest {
 }
 
 async fn resolve_channel(
-    ctx: &Context,
+    discord: &Discord,
     guild_id: GuildId,
     dest: VoiceDest,
     config: &Config,
@@ -69,7 +70,7 @@ async fn resolve_channel(
     if let Some(id) = dest.configured_id(config) {
         return Ok(id);
     }
-    let channels = guild_id.channels(&ctx.http).await?;
+    let channels = guild_id.channels(&discord.http).await?;
     for name in dest.names() {
         if let Some((id, _)) = channels.iter().find(|(_, ch)| ch.name.eq_ignore_ascii_case(name))
         {
@@ -78,7 +79,7 @@ async fn resolve_channel(
     }
     let created = guild_id
         .create_channel(
-            &ctx.http,
+            &discord.http,
             CreateChannel::new(dest.names()[0]).kind(ChannelType::Voice),
         )
         .await?;
@@ -87,14 +88,14 @@ async fn resolve_channel(
 
 /// Move players who are already in a voice channel. Returns user IDs that could not be moved.
 pub async fn move_players(
-    ctx: &Context,
+    discord: &Discord,
     guild_id: GuildId,
     config: &Config,
     moves: &[(UserId, VoiceDest)],
 ) -> Vec<UserId> {
     let mut skipped = Vec::new();
     for (user_id, dest) in moves {
-        let in_voice = ctx
+        let in_voice = discord
             .cache
             .guild(guild_id)
             .map(|g| g.voice_states.contains_key(user_id))
@@ -103,11 +104,11 @@ pub async fn move_players(
             skipped.push(*user_id);
             continue;
         }
-        let Ok(channel_id) = resolve_channel(ctx, guild_id, *dest, config).await else {
+        let Ok(channel_id) = resolve_channel(discord, guild_id, *dest, config).await else {
             skipped.push(*user_id);
             continue;
         };
-        if let Err(err) = guild_id.move_member(&ctx.http, *user_id, channel_id).await {
+        if let Err(err) = guild_id.move_member(&discord.http, *user_id, channel_id).await {
             tracing::warn!(%user_id, error = %err, "failed to move member");
             skipped.push(*user_id);
         }
@@ -116,7 +117,7 @@ pub async fn move_players(
 }
 
 pub async fn skipped_message(
-    ctx: &Context,
+    discord: &Discord,
     guild_id: GuildId,
     config: &Config,
     skipped: &[UserId],
@@ -129,7 +130,7 @@ pub async fn skipped_message(
         .map(|id| id.mention().to_string())
         .collect::<Vec<_>>()
         .join(" ");
-    let queue = match resolve_channel(ctx, guild_id, VoiceDest::Queue, config).await {
+    let queue = match resolve_channel(discord, guild_id, VoiceDest::Queue, config).await {
         Ok(id) => id.mention().to_string(),
         Err(_) => "#Fila".to_string(),
     };
@@ -140,20 +141,20 @@ pub async fn skipped_message(
 
 /// Move one member if they are not already in the destination channel.
 pub async fn move_to_dest(
-    ctx: &Context,
+    discord: &Discord,
     guild_id: GuildId,
     config: &Config,
     user_id: UserId,
     dest: VoiceDest,
     current: ChannelId,
 ) {
-    let Ok(dest_id) = resolve_channel(ctx, guild_id, dest, config).await else {
+    let Ok(dest_id) = resolve_channel(discord, guild_id, dest, config).await else {
         return;
     };
     if dest_id == current {
         return;
     }
-    if let Err(err) = guild_id.move_member(&ctx.http, user_id, dest_id).await {
+    if let Err(err) = guild_id.move_member(&discord.http, user_id, dest_id).await {
         tracing::warn!(%user_id, error = %err, "failed to move late-joining member");
     }
 }
