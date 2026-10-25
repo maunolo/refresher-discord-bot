@@ -1,0 +1,8 @@
+.git
+.env
+.claude
+target
+data
+docs
+web/node_modules
+web/dist
