@@ -19,6 +19,19 @@ cargo run
 
 Open `http://localhost:8080` and sign in. The first start creates `data/camps.db`.
 
+## Deploying on Railway
+
+The repo deploys as one Railway service: the [Dockerfile](Dockerfile) builds the admin page and the bot, and [railway.json](railway.json) tells Railway to use it. Pushing to `main` redeploys.
+
+1. Create a service from this GitHub repo (branch `main`).
+2. Add a volume mounted at `/data`; the database is `/data/camps.db` (set in the Dockerfile). Without it, every deploy starts from an empty database.
+3. Generate a domain for port `8080`, and add `https://<domain>/auth/callback` to the Discord application's OAuth2 redirects.
+4. Variables: `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, and `WEB_PUBLIC_URL=https://<domain>`. The other `.env` settings are optional defaults (servers can override them on **Configurações**). `WEB_BIND`, `WEB_STATIC_DIR` and `DATABASE_URL` already come from the image.
+
+`WEB_PUBLIC_URL` must be the domain admins open: sign-in sends Discord `{WEB_PUBLIC_URL}/auth/callback`, so with a custom domain, set it to that domain and register that callback. Signing in on any other domain of the service fails.
+
+Run only one copy of the bot per token: stop a local `cargo run` while the deployed one is up.
+
 ## Admin page
 
 Anyone with **Manage Server** in a server the bot is in can sign in and run that server's camps. A sign-in lasts 12 hours; sign in again to pick up permission changes.
