@@ -1,6 +1,8 @@
 //! Admin actions shared by the Discord buttons and the web admin. Callers check that the user
 //! manages the server and hold its lock. Errors are messages for the admin.
 
+use std::collections::HashMap;
+
 use anyhow::{anyhow, bail, Result};
 use refresher_core::link::CampAction;
 use refresher_core::queue::CampSize;
@@ -27,14 +29,19 @@ pub async fn run(
         CampAction::CreateMatch => create_match(discord, data, guild_id, camp_id).await,
         CampAction::CreateFinal => create_final(discord, data, guild_id, camp_id).await,
         CampAction::CloseVote { match_id } => close_vote(discord, data, camp_id, &normalize(match_id)).await,
+        CampAction::RefreshTeams { match_id } => refresh_teams(discord, data, camp_id, &normalize(match_id)).await,
         CampAction::StartDraft { match_id } => {
             start_draft(discord, data, guild_id, camp_id, &normalize(match_id)).await
         }
         CampAction::StartMatch { match_id } => {
             start_match(discord, data, guild_id, camp_id, &normalize(match_id)).await
         }
-        CampAction::ReportWinner { match_id, side } => {
-            report_winner(discord, data, guild_id, camp_id, &normalize(match_id), side).await
+        CampAction::ReportWinner { match_id, side, mvp_user_id } => {
+            let mvp = mvp_user_id.map(|id| id as i64);
+            report_winner(discord, data, guild_id, camp_id, &normalize(match_id), side, mvp).await
+        }
+        CampAction::ChangeMvp { match_id, user_id } => {
+            change_mvp(discord, data, guild_id, camp_id, &normalize(match_id), *user_id as i64).await
         }
         CampAction::CorrectWinner { match_id } => {
             correct_winner(discord, data, guild_id, camp_id, &normalize(match_id)).await
@@ -54,6 +61,9 @@ pub async fn run(
         CampAction::SetSRank { user_id, s_rank } => {
             db::set_player_s_rank(&data.db, camp_id, *user_id as i64, *s_rank).await?;
             redraw_board(discord, data, camp_id).await
+        }
+        CampAction::AdjustPoints { user_id, delta } => {
+            adjust_points(discord, data, camp_id, *user_id as i64, *delta).await
         }
         CampAction::StartQueue => start_queue(discord, data, guild_id, camp_id).await,
         CampAction::ReorderQueue { user_ids } => {
@@ -153,7 +163,12 @@ async fn end_camp(discord: &Discord, data: &Data, camp_id: &str) -> Result<()> {
     let players = db::end_camp(&data.db, camp_id).await?;
     let state = load(data, camp_id).await?;
     let channel = channel(&state);
-    let standings = || ui::standings_embed(camp_id, state.camp.match_count, &players);
+    let mvps: HashMap<i64, i64> = db::player_stats(&data.db, camp_id)
+        .await?
+        .into_iter()
+        .map(|(user_id, stats)| (user_id, stats.mvps))
+        .collect();
+    let standings = || ui::standings_embed(camp_id, state.camp.match_count, &players, &mvps);
     let _ = channel
         .send_message(&discord.http, CreateMessage::new().embed(standings()))
         .await;
@@ -241,6 +256,30 @@ async fn close_vote(discord: &Discord, data: &Data, camp_id: &str, match_id: &st
     Ok(())
 }
 
+/// Changes a player's points by hand and says so in the camp's channel, so it's never silent.
+async fn adjust_points(discord: &Discord, data: &Data, camp_id: &str, user_id: i64, delta: i64) -> Result<()> {
+    let total = db::adjust_points(&data.db, camp_id, user_id, delta).await?;
+    let state = load(data, camp_id).await?;
+    sync::redraw_all(discord, &data.db, &state).await?;
+    let change = match delta {
+        1 => "+1 ponto".to_string(),
+        -1 => "-1 ponto".to_string(),
+        d if d > 0 => format!("+{d} pontos"),
+        d => format!("{d} pontos"),
+    };
+    let _ = channel(&state)
+        .say(
+            &discord.http,
+            format!(
+                "Ajuste de pontos por um admin: {} {change}. Agora com {}.",
+                sync::mention_list(&[user_id]),
+                ui::points_label(total)
+            ),
+        )
+        .await;
+    Ok(())
+}
+
 /// Mentions the match's players who haven't voted, in the camp's channel.
 async fn remind_voters(discord: &Discord, data: &Data, camp_id: &str, match_id: &str) -> Result<()> {
     let state = load(data, camp_id).await?;
@@ -276,6 +315,30 @@ async fn remind_voters(discord: &Discord, data: &Data, camp_id: &str, match_id: 
     Ok(())
 }
 
+async fn refresh_teams(discord: &Discord, data: &Data, camp_id: &str, match_id: &str) -> Result<()> {
+    db::refresh_by_admin(&data.db, camp_id, match_id).await?;
+    let state = load(data, camp_id).await?;
+    sync::redraw_all(discord, &data.db, &state).await?;
+    if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
+        let name = if open.row.is_final {
+            "da partida final".to_string()
+        } else {
+            format!("da partida {}", open.row.slot)
+        };
+        let _ = channel(&state)
+            .say(
+                &discord.http,
+                format!(
+                    "Um admin encerrou a votação {name} e sorteou os times de novo. O draft vem a seguir.\nHiddenking: {}\nArchmother: {}",
+                    sync::side_mentions(&open.players, "hiddenking"),
+                    sync::side_mentions(&open.players, "archmother")
+                ),
+            )
+            .await;
+    }
+    Ok(())
+}
+
 async fn start_draft(
     discord: &Discord,
     data: &Data,
@@ -290,11 +353,14 @@ async fn start_draft(
     if !open.row.refresh_used {
         bail!("Espere a votação de Refresh terminar antes do draft.");
     }
-    if open.row.draft_url.is_some() {
+    if open.row.draft_started() {
         bail!("O draft desta partida já foi iniciado.");
     }
 
     let settings = data.settings(guild_id.get()).await?;
+    if !settings.use_draft_tool {
+        return start_manual_draft(discord, data, guild_id, camp_id, match_id, &settings).await;
+    }
     let draft = crate::draft::create_draft(
         &data.http,
         &data.config.draft_base_url,
@@ -326,6 +392,37 @@ async fn start_draft(
     Ok(())
 }
 
+/// The draft step without the draft tool: players go to their team channels and the admin
+/// shares a draft link with the captains themselves.
+async fn start_manual_draft(
+    discord: &Discord,
+    data: &Data,
+    guild_id: GuildId,
+    camp_id: &str,
+    match_id: &str,
+    settings: &crate::settings::GuildSettings,
+) -> Result<()> {
+    db::set_manual_draft(&data.db, match_id).await?;
+    let state = load(data, camp_id).await?;
+    let channel = channel(&state);
+    sync::redraw_all(discord, &data.db, &state).await?;
+    if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
+        sync::apply_moves(discord, guild_id, settings, channel, &sync::match_voice_moves(open)).await;
+        let _ = channel
+            .say(
+                &discord.http,
+                format!(
+                    "Hora do draft. Os capitães ({}) recebem o link do draft de um admin.\nHiddenking: {}\nArchmother: {}",
+                    ui::CAPTAIN_TAG,
+                    sync::side_mentions(&open.players, "hiddenking"),
+                    sync::side_mentions(&open.players, "archmother")
+                ),
+            )
+            .await;
+    }
+    Ok(())
+}
+
 async fn start_match(
     discord: &Discord,
     data: &Data,
@@ -337,7 +434,7 @@ async fn start_match(
     let Some(open) = before.open_matches.iter().find(|m| m.row.id == match_id) else {
         bail!("Partida não encontrada.");
     };
-    if open.row.draft_url.is_none() {
+    if !open.row.draft_started() {
         bail!("Inicie o draft antes de começar a partida.");
     }
 
@@ -374,6 +471,7 @@ async fn report_winner(
     camp_id: &str,
     match_id: &str,
     side: &str,
+    mvp_user_id: Option<i64>,
 ) -> Result<()> {
     if side != "hiddenking" && side != "archmother" {
         bail!("vencedor inválido");
@@ -387,7 +485,7 @@ async fn report_winner(
     let is_final = finished.map(|m| m.row.is_final).unwrap_or(false);
     let party_code = finished.and_then(|m| m.row.party_code.clone());
 
-    db::report_winner(&data.db, camp_id, match_id, side).await?;
+    db::report_winner(&data.db, camp_id, match_id, side, mvp_user_id).await?;
 
     let channel = channel(&before);
     if let Some(msg_id) = old_message {
@@ -396,7 +494,14 @@ async fn report_winner(
                 &discord.http,
                 msg_id as u64,
                 EditMessage::new()
-                    .embed(ui::completed_match_embed(camp_id, match_id, side, is_final, party_code.as_deref()))
+                    .embed(ui::completed_match_embed(
+                        camp_id,
+                        match_id,
+                        side,
+                        is_final,
+                        party_code.as_deref(),
+                        mvp_user_id,
+                    ))
                     .components(Vec::new()),
             )
             .await;
@@ -414,25 +519,28 @@ async fn report_winner(
     let state = load(data, camp_id).await?;
     sync::redraw_all(discord, &data.db, &state).await?;
     let winner = ui::winner_label(side);
+    let mvp = mvp_user_id
+        .map(|id| format!(" MVP: {}.", sync::mention_list(&[id])))
+        .unwrap_or_default();
     let _ = channel
         .say(
             &discord.http,
-            format!(
-                "{winner} vence. +1 ponto para esse time. Os jogadores voltaram para a fila."
-            ),
+            format!("{winner} vence. +1 ponto para esse time.{mvp} Os jogadores voltaram para a fila."),
         )
         .await;
     Ok(())
 }
 
-async fn correct_winner(
+/// Changes the MVP of the latest result and shows it on the result's message.
+async fn change_mvp(
     discord: &Discord,
     data: &Data,
     guild_id: GuildId,
     camp_id: &str,
     match_id: &str,
+    mvp_user_id: i64,
 ) -> Result<()> {
-    let view = db::correct_winner(&data.db, camp_id, match_id).await?;
+    let view = db::change_mvp(&data.db, camp_id, match_id, mvp_user_id).await?;
     let message_id = db::load_match_info(&data.db, match_id, guild_id.get() as i64)
         .await?
         .row
@@ -451,6 +559,46 @@ async fn correct_winner(
                         &view.winner_side,
                         view.is_final,
                         view.party_code.as_deref(),
+                        Some(mvp_user_id),
+                    ))
+                    .components(Vec::new()),
+            )
+            .await;
+    }
+    let _ = channel
+        .say(
+            &discord.http,
+            format!("MVP da última partida corrigido: {}.", sync::mention_list(&[mvp_user_id])),
+        )
+        .await;
+    Ok(())
+}
+
+async fn correct_winner(
+    discord: &Discord,
+    data: &Data,
+    guild_id: GuildId,
+    camp_id: &str,
+    match_id: &str,
+) -> Result<()> {
+    let view = db::correct_winner(&data.db, camp_id, match_id).await?;
+    let row = db::load_match_info(&data.db, match_id, guild_id.get() as i64).await?.row;
+    let message_id = row.message_id;
+    let state = load(data, camp_id).await?;
+    let channel = channel(&state);
+    if let Some(msg_id) = message_id {
+        let _ = channel
+            .edit_message(
+                &discord.http,
+                msg_id as u64,
+                EditMessage::new()
+                    .embed(ui::completed_match_embed(
+                        camp_id,
+                        match_id,
+                        &view.winner_side,
+                        view.is_final,
+                        view.party_code.as_deref(),
+                        row.mvp_user_id,
                     ))
                     .components(Vec::new()),
             )

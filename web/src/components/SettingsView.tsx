@@ -27,6 +27,7 @@ function formOf(settings: Settings): SettingsForm {
     match2_archmother_voice_id: settings.match2_archmother_voice_id,
     create_lobby: settings.create_lobby,
     server_region: settings.server_region,
+    use_draft_tool: settings.use_draft_tool,
     draft_timer_seconds: settings.draft_timer_seconds,
   };
 }
@@ -168,12 +169,33 @@ export function SettingsView({ guildId, guildName }: { guildId: string; guildNam
 
         <fieldset className="card settings-group">
           <legend className="settings-legend">Draft</legend>
+          <div className="settings-switch">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={form.use_draft_tool}
+              aria-labelledby="draft-tool-label"
+              className={form.use_draft_tool ? 'switch switch-on' : 'switch'}
+              onClick={() => update({ use_draft_tool: !form.use_draft_tool })}
+            >
+              <span className="switch-knob" />
+            </button>
+            <span id="draft-tool-label">
+              <strong>Criar o draft no draft.deadlock.pro.br</strong>
+              <span className="muted small">
+                {form.use_draft_tool
+                  ? ' O bot cria o draft e manda a cada capitão, por DM, o link do time.'
+                  : ' Desligado: o bot só move os jogadores e avisa no canal. Você cria o draft e manda o link para os capitães, como o código da partida.'}
+              </span>
+            </span>
+          </div>
           <div className="field">
             <label htmlFor="draft-timer">Tempo por escolha e banimento</label>
             <select
               id="draft-timer"
               className="input"
               value={form.draft_timer_seconds}
+              disabled={!form.use_draft_tool}
               onChange={(e) => update({ draft_timer_seconds: Number(e.target.value) })}
             >
               {settings.draft_timers.map((t) => (

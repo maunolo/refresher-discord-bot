@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 
 import { useActions } from '../actions';
 import { api, type Camp, type MemberResult, type Player } from '../api';
-import { formatLabel, playerName, points, whereIs } from '../camp';
+import { formatLabel, playerName, points, signed, whereIs } from '../camp';
 import { CheckIcon } from './Icons';
+import { PointsDialog } from './PointsDialog';
 
 function Avatar({ url, name }: { url?: string; name: string }) {
   if (url) return <img className="avatar" src={url} alt="" width={28} height={28} />;
@@ -228,6 +229,8 @@ function Roster({ camp }: { camp: Camp }) {
     (a, b) => b.points - a.points || playerName(camp, a.user_id).localeCompare(playerName(camp, b.user_id)),
   );
   const running = camp.status === 'running';
+  const [adjusting, setAdjusting] = useState<Player | null>(null);
+  const { busy } = useActions();
   return (
     <section className="card" aria-labelledby="roster-table-title">
       <div className="card-head">
@@ -237,7 +240,7 @@ function Roster({ camp }: { camp: Camp }) {
       </div>
       <p className="muted small">
         {running
-          ? 'O elenco não muda depois que a fila começa. Marcar S rank vale para as próximas partidas criadas.'
+          ? 'O elenco não muda depois que a fila começa. Marcar S rank vale para as próximas partidas criadas. Ajustar pontos é para correções e penalidades; o bot anuncia cada ajuste.'
           : 'Este camp não está em andamento.'}
       </p>
       <div className="table-scroll">
@@ -251,6 +254,11 @@ function Roster({ camp }: { camp: Camp }) {
               </th>
               <th scope="col">Seguidas</th>
               <th scope="col">Onde está</th>
+              {running && (
+                <th scope="col" className="align-end">
+                  <span className="visually-hidden">Ajustar pontos</span>
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -263,14 +271,36 @@ function Roster({ camp }: { camp: Camp }) {
                   </span>
                 </td>
                 <td>{running ? <SRankSwitch camp={camp} player={p} /> : p.s_rank ? 'Sim' : '—'}</td>
-                <td className="mono">{points(p.points)}</td>
+                <td className="mono">
+                  {points(p.points)}
+                  {p.points_adjusted !== 0 && (
+                    <span className="muted small" title="Ajustes manuais">
+                      {' '}
+                      ({signed(p.points_adjusted)})
+                    </span>
+                  )}
+                </td>
                 <td>{p.consecutive_matches}</td>
                 <td className="muted">{whereIs(camp, p)}</td>
+                {running && (
+                  <td className="align-end">
+                    <button
+                      type="button"
+                      className="button button-small button-ghost"
+                      disabled={busy}
+                      aria-label={`Ajustar pontos de ${playerName(camp, p.user_id)}`}
+                      onClick={() => setAdjusting(p)}
+                    >
+                      Ajustar pontos
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      <PointsDialog camp={camp} player={adjusting} onClose={() => setAdjusting(null)} />
     </section>
   );
 }

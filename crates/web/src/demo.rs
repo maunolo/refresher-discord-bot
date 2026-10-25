@@ -59,14 +59,25 @@ impl BotLink for DemoLink {
                 CampAction::CloseVote { match_id } => {
                     db::close_voting(pool, camp_id, &match_id).await?;
                 }
+                CampAction::RefreshTeams { match_id } => {
+                    db::refresh_by_admin(pool, camp_id, &match_id).await?;
+                }
                 CampAction::StartDraft { match_id } => {
-                    db::set_draft(pool, &match_id, &fake_draft(&match_id)).await?;
+                    let (settings, _) = db::guild_settings(pool, guild, &demo_settings()).await?;
+                    if settings.use_draft_tool {
+                        db::set_draft(pool, &match_id, &fake_draft(&match_id)).await?;
+                    } else {
+                        db::set_manual_draft(pool, &match_id).await?;
+                    }
                 }
                 CampAction::StartMatch { match_id } => {
                     db::start_live_match(pool, &match_id, None, None).await?;
                 }
-                CampAction::ReportWinner { match_id, side } => {
-                    db::report_winner(pool, camp_id, &match_id, &side).await?;
+                CampAction::ReportWinner { match_id, side, mvp_user_id } => {
+                    db::report_winner(pool, camp_id, &match_id, &side, mvp_user_id.map(|id| id as i64)).await?;
+                }
+                CampAction::ChangeMvp { match_id, user_id } => {
+                    db::change_mvp(pool, camp_id, &match_id, user_id as i64).await?;
                 }
                 CampAction::CorrectWinner { match_id } => {
                     db::correct_winner(pool, camp_id, &match_id).await?;
@@ -83,6 +94,9 @@ impl BotLink for DemoLink {
                 }
                 CampAction::SetSRank { user_id, s_rank } => {
                     db::set_player_s_rank(pool, camp_id, user_id as i64, s_rank).await?;
+                }
+                CampAction::AdjustPoints { user_id, delta } => {
+                    db::adjust_points(pool, camp_id, user_id as i64, delta).await?;
                 }
                 CampAction::StartQueue => {
                     db::start_queue(pool, camp_id).await?;
@@ -176,6 +190,21 @@ impl BotLink for DemoLink {
     }
 }
 
+/// The demo server's settings until changed on Configurações.
+fn demo_settings() -> GuildSettings {
+    GuildSettings {
+        queue_voice_id: None,
+        match1_hiddenking_voice_id: None,
+        match1_archmother_voice_id: None,
+        match2_hiddenking_voice_id: None,
+        match2_archmother_voice_id: None,
+        create_lobby: false,
+        server_region: None,
+        use_draft_tool: true,
+        draft_timer_seconds: 30,
+    }
+}
+
 fn fake_draft(match_id: &str) -> CreatedDraft {
     let base = format!("https://draft.deadlock.pro.br/demo{match_id}");
     CreatedDraft {
@@ -215,7 +244,14 @@ async fn seed(pool: &SqlitePool) -> Result<()> {
         db::set_draft(pool, &match_id, &fake_draft(&match_id)).await?;
         db::start_live_match(pool, &match_id, None, None).await?;
         let winner = if round % 3 == 1 { "archmother" } else { "hiddenking" };
-        db::report_winner(pool, &camp.id, &match_id, winner).await?;
+        // MVPs spread over a few players, so some ties in points are broken.
+        let mvp = roster(pool, &match_id)
+            .await?
+            .into_iter()
+            .filter(|(_, side)| side == winner)
+            .nth(round % 2)
+            .map(|(user_id, _)| user_id);
+        db::report_winner(pool, &camp.id, &match_id, winner, mvp).await?;
     }
 
     // Match 1: voting, half the players in. Match 2: drafted and live.
@@ -275,16 +311,7 @@ pub async fn run(bind: &str, static_dir: &str) -> Result<()> {
         }),
         http: reqwest::Client::new(),
         link,
-        default_settings: GuildSettings {
-            queue_voice_id: None,
-            match1_hiddenking_voice_id: None,
-            match1_archmother_voice_id: None,
-            match2_hiddenking_voice_id: None,
-            match2_archmother_voice_id: None,
-            create_lobby: false,
-            server_region: None,
-            draft_timer_seconds: 30,
-        },
+        default_settings: demo_settings(),
     };
     let login_state = state.clone();
     let app = router(state).route(

@@ -265,6 +265,7 @@ mod tests {
                 match2_archmother_voice_id: None,
                 create_lobby: true,
                 server_region: Some("SouthAmerica".to_string()),
+                use_draft_tool: true,
                 draft_timer_seconds: 30,
             },
         }
@@ -429,6 +430,8 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         let close = r#"{"type": "close_vote", "match_id": "R4T8WN"}"#;
         assert_eq!(post(&state, &path, Some(&token), close).await.0, StatusCode::OK);
+        let refresh = r#"{"type": "refresh_teams", "match_id": "r4t8wn"}"#;
+        assert_eq!(post(&state, &path, Some(&token), refresh).await.0, StatusCode::OK);
 
         let actions = link.actions.lock().unwrap();
         assert_eq!(
@@ -439,7 +442,8 @@ mod tests {
                     camp.id.clone(),
                     CampAction::ReportWinner {
                         match_id: "R4T8WN".to_string(),
-                        side: "archmother".to_string()
+                        side: "archmother".to_string(),
+                        mvp_user_id: None,
                     }
                 ),
                 (111, camp.id.clone(), CampAction::CreateMatch),
@@ -448,6 +452,13 @@ mod tests {
                     camp.id.clone(),
                     CampAction::CloseVote {
                         match_id: "R4T8WN".to_string()
+                    }
+                ),
+                (
+                    111,
+                    camp.id.clone(),
+                    CampAction::RefreshTeams {
+                        match_id: "r4t8wn".to_string()
                     }
                 ),
             ]
@@ -599,6 +610,14 @@ mod tests {
         assert_eq!(post(&state, &path, Some(&token), reorder).await.0, StatusCode::OK);
         let remind = r#"{"type": "remind_voters", "match_id": "R4T8WN"}"#;
         assert_eq!(post(&state, &path, Some(&token), remind).await.0, StatusCode::OK);
+        let points = r#"{"type": "adjust_points", "user_id": "5", "delta": -2}"#;
+        assert_eq!(post(&state, &path, Some(&token), points).await.0, StatusCode::OK);
+        let winner = r#"{"type": "report_winner", "match_id": "R4T8WN", "side": "hiddenking", "mvp_user_id": "6"}"#;
+        assert_eq!(post(&state, &path, Some(&token), winner).await.0, StatusCode::OK);
+        let mvp = r#"{"type": "change_mvp", "match_id": "R4T8WN", "user_id": "7"}"#;
+        assert_eq!(post(&state, &path, Some(&token), mvp).await.0, StatusCode::OK);
+        let bad_mvp = r#"{"type": "change_mvp", "match_id": "R4T8WN", "user_id": "seven"}"#;
+        assert_eq!(post(&state, &path, Some(&token), bad_mvp).await.0, StatusCode::BAD_REQUEST);
         let bad = r#"{"type": "reorder_queue", "user_ids": ["7", "x"]}"#;
         assert_eq!(post(&state, &path, Some(&token), bad).await.0, StatusCode::BAD_REQUEST);
 
@@ -609,6 +628,16 @@ mod tests {
                 CampAction::ReorderQueue { user_ids: vec![7, 5, 6] },
                 CampAction::RemindVoters {
                     match_id: "R4T8WN".to_string()
+                },
+                CampAction::AdjustPoints { user_id: 5, delta: -2 },
+                CampAction::ReportWinner {
+                    match_id: "R4T8WN".to_string(),
+                    side: "hiddenking".to_string(),
+                    mvp_user_id: Some(6),
+                },
+                CampAction::ChangeMvp {
+                    match_id: "R4T8WN".to_string(),
+                    user_id: 7,
                 },
             ]
         );
@@ -629,7 +658,14 @@ mod tests {
         refresher_core::db::set_match_message_id(db, &first, 555).await.unwrap();
         refresher_core::db::close_voting(db, &camp.id, &first).await.unwrap();
         refresher_core::db::start_live_match(db, &first, None, None).await.unwrap();
-        refresher_core::db::report_winner(db, &camp.id, &first, "archmother").await.unwrap();
+        let mvp = refresher_core::db::load_match_info(db, &first, 111)
+            .await
+            .unwrap()
+            .players
+            .iter()
+            .find(|p| p.side == "archmother")
+            .map(|p| p.user_id);
+        refresher_core::db::report_winner(db, &camp.id, &first, "archmother", mvp).await.unwrap();
         let (_, second) = refresher_core::db::create_match(db, &camp.id, 111).await.unwrap();
         let token = sign_in(&state, &[111]).await;
 
@@ -648,6 +684,13 @@ mod tests {
         assert!(players.iter().all(|p| p["matches_played"] == 1));
         assert_eq!(players.iter().filter(|p| p["wins"] == 1).count(), 2);
         assert_eq!(camp_body["discord_url"], "https://discord.com/channels/111/900");
+        assert_eq!(camp_body["draft_tool"], true);
+        let mvp = mvp.unwrap().to_string();
+        assert_eq!(body[1]["mvp_user_id"], mvp.as_str());
+        assert_eq!(camp_body["recent_matches"][0]["mvp_user_id"], mvp.as_str());
+        assert_eq!(camp_body["recent_matches"][0]["mvp_changeable"], true);
+        assert_eq!(players.iter().filter(|p| p["mvps"] == 1).count(), 1);
+        assert!(players.iter().all(|p| p["points_adjusted"] == 0));
 
         let other = sign_in(&state, &[222]).await;
         assert_eq!(
@@ -686,6 +729,11 @@ mod tests {
         assert_eq!(body["create_lobby"], false);
         assert_eq!(body["server_region"], "Europe");
         assert_eq!(body["draft_timer_seconds"], 45);
+        assert_eq!(body["use_draft_tool"], true, "left out of the form: stays on");
+
+        let manual = form.replace("\"create_lobby\": false", "\"create_lobby\": false, \"use_draft_tool\": false");
+        assert_eq!(put(&state, "/api/guilds/111/settings", Some(&token), &manual).await.0, StatusCode::OK);
+        assert_eq!(get(&state, "/api/guilds/111/settings", Some(&token)).await.1["use_draft_tool"], false);
 
         let elsewhere = form.replace("\"1111\"", "\"2221\"");
         assert_eq!(put(&state, "/api/guilds/111/settings", Some(&token), &elsewhere).await.0, StatusCode::BAD_REQUEST);

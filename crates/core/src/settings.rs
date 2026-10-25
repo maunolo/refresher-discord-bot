@@ -17,6 +17,9 @@ pub struct GuildSettings {
     /// Create a Deadlock custom lobby (and post its party code) when a match starts.
     pub create_lobby: bool,
     pub server_region: Option<String>,
+    /// Create drafts on the draft tool and DM captains their links. Off: the admin shares a
+    /// draft link themselves, and the bot only moves players and announces the draft.
+    pub use_draft_tool: bool,
     pub draft_timer_seconds: u32,
 }
 
@@ -31,6 +34,7 @@ impl GuildSettings {
             match2_archmother_voice_id: config.match2_archmother_voice_id,
             create_lobby: config.enable_custom_match_create,
             server_region: config.deadlock_server_region.clone(),
+            use_draft_tool: true,
             draft_timer_seconds: 30,
         }
     }

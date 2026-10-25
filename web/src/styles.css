@@ -1310,3 +1310,98 @@ input {
 .button-danger-solid:hover {
   background: #ffb8ae;
 }
+
+/* Links from the Ao vivo cards to their pages */
+.card-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.card-link:hover {
+  text-decoration: underline;
+}
+
+/* Points dialog */
+.stepper-input {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  gap: 8px;
+}
+.stepper-input .button {
+  min-height: 44px;
+  padding: 0;
+  font-size: 18px;
+}
+.stepper-input .input {
+  text-align: center;
+  font-size: 16px;
+}
+.modal .stack {
+  gap: 12px;
+}
+
+/* MVP */
+.modal-wide {
+  width: min(600px, calc(100vw - 32px));
+}
+.mvp-picker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.mvp-picker legend {
+  margin-bottom: 8px;
+}
+.mvp-teams {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 16px;
+}
+.mvp-team {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.mvp-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--inset);
+  cursor: pointer;
+}
+.mvp-option input {
+  margin: 0;
+  accent-color: var(--jade);
+}
+.mvp-option-on {
+  border-color: var(--jade);
+  background: var(--active);
+}
+.mvp-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #3a3210;
+  color: var(--gold);
+  font-size: 11px;
+  font-weight: 700;
+}
+@media (max-width: 520px) {
+  .mvp-teams {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

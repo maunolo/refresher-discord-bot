@@ -2,12 +2,16 @@ import { useActions } from '../actions';
 import type { Camp, RecentMatch } from '../api';
 import { SIDE_LABEL, playerName, points, queuedPlayers, ranking } from '../camp';
 import { routeHref } from '../route';
-import { DiscordLink, SRankChip } from './common';
+import { useState } from 'react';
+
+import { CardLink, DiscordLink, MvpTag, SRankChip } from './common';
+import { MvpDialog } from './ResultDialogs';
 
 const PLAYERS_MOVED_ON = 'Os jogadores já estão em outra partida.';
 
-export function Corrections({ match }: { match: RecentMatch }) {
+export function Corrections({ camp, match }: { camp: Camp; match: RecentMatch }) {
   const { run, busy } = useActions();
+  const [changingMvp, setChangingMvp] = useState(false);
   const other = match.winner_side === 'hiddenking' ? 'archmother' : 'hiddenking';
   const off = busy || !match.correctable;
   const why = match.correctable ? undefined : PLAYERS_MOVED_ON;
@@ -55,6 +59,16 @@ export function Corrections({ match }: { match: RecentMatch }) {
       >
         Reabrir
       </button>
+      <button
+        type="button"
+        className="button button-ghost button-small"
+        disabled={busy || !match.mvp_changeable}
+        title={match.mvp_changeable ? undefined : 'Só a última partida, com o camp em andamento.'}
+        onClick={() => setChangingMvp(true)}
+      >
+        Trocar MVP
+      </button>
+      <MvpDialog camp={camp} match={changingMvp ? match : null} onClose={() => setChangingMvp(false)} />
     </div>
   );
 }
@@ -66,10 +80,13 @@ export function QueuePanel({ camp }: { camp: Camp }) {
   return (
     <aside className="card queue" aria-labelledby="queue-title">
       <div className="card-head">
-        <h2 id="queue-title">Fila</h2>
-        <span className="mono muted small">
-          {queue.length} {queue.length === 1 ? 'jogador' : 'jogadores'}
-        </span>
+        <div className="title-row">
+          <h2 id="queue-title">Fila</h2>
+          <span className="mono muted small">
+            {queue.length} {queue.length === 1 ? 'jogador' : 'jogadores'}
+          </span>
+        </div>
+        <CardLink href={routeHref('queue')} label="Abrir fila" />
       </div>
       <p className="muted small">
         {missing > 0
@@ -102,12 +119,7 @@ export function QueuePanel({ camp }: { camp: Camp }) {
         Depois de cada partida: quem ficou de fora vai na frente; depois, quem jogou menos partidas seguidas, com
         vencedores antes dos perdedores.
       </p>
-      <div className="inline-actions">
-        <a className="button button-small" href={routeHref('queue')}>
-          Reordenar
-        </a>
-        <DiscordLink url={camp.discord_url} />
-      </div>
+      <DiscordLink url={camp.discord_url} />
     </aside>
   );
 }
@@ -117,6 +129,7 @@ export function HistoryPanel({ camp }: { camp: Camp }) {
     <section className="card history" aria-labelledby="history-title">
       <div className="card-head">
         <h2 id="history-title">Últimas partidas</h2>
+        <CardLink href={routeHref('matches')} label="Ver todas" />
       </div>
       {camp.recent_matches.length === 0 ? (
         <p className="empty">Nenhuma partida terminou ainda.</p>
@@ -129,6 +142,7 @@ export function HistoryPanel({ camp }: { camp: Camp }) {
                 <th scope="col">ID</th>
                 <th scope="col">Vencedor</th>
                 <th scope="col">Capitães</th>
+                <th scope="col">MVP</th>
                 <th scope="col" className="align-end">
                   Correção
                 </th>
@@ -146,9 +160,10 @@ export function HistoryPanel({ camp }: { camp: Camp }) {
                     <span className={`tag tag-${m.winner_side}`}>{SIDE_LABEL[m.winner_side]}</span>
                   </td>
                   <td className="muted">{m.captains.map((c) => playerName(camp, c.user_id)).join(' · ') || '—'}</td>
+                  <td>{m.mvp_user_id ? playerName(camp, m.mvp_user_id) : <span className="faint">—</span>}</td>
                   <td className="align-end">
                     {i === 0 ? (
-                      <Corrections match={m} />
+                      <Corrections camp={camp} match={m} />
                     ) : (
                       <span className="faint">—</span>
                     )}
@@ -159,7 +174,10 @@ export function HistoryPanel({ camp }: { camp: Camp }) {
           </table>
         </div>
       )}
-      <p className="muted small">Só a última partida pode ser corrigida, e só enquanto os jogadores dela estão na fila.</p>
+      <p className="muted small">
+        Só a última partida pode ser corrigida: vencedor e reabrir enquanto os jogadores dela estão na fila, o MVP enquanto o
+        camp estiver em andamento.
+      </p>
     </section>
   );
 }
@@ -170,13 +188,18 @@ export function RankingPanel({ camp }: { camp: Camp }) {
     <section className="card ranking" aria-labelledby="ranking-title">
       <div className="card-head">
         <h2 id="ranking-title">Ranking</h2>
+        <CardLink href={routeHref('ranking')} label="Ver completo" />
       </div>
       <ol className="rows">
         {top.map(({ player, place }) => (
           <li key={player.user_id} className="row row-tall">
             <span className={`medal medal-${Math.min(place, 4)}`}>{place}</span>
             <span className="ellipsis">{playerName(camp, player.user_id)}</span>
-            <span className="row-end mono small">{points(player.points)}</span>
+            {player.mvps > 0 && <MvpTag />}
+            <span className="row-end mono small">
+              {points(player.points)}
+              {player.mvps > 0 && <span className="muted"> · {player.mvps}</span>}
+            </span>
           </li>
         ))}
       </ol>

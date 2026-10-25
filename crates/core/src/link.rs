@@ -28,11 +28,16 @@ pub enum CampAction {
     CreateFinal,
     /// Ends the refresh vote now and keeps the teams.
     CloseVote { match_id: String },
+    /// Ends the refresh vote now by re-sorting the teams, as if the refresh had passed.
+    RefreshTeams { match_id: String },
     StartDraft { match_id: String },
     StartMatch { match_id: String },
-    /// `side` is `hiddenking` or `archmother`.
-    ReportWinner { match_id: String, side: String },
+    /// `side` is `hiddenking` or `archmother`. The MVP, one of the match's players, breaks ties
+    /// in points in the final ranking.
+    ReportWinner { match_id: String, side: String, mvp_user_id: Option<u64> },
     CorrectWinner { match_id: String },
+    /// The latest result only, while the camp runs.
+    ChangeMvp { match_id: String, user_id: u64 },
     ReopenMatch { match_id: String },
     /// Signup only. Users already on the roster, or past the camp's size, are skipped.
     AddPlayers { user_ids: Vec<u64> },
@@ -40,6 +45,8 @@ pub enum CampAction {
     RemovePlayer { user_id: u64 },
     /// Signup or running; matches created afterwards use it.
     SetSRank { user_id: u64, s_rank: bool },
+    /// Running only. Adds `delta` points by hand (negative takes them); never below zero.
+    AdjustPoints { user_id: u64, delta: i64 },
     StartQueue,
     /// The queue in a new order: exactly the players queued now. Holds until the next result.
     ReorderQueue { user_ids: Vec<u64> },

@@ -47,6 +47,8 @@ export interface Camp {
   queue_voice: string[];
   /** The camp's message in Discord, else its channel. */
   discord_url: string;
+  /** The server creates drafts on the draft tool; off, admins share a draft link themselves. */
+  draft_tool: boolean;
 }
 
 export interface Channel {
@@ -72,6 +74,10 @@ export interface Player {
   /** Finished matches only. */
   matches_played: number;
   wins: number;
+  /** Points admins added (or, below zero, took) by hand. */
+  points_adjusted: number;
+  /** Finished matches as MVP: breaks ties in points. */
+  mvps: number;
 }
 
 export interface Match {
@@ -83,7 +89,12 @@ export interface Match {
   refresh_used: boolean;
   /** An admin ended the vote early and kept the teams. */
   vote_closed_by_admin: boolean;
+  /** The draft started without the draft tool: no links, an admin shares one. */
+  draft_manual: boolean;
+  /** An admin ended the vote by re-sorting the teams. */
+  refreshed_by_admin: boolean;
   winner_side: Side | null;
+  mvp_user_id: string | null;
   party_code: string | null;
   draft: Draft | null;
   players: MatchPlayer[];
@@ -121,7 +132,11 @@ export interface RecentMatch {
   is_final: boolean;
   completed_at: number;
   captains: { user_id: string; side: Side }[];
+  players: MatchPlayer[];
+  mvp_user_id: string | null;
   correctable: boolean;
+  /** Only the latest result, while the camp runs. */
+  mvp_changeable: boolean;
 }
 
 export interface Member {
@@ -134,14 +149,17 @@ export type CampAction =
   | { type: 'create_match' }
   | { type: 'create_final' }
   | { type: 'close_vote'; match_id: string }
+  | { type: 'refresh_teams'; match_id: string }
   | { type: 'start_draft'; match_id: string }
   | { type: 'start_match'; match_id: string }
-  | { type: 'report_winner'; match_id: string; side: Side }
+  | { type: 'report_winner'; match_id: string; side: Side; mvp_user_id: string }
   | { type: 'correct_winner'; match_id: string }
+  | { type: 'change_mvp'; match_id: string; user_id: string }
   | { type: 'reopen_match'; match_id: string }
   | { type: 'add_players'; user_ids: string[] }
   | { type: 'remove_player'; user_id: string }
   | { type: 'set_s_rank'; user_id: string; s_rank: boolean }
+  | { type: 'adjust_points'; user_id: string; delta: number }
   | { type: 'start_queue' }
   | { type: 'reorder_queue'; user_ids: string[] }
   | { type: 'remind_voters'; match_id: string }
@@ -158,6 +176,8 @@ export interface SettingsForm {
   match2_archmother_voice_id: string | null;
   create_lobby: boolean;
   server_region: string | null;
+  /** Off: no drafts on the draft tool; admins share a draft link themselves. */
+  use_draft_tool: boolean;
   draft_timer_seconds: number;
 }
 

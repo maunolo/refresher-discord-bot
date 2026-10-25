@@ -1,11 +1,18 @@
-import type { Camp } from '../api';
-import { playerName, ranking, whereIs, winRate } from '../camp';
+import { useState } from 'react';
+
+import { useActions } from '../actions';
+import type { Camp, Player } from '../api';
+import { playerName, ranking, signed, whereIs, winRate } from '../camp';
 import { DiscordLink, SRankChip } from './common';
+import { PointsDialog } from './PointsDialog';
 
 /** Every player by points, with wins and matches; ties share a place, like the bot's medals. */
 export function RankingView({ camp }: { camp: Camp }) {
   const rows = ranking(camp.players);
   const ended = camp.status === 'ended';
+  const running = camp.status === 'running';
+  const [adjusting, setAdjusting] = useState<Player | null>(null);
+  const { busy } = useActions();
   return (
     <section className="stack" aria-labelledby="ranking-page-title">
       <div className="card-head">
@@ -35,6 +42,9 @@ export function RankingView({ camp }: { camp: Camp }) {
                   Pontos
                 </th>
                 <th scope="col" className="align-end">
+                  MVPs
+                </th>
+                <th scope="col" className="align-end">
                   Vitórias
                 </th>
                 <th scope="col" className="align-end">
@@ -44,6 +54,11 @@ export function RankingView({ camp }: { camp: Camp }) {
                   Aproveitamento
                 </th>
                 {!ended && <th scope="col">Agora</th>}
+                {running && (
+                  <th scope="col" className="align-end">
+                    <span className="visually-hidden">Ajustar pontos</span>
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -58,11 +73,32 @@ export function RankingView({ camp }: { camp: Camp }) {
                       {player.s_rank && <SRankChip />}
                     </span>
                   </td>
-                  <td className="align-end mono strong">{player.points}</td>
+                  <td className="align-end mono">
+                    {player.points_adjusted !== 0 && (
+                      <span className="muted small" title="Ajustes manuais">
+                        ({signed(player.points_adjusted)}){' '}
+                      </span>
+                    )}
+                    <span className="strong">{player.points}</span>
+                  </td>
+                  <td className="align-end mono">{player.mvps || <span className="faint">0</span>}</td>
                   <td className="align-end mono">{player.wins}</td>
                   <td className="align-end mono">{player.matches_played}</td>
                   <td className="align-end mono muted">{winRate(player)}</td>
                   {!ended && <td className="muted">{whereIs(camp, player)}</td>}
+                  {running && (
+                    <td className="align-end">
+                      <button
+                        type="button"
+                        className="button button-small button-ghost"
+                        disabled={busy}
+                        aria-label={`Ajustar pontos de ${playerName(camp, player.user_id)}`}
+                        onClick={() => setAdjusting(player)}
+                      >
+                        Ajustar
+                      </button>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -70,9 +106,11 @@ export function RankingView({ camp }: { camp: Camp }) {
         </div>
       )}
       <p className="muted small">
-        Cada vitória vale 1 ponto. Empatados dividem o lugar. Aproveitamento conta só partidas terminadas; correções de
-        resultado entram na hora.
+        Cada vitória vale 1 ponto; ajustes manuais aparecem entre parênteses. Empate em pontos é desfeito pelo número de
+        MVPs; empatados nos dois dividem o lugar. Aproveitamento conta só partidas terminadas; correções de resultado entram
+        na hora.
       </p>
+      <PointsDialog camp={camp} player={adjusting} onClose={() => setAdjusting(null)} />
     </section>
   );
 }

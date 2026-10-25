@@ -1,7 +1,21 @@
-import { confirmCloseVote, confirmWinner, useActions } from '../actions';
+import { useState } from 'react';
+
+import { confirmCloseVote, confirmRefreshTeams, useActions } from '../actions';
 import type { Camp, Draft, Match, Side } from '../api';
-import { SIDES, SIDE_LABEL, matchName, playerById, playerName, points, stage, voteSummary, type Stage } from '../camp';
-import { Captain, CopyButton, DiscordLink, SRankChip } from './common';
+import {
+  SIDES,
+  SIDE_LABEL,
+  draftStarted,
+  matchName,
+  playerById,
+  playerName,
+  points,
+  stage,
+  voteSummary,
+  type Stage,
+} from '../camp';
+import { CardLink, Captain, CopyButton, DiscordLink, SRankChip } from './common';
+import { WinnerDialog } from './ResultDialogs';
 import { matchHref } from '../route';
 
 const STEPS = ['Votação', 'Draft', 'Ao vivo', 'Resultado'];
@@ -19,7 +33,8 @@ export function StagePill({ match }: { match: Match }) {
     );
   }
   if (current === 'draft') {
-    return <span className="pill pill-draft">{match.draft ? 'Draft em andamento' : 'Pronta para o draft'}</span>;
+    const label = !draftStarted(match) ? 'Pronta para o draft' : match.draft_manual ? 'Draft manual' : 'Draft em andamento';
+    return <span className="pill pill-draft">{label}</span>;
   }
   return <span className="pill pill-running">Votação aberta</span>;
 }
@@ -69,6 +84,22 @@ function Team({ camp, match, side }: { camp: Camp; match: Match; side: Side }) {
   );
 }
 
+/** A draft started without the draft tool: who should get the link an admin shares. */
+export function ManualDraftNote({ camp, match }: { camp: Camp; match: Match }) {
+  const captains = SIDES.flatMap((side) => match.players.filter((p) => p.is_captain && p.side === side));
+  return (
+    <div className="inset">
+      <span className="eyebrow">Draft manual</span>
+      <span className="small text-2">
+        Mande o link do draft para os capitães
+        {captains.length > 0 &&
+          `: ${captains.map((c) => `${playerName(camp, c.user_id)} (${SIDE_LABEL[c.side]})`).join(' e ')}`}
+        .
+      </span>
+    </div>
+  );
+}
+
 export function DraftLinks({ camp, match, draft }: { camp: Camp; match: Match; draft: Draft }) {
   const captain = (side: Side) => match.players.find((p) => p.side === side && p.is_captain);
   const teamUrl = (side: Side) => (side === 'hiddenking' ? draft.hiddenking_url : draft.archmother_url);
@@ -103,20 +134,20 @@ export function DraftLinks({ camp, match, draft }: { camp: Camp; match: Match; d
   );
 }
 
-function Actions({ match }: { match: Match }) {
+function Actions({ camp, match }: { camp: Camp; match: Match }) {
   const { run, busy } = useActions();
+  const [winner, setWinner] = useState<Side | null>(null);
   const current = stage(match);
   if (current === 'live') {
-    const win = (side: Side) =>
-      run({ type: 'report_winner', match_id: match.id, side }, { confirm: confirmWinner(match, side) });
     return (
       <div className="actions two">
-        <button type="button" className="button button-hk" disabled={busy} onClick={() => win('hiddenking')}>
+        <button type="button" className="button button-hk" disabled={busy} onClick={() => setWinner('hiddenking')}>
           Hiddenking venceu
         </button>
-        <button type="button" className="button button-am" disabled={busy} onClick={() => win('archmother')}>
+        <button type="button" className="button button-am" disabled={busy} onClick={() => setWinner('archmother')}>
           Archmother venceu
         </button>
+        <WinnerDialog camp={camp} match={match} side={winner} onClose={() => setWinner(null)} />
       </div>
     );
   }
@@ -126,20 +157,33 @@ function Actions({ match }: { match: Match }) {
         <button type="button" className="button button-primary" disabled title="Espere a votação terminar no Discord.">
           Iniciar draft
         </button>
-        <button
-          type="button"
-          className="button"
-          disabled={busy}
-          onClick={() => run({ type: 'close_vote', match_id: match.id }, { confirm: confirmCloseVote(match) })}
-        >
-          Encerrar votação e manter times
-        </button>
+        <div className="actions two">
+          <button
+            type="button"
+            className="button"
+            disabled={busy}
+            title="Encerra a votação agora sem mudar os times."
+            onClick={() => run({ type: 'close_vote', match_id: match.id }, { confirm: confirmCloseVote(match) })}
+          >
+            Manter times
+          </button>
+          <button
+            type="button"
+            className="button"
+            disabled={busy}
+            title="Encerra a votação agora e sorteia os times de novo."
+            onClick={() => run({ type: 'refresh_teams', match_id: match.id }, { confirm: confirmRefreshTeams(match) })}
+          >
+            Sortear de novo
+          </button>
+        </div>
+        <span className="muted small">Encerrar a votação agora, sem esperar os votos.</span>
       </div>
     );
   }
   return (
     <div className="actions">
-      {match.draft ? (
+      {draftStarted(match) ? (
         <button
           type="button"
           className="button button-primary"
@@ -153,9 +197,10 @@ function Actions({ match }: { match: Match }) {
           type="button"
           className="button button-primary"
           disabled={busy}
+          title={camp.draft_tool ? undefined : 'Sem a ferramenta de draft: o bot move os jogadores e você manda o link.'}
           onClick={() => run({ type: 'start_draft', match_id: match.id })}
         >
-          Iniciar draft
+          {camp.draft_tool ? 'Iniciar draft' : 'Iniciar draft manual'}
         </button>
       )}
     </div>
@@ -175,7 +220,10 @@ export function MatchCard({ camp, match }: { camp: Camp; match: Match }) {
           </h2>
           <span className="mono muted small">{match.id}</span>
         </div>
-        <StagePill match={match} />
+        <div className="inline-actions">
+          <StagePill match={match} />
+          <CardLink href={matchHref(match.id)} label="Detalhes" />
+        </div>
       </div>
       <Stepper match={match} />
       <p className="muted small">{voteSummary(camp, match)}</p>
@@ -185,6 +233,7 @@ export function MatchCard({ camp, match }: { camp: Camp; match: Match }) {
         ))}
       </div>
       {match.draft && <DraftLinks camp={camp} match={match} draft={match.draft} />}
+      {match.draft_manual && <ManualDraftNote camp={camp} match={match} />}
       {match.party_code && (
         <div className="inset link-row">
           <span className="eyebrow">Código da party</span>
@@ -192,7 +241,7 @@ export function MatchCard({ camp, match }: { camp: Camp; match: Match }) {
           <CopyButton text={match.party_code} label="Copiar código da party" />
         </div>
       )}
-      <Actions match={match} />
+      <Actions camp={camp} match={match} />
       <DiscordLink url={match.discord_url} label="Abrir a mensagem no Discord" />
     </section>
   );

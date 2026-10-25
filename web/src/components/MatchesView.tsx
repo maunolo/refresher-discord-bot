@@ -1,13 +1,25 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
-import { confirmCloseVote, confirmWinner, useActions } from '../actions';
+import { confirmCloseVote, confirmRefreshTeams, useActions } from '../actions';
 import { api, type Camp, type Match, type Side } from '../api';
-import { SIDES, SIDE_LABEL, matchName, playerById, playerName, points, stage, voteCount, voteSummary } from '../camp';
+import {
+  SIDES,
+  SIDE_LABEL,
+  draftStarted,
+  matchName,
+  playerById,
+  playerName,
+  points,
+  stage,
+  voteCount,
+  voteSummary,
+} from '../camp';
 import { matchHref, routeHref } from '../route';
 import { usePolling } from '../usePolling';
-import { Captain, CopyButton, DiscordLink, SRankChip } from './common';
-import { DraftLinks, StagePill, Stepper } from './MatchCard';
+import { Captain, CopyButton, DiscordLink, MvpTag, SRankChip } from './common';
+import { DraftLinks, ManualDraftNote, StagePill, Stepper } from './MatchCard';
 import { Corrections } from './Panels';
+import { WinnerDialog } from './ResultDialogs';
 
 const loadMatches = (campId: string) => api.matches(campId);
 
@@ -92,6 +104,7 @@ export function MatchesView({ camp, matchId }: { camp: Camp; matchId: string | n
                 <th scope="col">Etapa</th>
                 <th scope="col">Vencedor</th>
                 <th scope="col">Capitães</th>
+                <th scope="col">MVP</th>
                 <th scope="col">Terminou</th>
                 <th scope="col" className="align-end">
                   <span className="visually-hidden">Links</span>
@@ -121,6 +134,7 @@ export function MatchesView({ camp, matchId }: { camp: Camp; matchId: string | n
                       .map((p) => playerName(camp, p.user_id))
                       .join(' · ') || '—'}
                   </td>
+                  <td>{m.mvp_user_id ? playerName(camp, m.mvp_user_id) : <span className="faint">—</span>}</td>
                   <td className="muted">{m.completed_at ? finishedAt(m.completed_at) : '—'}</td>
                   <td className="align-end">
                     <DiscordLink url={m.discord_url} label="Discord" />
@@ -212,6 +226,7 @@ function TeamVotes({ camp, match, side }: { camp: Camp; match: Match; side: Side
               <span className="ellipsis">{playerName(camp, p.user_id)}</span>
               {player?.s_rank && <SRankChip />}
               {p.is_captain && <Captain />}
+              {match.mvp_user_id === p.user_id && <MvpTag />}
               <span className="row-end">
                 {match.status === 'voting' ? (
                   <VoteTag match={match} userId={p.user_id} />
@@ -229,6 +244,7 @@ function TeamVotes({ camp, match, side }: { camp: Camp; match: Match; side: Side
 
 function NextStep({ camp, match }: { camp: Camp; match: Match }) {
   const { run, busy } = useActions();
+  const [winner, setWinner] = useState<Side | null>(null);
   const current = stage(match);
   const missing = match.players.length - match.votes.length;
 
@@ -245,8 +261,17 @@ function NextStep({ camp, match }: { camp: Camp; match: Match }) {
             cada jogador do time.
           </p>
         )}
+        <p className="small">
+          {match.mvp_user_id ? (
+            <>
+              <MvpTag /> {playerName(camp, match.mvp_user_id)}
+            </>
+          ) : (
+            <span className="muted">Sem MVP.</span>
+          )}
+        </p>
         {latest?.id === match.id ? (
-          <Corrections match={latest} />
+          <Corrections camp={camp} match={latest} />
         ) : (
           <p className="muted small">Só a última partida pode ser corrigida, e só enquanto os jogadores dela estão na fila.</p>
         )}
@@ -255,22 +280,23 @@ function NextStep({ camp, match }: { camp: Camp; match: Match }) {
   }
 
   if (current === 'live') {
-    const win = (side: Side) =>
-      run({ type: 'report_winner', match_id: match.id, side }, { confirm: confirmWinner(match, side) });
     return (
       <section className="card" aria-labelledby="next-title">
         <h2 id="next-title" className="small-title">
           Próximo passo
         </h2>
         <div className="actions two">
-          <button type="button" className="button button-hk" disabled={busy} onClick={() => win('hiddenking')}>
+          <button type="button" className="button button-hk" disabled={busy} onClick={() => setWinner('hiddenking')}>
             Hiddenking venceu
           </button>
-          <button type="button" className="button button-am" disabled={busy} onClick={() => win('archmother')}>
+          <button type="button" className="button button-am" disabled={busy} onClick={() => setWinner('archmother')}>
             Archmother venceu
           </button>
         </div>
-        <span className="muted small">Os vencedores ganham 1 ponto e todos voltam para a fila e para o canal Queue.</span>
+        <span className="muted small">
+          Os vencedores ganham 1 ponto e todos voltam para a fila e para o canal Queue. Você escolhe o MVP em seguida.
+        </span>
+        <WinnerDialog camp={camp} match={match} side={winner} onClose={() => setWinner(null)} />
       </section>
     );
   }
@@ -281,7 +307,7 @@ function NextStep({ camp, match }: { camp: Camp; match: Match }) {
         <h2 id="next-title" className="small-title">
           Próximo passo
         </h2>
-        {match.draft ? (
+        {draftStarted(match) ? (
           <>
             <button
               type="button"
@@ -301,10 +327,12 @@ function NextStep({ camp, match }: { camp: Camp; match: Match }) {
               disabled={busy}
               onClick={() => run({ type: 'start_draft', match_id: match.id })}
             >
-              Iniciar draft
+              {camp.draft_tool ? 'Iniciar draft' : 'Iniciar draft manual'}
             </button>
             <span className="muted small">
-              Cria o draft, manda a cada capitão o link do time por DM e move todos para os canais de voz dos times.
+              {camp.draft_tool
+                ? 'Cria o draft, manda a cada capitão o link do time por DM e move todos para os canais de voz dos times.'
+                : 'A ferramenta de draft está desligada: o bot move todos para os canais de voz dos times e avisa no canal. Você manda o link do draft para os capitães.'}
             </span>
           </>
         )}
@@ -322,7 +350,9 @@ function NextStep({ camp, match }: { camp: Camp; match: Match }) {
           Iniciar draft
         </button>
         <span id="draft-help" className="muted small">
-          Libera quando a votação fechar. O draft cria os links dos capitães e move todos para os canais de voz dos times.
+          {camp.draft_tool
+            ? 'Libera quando a votação fechar. O draft cria os links dos capitães e move todos para os canais de voz dos times.'
+            : 'Libera quando a votação fechar. O draft é manual: o bot move todos para os canais dos times e você manda o link.'}
         </span>
         <button
           type="button"
@@ -343,15 +373,28 @@ function NextStep({ camp, match }: { camp: Camp; match: Match }) {
         <h2 id="close-title" className="small-title">
           Fechar a votação agora
         </h2>
-        <p className="small text-2">Para quando alguém não pode votar. Os times ficam como estão e o draft libera.</p>
-        <button
-          type="button"
-          className="button button-danger"
-          disabled={busy}
-          onClick={() => run({ type: 'close_vote', match_id: match.id }, { confirm: confirmCloseVote(match) })}
-        >
-          Fechar e manter times
-        </button>
+        <p className="small text-2">
+          Para quando alguém não pode votar ou o resultado já está claro: mantenha os times ou sorteie de novo. Depois
+          disso, o draft libera.
+        </p>
+        <div className="actions two">
+          <button
+            type="button"
+            className="button"
+            disabled={busy}
+            onClick={() => run({ type: 'close_vote', match_id: match.id }, { confirm: confirmCloseVote(match) })}
+          >
+            Manter times
+          </button>
+          <button
+            type="button"
+            className="button"
+            disabled={busy}
+            onClick={() => run({ type: 'refresh_teams', match_id: match.id }, { confirm: confirmRefreshTeams(match) })}
+          >
+            Sortear de novo
+          </button>
+        </div>
       </section>
     </>
   );
@@ -390,6 +433,7 @@ function MatchDetail({ camp, match }: { camp: Camp; match: Match }) {
         <aside className="split-aside" aria-label="Ações da partida">
           <NextStep camp={camp} match={match} />
           {match.draft && <DraftLinks camp={camp} match={match} draft={match.draft} />}
+          {match.draft_manual && <ManualDraftNote camp={camp} match={match} />}
           {match.party_code && (
             <div className="inset link-row">
               <span className="eyebrow">Código da party</span>

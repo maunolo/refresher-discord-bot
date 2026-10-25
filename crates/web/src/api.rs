@@ -7,7 +7,8 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
 use refresher_core::db::{
-    self, CampRow, CampState, CampSummary, MatchPlayerRow, MatchRow, PlayerRow, RecentMatch, RefreshVote,
+    self, CampRow, CampState, CampSummary, MatchPlayerRow, MatchRow, PlayerRow, PlayerStats, RecentMatch,
+    RefreshVote,
 };
 use refresher_core::link::{CampAction, Channel, Profile};
 use refresher_core::queue::{self, CampSize};
@@ -79,6 +80,8 @@ pub struct CampDto {
     queue_voice: Vec<String>,
     /// The camp's message in Discord (signup, then queue), else its channel.
     discord_url: String,
+    /// The server creates drafts on the draft tool; off, admins share a draft link themselves.
+    draft_tool: bool,
 }
 
 #[derive(Serialize)]
@@ -109,8 +112,12 @@ struct RecentMatchDto {
     is_final: bool,
     completed_at: i64,
     captains: Vec<CaptainDto>,
+    players: Vec<MatchPlayerDto>,
+    mvp_user_id: Option<String>,
     /// The bot's rule: only the latest result, and only while its players are all back in the queue.
     correctable: bool,
+    /// Only the latest result, while the camp runs; players may have moved on.
+    mvp_changeable: bool,
 }
 
 #[derive(Serialize)]
@@ -130,6 +137,10 @@ struct PlayerDto {
     /// Finished matches only.
     matches_played: i64,
     wins: i64,
+    /// Points admins added (or, below zero, took) by hand.
+    points_adjusted: i64,
+    /// Finished matches as MVP: the tie-breaker for equal points.
+    mvps: i64,
 }
 
 #[derive(Serialize)]
@@ -141,7 +152,12 @@ pub struct MatchDto {
     is_final: bool,
     refresh_used: bool,
     vote_closed_by_admin: bool,
+    /// The draft started without the draft tool: no links, the admin shares one.
+    draft_manual: bool,
+    /// An admin ended the vote by re-sorting the teams.
+    refreshed_by_admin: bool,
     winner_side: Option<String>,
+    mvp_user_id: Option<String>,
     party_code: Option<String>,
     draft: Option<DraftDto>,
     players: Vec<MatchPlayerDto>,
@@ -192,6 +208,15 @@ fn discord_url(guild_id: i64, channel_id: i64, message_id: Option<i64>) -> Strin
     }
 }
 
+fn match_player_dto(p: &MatchPlayerRow) -> MatchPlayerDto {
+    MatchPlayerDto {
+        user_id: p.user_id.to_string(),
+        side: p.side.clone(),
+        is_captain: p.is_captain,
+        points_after: p.points_after,
+    }
+}
+
 fn match_dto(camp: &CampRow, row: &MatchRow, players: &[MatchPlayerRow], votes: &[RefreshVote]) -> MatchDto {
     MatchDto {
         id: row.id.clone(),
@@ -201,7 +226,10 @@ fn match_dto(camp: &CampRow, row: &MatchRow, players: &[MatchPlayerRow], votes: 
         is_final: row.is_final,
         refresh_used: row.refresh_used,
         vote_closed_by_admin: row.vote_closed_by_admin,
+        draft_manual: row.draft_manual,
+        refreshed_by_admin: row.refreshed_by_admin,
         winner_side: row.winner_side.clone(),
+        mvp_user_id: row.mvp_user_id.map(|id| id.to_string()),
         party_code: row.party_code.clone(),
         draft: row.draft_url.clone().map(|spectator_url| DraftDto {
             spectator_url,
@@ -209,15 +237,7 @@ fn match_dto(camp: &CampRow, row: &MatchRow, players: &[MatchPlayerRow], votes: 
             archmother_url: row.draft_archmother_url.clone(),
             admin_url: row.draft_admin_url.clone(),
         }),
-        players: players
-            .iter()
-            .map(|p| MatchPlayerDto {
-                user_id: p.user_id.to_string(),
-                side: p.side.clone(),
-                is_captain: p.is_captain,
-                points_after: p.points_after,
-            })
-            .collect(),
+        players: players.iter().map(match_player_dto).collect(),
         votes: votes
             .iter()
             .map(|v| VoteDto {
@@ -270,9 +290,12 @@ fn recent_dto(state: &CampState, recent: &[RecentMatch]) -> Vec<RecentMatchDto> 
                     side: p.side.clone(),
                 })
                 .collect(),
+            players: m.players.iter().map(match_player_dto).collect(),
+            mvp_user_id: m.mvp_user_id.map(|id| id.to_string()),
             correctable: i == 0
                 && state.camp.status == "running"
                 && m.players.iter().all(|p| queued(p.user_id)),
+            mvp_changeable: i == 0 && state.camp.status == "running",
         })
         .collect()
 }
@@ -280,9 +303,10 @@ fn recent_dto(state: &CampState, recent: &[RecentMatch]) -> Vec<RecentMatchDto> 
 fn camp_dto(
     state: &CampState,
     recent: &[RecentMatch],
-    stats: &HashMap<i64, (i64, i64)>,
+    stats: &HashMap<i64, PlayerStats>,
     profiles: &HashMap<u64, Profile>,
     queue_voice: Vec<u64>,
+    draft_tool: bool,
 ) -> CampDto {
     CampDto {
         id: state.camp.id.clone(),
@@ -300,7 +324,7 @@ fn camp_dto(
             .players
             .iter()
             .map(|p| {
-                let (matches_played, wins) = stats.get(&p.user_id).copied().unwrap_or_default();
+                let stats = stats.get(&p.user_id).copied().unwrap_or_default();
                 PlayerDto {
                     user_id: p.user_id.to_string(),
                     points: p.points,
@@ -308,8 +332,10 @@ fn camp_dto(
                     queue_position: p.queue_position,
                     consecutive_matches: p.consecutive_matches,
                     s_rank: p.s_rank,
-                    matches_played,
-                    wins,
+                    matches_played: stats.played,
+                    wins: stats.wins,
+                    points_adjusted: stats.adjusted,
+                    mvps: stats.mvps,
                 }
             })
             .collect(),
@@ -334,6 +360,7 @@ fn camp_dto(
             .collect(),
         queue_voice: queue_voice.iter().map(u64::to_string).collect(),
         discord_url: discord_url(state.camp.guild_id, state.camp.channel_id, state.camp.board_message_id),
+        draft_tool,
     }
 }
 
@@ -432,7 +459,8 @@ async fn camp_response(state: &AppState, camp: CampState) -> Result<Json<CampDto
     } else {
         Vec::new()
     };
-    Ok(Json(camp_dto(&camp, &recent, &stats, &profiles, queue_voice)))
+    let (settings, _) = db::guild_settings(&state.db, camp.camp.guild_id, &state.default_settings).await?;
+    Ok(Json(camp_dto(&camp, &recent, &stats, &profiles, queue_voice, settings.use_draft_tool)))
 }
 
 /// A server the admin manages and the bot is in, or 404.
@@ -537,14 +565,23 @@ pub enum ActionRequest {
     CreateMatch,
     CreateFinal,
     CloseVote { match_id: String },
+    RefreshTeams { match_id: String },
     StartDraft { match_id: String },
     StartMatch { match_id: String },
-    ReportWinner { match_id: String, side: SideRequest },
+    ReportWinner {
+        match_id: String,
+        side: SideRequest,
+        #[serde(default)]
+        mvp_user_id: Option<String>,
+    },
     CorrectWinner { match_id: String },
+    ChangeMvp { match_id: String, user_id: String },
     ReopenMatch { match_id: String },
     AddPlayers { user_ids: Vec<String> },
     RemovePlayer { user_id: String },
     SetSRank { user_id: String, s_rank: bool },
+    /// Points to add, or below zero to take.
+    AdjustPoints { user_id: String, delta: i64 },
     StartQueue,
     /// The whole queue in its new order.
     ReorderQueue { user_ids: Vec<String> },
@@ -567,17 +604,23 @@ impl TryFrom<ActionRequest> for CampAction {
             ActionRequest::CreateMatch => CampAction::CreateMatch,
             ActionRequest::CreateFinal => CampAction::CreateFinal,
             ActionRequest::CloseVote { match_id } => CampAction::CloseVote { match_id },
+            ActionRequest::RefreshTeams { match_id } => CampAction::RefreshTeams { match_id },
             ActionRequest::StartDraft { match_id } => CampAction::StartDraft { match_id },
             ActionRequest::StartMatch { match_id } => CampAction::StartMatch { match_id },
-            ActionRequest::ReportWinner { match_id, side } => CampAction::ReportWinner {
+            ActionRequest::ReportWinner { match_id, side, mvp_user_id } => CampAction::ReportWinner {
                 match_id,
                 side: match side {
                     SideRequest::Hiddenking => "hiddenking",
                     SideRequest::Archmother => "archmother",
                 }
                 .to_string(),
+                mvp_user_id: mvp_user_id.as_deref().map(user_id).transpose()?,
             },
             ActionRequest::CorrectWinner { match_id } => CampAction::CorrectWinner { match_id },
+            ActionRequest::ChangeMvp { match_id, user_id: id } => CampAction::ChangeMvp {
+                match_id,
+                user_id: user_id(&id)?,
+            },
             ActionRequest::ReopenMatch { match_id } => CampAction::ReopenMatch { match_id },
             ActionRequest::AddPlayers { user_ids } => CampAction::AddPlayers {
                 user_ids: user_ids.iter().map(|id| user_id(id)).collect::<Result<_, _>>()?,
@@ -586,6 +629,10 @@ impl TryFrom<ActionRequest> for CampAction {
             ActionRequest::SetSRank { user_id: id, s_rank } => CampAction::SetSRank {
                 user_id: user_id(&id)?,
                 s_rank,
+            },
+            ActionRequest::AdjustPoints { user_id: id, delta } => CampAction::AdjustPoints {
+                user_id: user_id(&id)?,
+                delta,
             },
             ActionRequest::StartQueue => CampAction::StartQueue,
             ActionRequest::ReorderQueue { user_ids } => CampAction::ReorderQueue {
@@ -648,6 +695,7 @@ pub struct SettingsDto {
     match2_archmother_voice_id: Option<String>,
     create_lobby: bool,
     server_region: Option<String>,
+    use_draft_tool: bool,
     draft_timer_seconds: u32,
     /// False until an admin saves this server's settings: until then it runs on the `.env` values.
     saved: bool,
@@ -665,7 +713,14 @@ pub struct SettingsRequest {
     match2_archmother_voice_id: Option<String>,
     create_lobby: bool,
     server_region: Option<String>,
+    /// Missing in pages from before the switch existed: the tool stays on.
+    #[serde(default = "yes")]
+    use_draft_tool: bool,
     draft_timer_seconds: u32,
+}
+
+fn yes() -> bool {
+    true
 }
 
 const MAX_REGION_LEN: usize = 40;
@@ -680,6 +735,7 @@ fn settings_dto(settings: GuildSettings, saved: bool, voice: Vec<Channel>) -> Se
         match2_archmother_voice_id: id(settings.match2_archmother_voice_id),
         create_lobby: settings.create_lobby,
         server_region: settings.server_region,
+        use_draft_tool: settings.use_draft_tool,
         draft_timer_seconds: settings.draft_timer_seconds,
         saved,
         voice_channels: voice
@@ -724,6 +780,7 @@ fn parse_settings(request: SettingsRequest, voice: &[Channel]) -> Result<GuildSe
         match2_archmother_voice_id: channel(request.match2_archmother_voice_id)?,
         create_lobby: request.create_lobby,
         server_region,
+        use_draft_tool: request.use_draft_tool,
         draft_timer_seconds: request.draft_timer_seconds,
     })
 }

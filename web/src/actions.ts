@@ -1,7 +1,7 @@
 import { createContext, useContext } from 'react';
 
-import type { Camp, CampAction, Match, Side } from './api';
-import { SIDE_LABEL, matchName } from './camp';
+import type { Camp, CampAction, Match } from './api';
+import { matchName } from './camp';
 
 /** A question asked before an action, shown in the page's confirm dialog. */
 export interface Confirm {
@@ -40,17 +40,6 @@ export function useActions(): Actions {
   return useContext(ActionsContext);
 }
 
-/** Before reporting a match's winner. */
-export function confirmWinner(match: Match, side: Side): Confirm {
-  return {
-    title: `${SIDE_LABEL[side]} venceu a ${matchName(match)}?`,
-    message: 'Os vencedores ganham 1 ponto e todos voltam para a fila e para o canal Queue.',
-    note: 'Se errar, dá para trocar o vencedor enquanto esses jogadores estiverem na fila.',
-    action: `${SIDE_LABEL[side]} venceu`,
-    tone: side,
-  };
-}
-
 /** Before an admin ends a refresh vote early. */
 export function confirmCloseVote(match: Match): Confirm {
   const missing = match.players.length - match.votes.length;
@@ -59,6 +48,16 @@ export function confirmCloseVote(match: Match): Confirm {
     message: `Os times ficam como estão e o draft libera. ${missing === 1 ? 'Falta 1 voto.' : `Faltam ${missing} votos.`}`,
     note: 'Os botões de voto somem da mensagem da partida no Discord.',
     action: 'Encerrar e manter times',
+  };
+}
+
+/** Before an admin ends a refresh vote early by re-sorting the teams. */
+export function confirmRefreshTeams(match: Match): Confirm {
+  return {
+    title: `Sortear os times da ${matchName(match)} de novo?`,
+    message: 'A votação acaba e os mesmos jogadores são sorteados em times novos, com os S rank separados e capitães escolhidos de novo. O draft libera em seguida.',
+    note: 'Os votos dados até agora são descartados, e a partida não tem outro refresh.',
+    action: 'Sortear de novo',
   };
 }
 

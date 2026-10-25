@@ -1,10 +1,13 @@
 //! What players see in Discord: the camp's queue message and one message per match. Admin
 //! actions live on the web admin page, so the only buttons here are the players' own.
 
+use std::collections::HashMap;
+
 use serenity::all::{ButtonStyle, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedFooter, Mentionable, UserId};
 
 use crate::db::{CampState, MatchPlayerRow, OpenMatch, PlayerRow};
 use crate::queue;
+use crate::ranking::{self, Standing};
 
 pub const S_RANK_TAG: &str = "⭐";
 pub const CAPTAIN_TAG: &str = "👑";
@@ -56,27 +59,31 @@ fn status_label(status: &str) -> &str {
     }
 }
 
-pub fn trophy_lines(players: &[PlayerRow]) -> String {
-    let mut sorted = players.to_vec();
-    sorted.sort_by(|a, b| b.points.cmp(&a.points).then(a.user_id.cmp(&b.user_id)));
-    let mut unique: Vec<i64> = sorted.iter().map(|p| p.points).collect();
-    unique.dedup();
-    let gold = unique.first().copied();
-    let silver = unique.get(1).copied();
-    let bronze = unique.get(2).copied();
-    sorted
+/// The ranking by points, MVPs breaking ties; gold, silver and bronze for the top three places.
+pub fn trophy_lines(players: &[PlayerRow], mvps: &HashMap<i64, i64>) -> String {
+    let standings: Vec<Standing> = players
+        .iter()
+        .map(|p| Standing {
+            user_id: p.user_id,
+            points: p.points,
+            mvps: mvps.get(&p.user_id).copied().unwrap_or(0),
+        })
+        .collect();
+    ranking::rank(&standings)
         .into_iter()
-        .map(|p| {
-            let medal = if Some(p.points) == gold {
-                "🥇 "
-            } else if Some(p.points) == silver {
-                "🥈 "
-            } else if Some(p.points) == bronze {
-                "🥉 "
-            } else {
-                ""
+        .map(|(s, place)| {
+            let medal = match place {
+                1 => "🥇 ",
+                2 => "🥈 ",
+                3 => "🥉 ",
+                _ => "",
             };
-            format!("{medal}{} — **{}** pts", mention(p.user_id), p.points)
+            let mvp = match s.mvps {
+                0 => String::new(),
+                1 => " · 1 MVP".to_string(),
+                n => format!(" · {n} MVPs"),
+            };
+            format!("{medal}{} — **{}** pts{mvp}", mention(s.user_id), s.points)
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -250,6 +257,10 @@ pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
     let mut desc = if open.row.status == "voting" {
         if open.row.draft_url.is_some() {
             format!("Draft iniciado — cada capitão ({CAPTAIN_TAG}) recebeu por DM o link do seu time. Um admin pode iniciar a partida.")
+        } else if open.row.draft_manual {
+            format!("Draft iniciado — os capitães ({CAPTAIN_TAG}) recebem o link do draft de um admin. Depois, um admin inicia a partida.")
+        } else if open.row.refreshed_by_admin {
+            "Times sorteados de novo por um admin. Um admin pode iniciar o draft.".to_string()
         } else if open.row.vote_closed_by_admin {
             format!(
                 "Votação encerrada por um admin — times mantidos ({voted}/{total} votaram). Um admin pode iniciar o draft."
@@ -321,6 +332,15 @@ pub fn match_components(state: &CampState, open: &OpenMatch) -> Vec<CreateAction
     }
 }
 
+/// `1 ponto`, `3 pontos`.
+pub fn points_label(points: i64) -> String {
+    if points == 1 {
+        "1 ponto".to_string()
+    } else {
+        format!("{points} pontos")
+    }
+}
+
 pub fn winner_label(side: &str) -> &'static str {
     if side == "hiddenking" {
         "Hiddenking"
@@ -343,6 +363,7 @@ pub fn completed_match_embed(
     winner_side: &str,
     is_final: bool,
     party_code: Option<&str>,
+    mvp_user_id: Option<i64>,
 ) -> CreateEmbed {
     let winner = winner_label(winner_side);
     let title = if is_final {
@@ -350,16 +371,27 @@ pub fn completed_match_embed(
     } else {
         format!("{winner} venceu")
     };
+    let mut desc = completed_match_description(camp_id, match_id, party_code);
+    if let Some(mvp) = mvp_user_id {
+        desc.push_str(&format!("\n**MVP:** {}", mention(mvp)));
+    }
     CreateEmbed::new()
         .title(title)
-        .description(completed_match_description(camp_id, match_id, party_code))
+        .description(desc)
         .footer(footer(camp_id))
 }
 
-pub fn standings_embed(camp_id: &str, match_count: i64, players: &[PlayerRow]) -> CreateEmbed {
+pub fn standings_embed(
+    camp_id: &str,
+    match_count: i64,
+    players: &[PlayerRow],
+    mvps: &HashMap<i64, i64>,
+) -> CreateEmbed {
     CreateEmbed::new()
         .title(format!("Ranking do camp {camp_id}"))
-        .description(format!("Partidas jogadas: **{match_count}**"))
-        .field("Colocação", trophy_lines(players), false)
+        .description(format!(
+            "Partidas jogadas: **{match_count}**\nEmpates em pontos são desfeitos pelo número de MVPs."
+        ))
+        .field("Colocação", trophy_lines(players, mvps), false)
         .footer(footer(camp_id))
 }

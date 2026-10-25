@@ -235,7 +235,7 @@ pub async fn place_late_voice_join(
         let user_id = new.user_id.get() as i64;
         let Some(open) = state.open_matches.iter().find(|m| {
             m.players.iter().any(|p| p.user_id == user_id)
-                && (m.row.status == "live" || (m.row.status == "voting" && m.row.draft_url.is_some()))
+                && (m.row.status == "live" || (m.row.status == "voting" && m.row.draft_started()))
         }) else {
             return Ok(());
         };

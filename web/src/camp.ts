@@ -61,6 +61,16 @@ export function whereIs(camp: Camp, player: Player): string {
   return '—';
 }
 
+/** The draft step happened, on the draft tool or by hand. */
+export function draftStarted(match: Match): boolean {
+  return match.draft !== null || match.draft_manual;
+}
+
+/** `+2`, `-1`: a manual points change. */
+export function signed(n: number): string {
+  return n > 0 ? `+${n}` : `${n}`;
+}
+
 /** Where a match is: voting, waiting for or running its draft, or live. */
 export type Stage = 'voting' | 'draft' | 'live';
 
@@ -94,6 +104,7 @@ export function voteCount(camp: Camp, match: Match): VoteCount {
 export function voteSummary(camp: Camp, match: Match): string {
   const voted = match.votes.length;
   const total = match.players.length;
+  if (match.refreshed_by_admin) return 'Times sorteados de novo por um admin.';
   if (match.vote_closed_by_admin) {
     return `Votação encerrada por um admin — times mantidos (${voted}/${total} votaram).`;
   }
@@ -119,11 +130,13 @@ export function winRate(player: Player): string {
 }
 
 /**
- * Players by points; `place` counts distinct totals, like the bot's gold/silver/bronze.
- * Within a total, fewer matches played (the better win rate) comes first.
+ * Players by points, MVPs breaking ties, like the bot's final ranking: `place` counts distinct
+ * (points, MVPs) pairs. Players equal on both share the place; fewer matches played lists first.
  */
 export function ranking(players: Player[]): { player: Player; place: number }[] {
-  const sorted = [...players].sort((a, b) => b.points - a.points || a.matches_played - b.matches_played);
-  const totals = [...new Set(sorted.map((p) => p.points))];
-  return sorted.map((player) => ({ player, place: totals.indexOf(player.points) + 1 }));
+  const sorted = [...players].sort(
+    (a, b) => b.points - a.points || b.mvps - a.mvps || a.matches_played - b.matches_played,
+  );
+  const keys = [...new Set(sorted.map((p) => `${p.points}:${p.mvps}`))];
+  return sorted.map((player) => ({ player, place: keys.indexOf(`${player.points}:${player.mvps}`) + 1 }));
 }
