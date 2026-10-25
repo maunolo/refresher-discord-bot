@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { ActionsContext, type Actions } from './actions';
+import { ActionsContext, type Actions, type Confirm } from './actions';
 import { Unauthorized, api, type Camp, type CampSummary, type Me } from './api';
 import { isActive } from './camp';
 import { CampsView } from './components/CampsView';
+import { ConfirmDialog } from './components/ConfirmDialog';
 import { FullPage } from './components/common';
 import { Header } from './components/Header';
 import { LiveView } from './components/LiveView';
+import { MatchesView } from './components/MatchesView';
 import { NavRail } from './components/NavRail';
 import { PlayersView } from './components/PlayersView';
+import { QueueView } from './components/QueueView';
+import { RankingView } from './components/RankingView';
+import { SettingsView } from './components/SettingsView';
 import { routeHref, useRoute } from './route';
 import { remember, remembered, usePolling } from './usePolling';
 
@@ -43,7 +48,8 @@ function NoCamp() {
 }
 
 function Admin({ me }: { me: Me }) {
-  const [route, go] = useRoute();
+  const [place, go] = useRoute();
+  const route = place.route;
   const [guildId, setGuildId] = useState(() => pick(me.guilds, remembered('guild'), (g) => g[0])?.id ?? null);
   const camps = usePolling<CampSummary[]>(guildId, api.camps, 30_000);
   const [campId, setCampId] = useState<string | null>(null);
@@ -59,6 +65,15 @@ function Admin({ me }: { me: Me }) {
   const camp = usePolling<Camp>(campId, api.camp, 4_000);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  /** The question on screen, and the action to run if the admin confirms. */
+  const [asking, setAsking] = useState<{ confirm: Confirm; go: () => void } | null>(null);
+
+  useEffect(() => {
+    if (!done) return;
+    const timer = window.setTimeout(() => setDone(null), 5_000);
+    return () => window.clearTimeout(timer);
+  }, [done]);
   const replaceCamp = camp.replace;
   const refreshCamps = camps.refresh;
 
@@ -68,18 +83,23 @@ function Admin({ me }: { me: Me }) {
       run: (action, options = {}) => {
         const target = options.campId ?? campId;
         if (!target || busy) return;
-        if (options.confirm && !window.confirm(options.confirm)) return;
-        setBusy(true);
-        setNotice(null);
-        api
-          .act(target, action)
-          .then((updated) => {
-            if (updated.id === campId) replaceCamp(updated);
-            refreshCamps();
-            options.then?.(updated);
-          })
-          .catch((error: Error) => setNotice(error.message))
-          .finally(() => setBusy(false));
+        const go = () => {
+          setBusy(true);
+          setNotice(null);
+          setDone(null);
+          api
+            .act(target, action)
+            .then((updated) => {
+              if (updated.id === campId) replaceCamp(updated);
+              refreshCamps();
+              if (options.success) setDone(options.success);
+              options.then?.(updated);
+            })
+            .catch((error: Error) => setNotice(error.message))
+            .finally(() => setBusy(false));
+        };
+        if (options.confirm) setAsking({ confirm: options.confirm, go });
+        else go();
       },
     }),
     [busy, campId, replaceCamp, refreshCamps],
@@ -121,10 +141,19 @@ function Admin({ me }: { me: Me }) {
         }}
       />
     );
+  } else if (route === 'settings') {
+    content = <SettingsView guildId={guildId} guildName={me.guilds.find((g) => g.id === guildId)?.name ?? ''} />;
   } else if (camps.data && camps.data.length === 0) {
     content = <NoCamp />;
   } else if (camp.data) {
-    content = route === 'players' ? <PlayersView camp={camp.data} /> : <LiveView camp={camp.data} />;
+    const views = {
+      live: <LiveView camp={camp.data} />,
+      queue: <QueueView camp={camp.data} />,
+      players: <PlayersView camp={camp.data} />,
+      matches: <MatchesView camp={camp.data} matchId={place.matchId} />,
+      ranking: <RankingView camp={camp.data} />,
+    };
+    content = views[route];
   } else {
     content = <p className="muted">{camp.error?.message ?? camps.error?.message ?? 'Carregando…'}</p>;
   }
@@ -148,6 +177,7 @@ function Admin({ me }: { me: Me }) {
         )}
         <div className="status-area" role="status">
           {busy && <p className="working">Enviando ao bot… o Discord é atualizado junto.</p>}
+          {!busy && done && <p className="working">{done}</p>}
         </div>
         {notice && (
           <div className="notice" role="alert">
@@ -161,6 +191,13 @@ function Admin({ me }: { me: Me }) {
           <NavRail route={route} />
           <main className="main">{content}</main>
         </div>
+        <ConfirmDialog
+          ask={asking?.confirm ?? null}
+          onAnswer={(ok) => {
+            setAsking(null);
+            if (ok) asking?.go();
+          }}
+        />
       </div>
     </ActionsContext.Provider>
   );

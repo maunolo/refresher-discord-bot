@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 
-import { CheckIcon, CopyIcon, CrownIcon } from './Icons';
+import { CheckIcon, CopyIcon, CrownIcon, ExternalIcon } from './Icons';
 
 export function SRankChip() {
   return (
@@ -33,6 +33,16 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
     <button type="button" className="icon-button" aria-label={label} title={copied ? 'Copiado' : label} onClick={copy}>
       {copied ? <CheckIcon size={15} /> : <CopyIcon size={15} />}
     </button>
+  );
+}
+
+/** Opens a camp or match message in Discord (the app if installed, else the browser). */
+export function DiscordLink({ url, label = 'Abrir no Discord' }: { url: string; label?: string }) {
+  return (
+    <a className="discord-link" href={url} target="_blank" rel="noreferrer">
+      {label}
+      <ExternalIcon size={14} />
+    </a>
   );
 }
 

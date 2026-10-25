@@ -1047,3 +1047,266 @@ input {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Fila, Partidas, Ranking */
+.discord-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+.title-link {
+  color: inherit;
+  text-decoration: none;
+}
+.title-link:hover {
+  color: var(--mint);
+}
+.title-row-wrap {
+  flex-wrap: wrap;
+}
+.breadcrumb {
+  color: var(--muted);
+}
+.stepper-wide {
+  max-width: 720px;
+}
+.small-title {
+  font-size: 16px;
+}
+.text-2 {
+  color: var(--text-2);
+}
+.strong {
+  font-weight: 700;
+}
+.card-dashed {
+  background: var(--inset);
+  border-style: dashed;
+  border-color: #2f4c48;
+}
+.notice-inline {
+  color: var(--live);
+  font-size: 13px;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.stat-value {
+  font-size: 28px;
+  font-weight: 700;
+}
+.stat-hiddenking {
+  color: var(--hk);
+}
+.stat-archmother {
+  color: var(--am);
+}
+.stat-of {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--muted);
+}
+.meter {
+  height: 6px;
+  border-radius: 3px;
+  background: #22403c;
+  overflow: hidden;
+}
+.meter-fill {
+  height: 100%;
+}
+.meter-hiddenking {
+  background: var(--hk);
+}
+.meter-archmother {
+  background: var(--am-fill);
+}
+.meter-jade {
+  background: var(--jade);
+}
+.vote {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.vote-refresh {
+  background: var(--draft-bg);
+  color: var(--draft);
+}
+.vote-keep {
+  background: var(--border);
+  color: var(--text);
+}
+.vote-waiting {
+  border: 1px dashed #3a5e59;
+  color: var(--muted);
+  font-weight: 400;
+}
+.won {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--running-bg);
+  color: var(--mint);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.reorder-row {
+  cursor: grab;
+}
+.reorder-dragging {
+  opacity: 0.4;
+}
+.reorder-drop-before {
+  box-shadow: inset 0 2px 0 var(--jade);
+}
+.reorder-drop-after {
+  box-shadow: inset 0 -2px 0 var(--jade);
+}
+.grip {
+  display: inline-flex;
+  color: var(--faint);
+}
+.reorder-buttons {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 8px;
+}
+.reorder-buttons .icon-button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* Configurações */
+.settings-group {
+  margin: 0;
+}
+.settings-legend {
+  float: left;
+  width: 100%;
+  padding: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.settings-legend + * {
+  clear: both;
+}
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 20px;
+}
+/* The queue channel on its own row; each match's two teams side by side below it. */
+.settings-grid > :first-child {
+  grid-column: 1 / -1;
+  max-width: calc(50% - 10px);
+}
+@media (max-width: 720px) {
+  .settings-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .settings-grid > :first-child {
+    max-width: none;
+  }
+}
+.settings-switch {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.inline-actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+.input:disabled {
+  color: var(--faint);
+  cursor: not-allowed;
+}
+.table th.align-end,
+.table td.align-end {
+  text-align: right;
+}
+.points {
+  white-space: nowrap;
+}
+@media (max-width: 720px) {
+  /* Touch screens can't drag rows; the arrow buttons do the work. */
+  .reorder .grip,
+  .reorder .queue-seg {
+    display: none;
+  }
+  .reorder .points {
+    margin-left: auto;
+  }
+  .reorder-buttons {
+    margin-left: 2px;
+    gap: 2px;
+  }
+}
+
+/* Confirm dialog */
+.modal {
+  width: min(440px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: 1px solid var(--control);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+}
+.modal::backdrop {
+  background: rgba(4, 12, 11, 0.72);
+}
+.modal[open] {
+  animation: modal-in 140ms ease-out;
+}
+/* Movement only: if the animation never runs, the dialog is still fully visible. */
+@keyframes modal-in {
+  from {
+    transform: translateY(8px) scale(0.98);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal[open] {
+    animation: none;
+  }
+}
+.modal-box {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px;
+}
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.modal-actions .button {
+  min-height: 44px;
+}
+.button-danger-solid {
+  border: 0;
+  background: var(--live);
+  color: #2b0f0c;
+  font-weight: 700;
+}
+.button-danger-solid:hover {
+  background: #ffb8ae;
+}

@@ -44,12 +44,50 @@ export function playerById(camp: Camp, userId: string): Player | undefined {
   return camp.players.find((p) => p.user_id === userId);
 }
 
+export function matchName(match: Match): string {
+  return match.is_final ? 'Partida final' : `Partida ${match.slot}`;
+}
+
+/** Where a player is right now: their place in the queue or their match and team. */
+export function whereIs(camp: Camp, player: Player): string {
+  if (player.location === 'queued') {
+    const position = queuedPlayers(camp).findIndex((p) => p.user_id === player.user_id) + 1;
+    return `Fila · ${position}º`;
+  }
+  for (const match of camp.open_matches) {
+    const seat = match.players.find((p) => p.user_id === player.user_id);
+    if (seat) return `${match.is_final ? 'Final' : `Partida ${match.slot}`} · ${SIDE_LABEL[seat.side]}`;
+  }
+  return '—';
+}
+
 /** Where a match is: voting, waiting for or running its draft, or live. */
 export type Stage = 'voting' | 'draft' | 'live';
 
 export function stage(match: Match): Stage {
   if (match.status === 'live') return 'live';
   return match.refresh_used ? 'draft' : 'voting';
+}
+
+export interface VoteCount {
+  /** Refresh votes per team; one team reaching `needed` re-sorts the match. */
+  refresh: Record<Side, number>;
+  keep: number;
+  voted: number;
+  total: number;
+  needed: number;
+}
+
+export function voteCount(camp: Camp, match: Match): VoteCount {
+  const sideOf = new Map(match.players.map((p) => [p.user_id, p.side]));
+  const refresh = (side: Side) => match.votes.filter((v) => v.refresh && sideOf.get(v.user_id) === side).length;
+  return {
+    refresh: { hiddenking: refresh('hiddenking'), archmother: refresh('archmother') },
+    keep: match.votes.filter((v) => !v.refresh).length,
+    voted: match.votes.length,
+    total: match.players.length,
+    needed: camp.refresh_votes,
+  };
 }
 
 /** The same summary line the bot puts on the match message in Discord. */
@@ -64,12 +102,9 @@ export function voteSummary(camp: Camp, match: Match): string {
       ? `Votação encerrada — times mantidos (${voted}/${total} votos).`
       : 'Times sorteados de novo pelo refresh.';
   }
-  const sideOf = new Map(match.players.map((p) => [p.user_id, p.side]));
-  const refresh = (side: Side) =>
-    match.votes.filter((v) => v.refresh && sideOf.get(v.user_id) === side).length;
-  const keep = match.votes.filter((v) => !v.refresh).length;
-  const needed = camp.refresh_votes;
-  return `Refresh: Hiddenking ${refresh('hiddenking')}/${needed} · Archmother ${refresh('archmother')}/${needed} · Manter ${keep} · Votos ${voted}/${total}`;
+  const count = voteCount(camp, match);
+  const needed = count.needed;
+  return `Refresh: Hiddenking ${count.refresh.hiddenking}/${needed} · Archmother ${count.refresh.archmother}/${needed} · Manter ${count.keep} · Votos ${voted}/${total}`;
 }
 
 export function queuedPlayers(camp: Camp): Player[] {
@@ -78,9 +113,17 @@ export function queuedPlayers(camp: Camp): Player[] {
     .sort((a, b) => (a.queue_position ?? Infinity) - (b.queue_position ?? Infinity));
 }
 
-/** Players by points; `place` counts distinct totals, like the bot's gold/silver/bronze. */
+/** Share of finished matches won, or "—" before the first. */
+export function winRate(player: Player): string {
+  return player.matches_played > 0 ? `${Math.round((player.wins * 100) / player.matches_played)}%` : '—';
+}
+
+/**
+ * Players by points; `place` counts distinct totals, like the bot's gold/silver/bronze.
+ * Within a total, fewer matches played (the better win rate) comes first.
+ */
 export function ranking(players: Player[]): { player: Player; place: number }[] {
-  const sorted = [...players].sort((a, b) => b.points - a.points);
+  const sorted = [...players].sort((a, b) => b.points - a.points || a.matches_played - b.matches_played);
   const totals = [...new Set(sorted.map((p) => p.points))];
   return sorted.map((player) => ({ player, place: totals.indexOf(player.points) + 1 }));
 }

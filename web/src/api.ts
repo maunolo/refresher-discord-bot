@@ -22,6 +22,8 @@ export interface CampSummary {
   match_size: number;
   match_count: number;
   created_at: number;
+  /** The camp's message in Discord, else its channel. */
+  discord_url: string;
 }
 
 export interface Camp {
@@ -43,6 +45,8 @@ export interface Camp {
   members: Record<string, Member>;
   /** During signup: who is in the Queue voice channel now. */
   queue_voice: string[];
+  /** The camp's message in Discord, else its channel. */
+  discord_url: string;
 }
 
 export interface Channel {
@@ -65,6 +69,9 @@ export interface Player {
   queue_position: number | null;
   consecutive_matches: number;
   s_rank: boolean;
+  /** Finished matches only. */
+  matches_played: number;
+  wins: number;
 }
 
 export interface Match {
@@ -81,6 +88,11 @@ export interface Match {
   draft: Draft | null;
   players: MatchPlayer[];
   votes: Vote[];
+  /** Finished matches, in the match list: position in the order they ended. */
+  number: number | null;
+  completed_at: number | null;
+  /** The match's message in Discord, else the camp's channel. */
+  discord_url: string;
 }
 
 export interface Draft {
@@ -131,9 +143,30 @@ export type CampAction =
   | { type: 'remove_player'; user_id: string }
   | { type: 'set_s_rank'; user_id: string; s_rank: boolean }
   | { type: 'start_queue' }
+  | { type: 'reorder_queue'; user_ids: string[] }
+  | { type: 'remind_voters'; match_id: string }
   | { type: 'cancel_camp' }
   | { type: 'resume_camp' }
   | { type: 'end_camp' };
+
+/** A server's settings. A voice channel left null is found by its name. */
+export interface SettingsForm {
+  queue_voice_id: string | null;
+  match1_hiddenking_voice_id: string | null;
+  match1_archmother_voice_id: string | null;
+  match2_hiddenking_voice_id: string | null;
+  match2_archmother_voice_id: string | null;
+  create_lobby: boolean;
+  server_region: string | null;
+  draft_timer_seconds: number;
+}
+
+export interface Settings extends SettingsForm {
+  /** False until an admin saves: the server runs on the bot's .env values. */
+  saved: boolean;
+  voice_channels: Channel[];
+  draft_timers: number[];
+}
 
 /** The session is missing or expired: show the login screen. */
 export class Unauthorized extends Error {}
@@ -152,6 +185,11 @@ export const api = {
   me: () => request<Me>('/api/me'),
   camps: (guildId: string) => request<CampSummary[]>(`/api/guilds/${guildId}/camps`),
   camp: (campId: string) => request<Camp>(`/api/camps/${campId}`),
+  /** Open matches first, then finished ones newest first. */
+  matches: (campId: string) => request<Match[]>(`/api/camps/${campId}/matches`),
+  settings: (guildId: string) => request<Settings>(`/api/guilds/${guildId}/settings`),
+  saveSettings: (guildId: string, form: SettingsForm) =>
+    send<Settings>('PUT', `/api/guilds/${guildId}/settings`, form),
   channels: (guildId: string) => request<Channel[]>(`/api/guilds/${guildId}/channels`),
   searchMembers: (guildId: string, query: string) =>
     request<MemberResult[]>(`/api/guilds/${guildId}/members?query=${encodeURIComponent(query)}`),
@@ -162,8 +200,12 @@ export const api = {
 };
 
 function post<T>(path: string, body: unknown): Promise<T> {
+  return send<T>('POST', path, body);
+}
+
+function send<T>(method: string, path: string, body: unknown): Promise<T> {
   return request<T>(path, {
-    method: 'POST',
+    method,
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });

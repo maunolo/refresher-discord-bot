@@ -6,9 +6,9 @@ use crate::queue::CampSize;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-/// A text channel a camp can post in.
+/// A channel of a server, by ID and name.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TextChannel {
+pub struct Channel {
     pub id: u64,
     pub name: String,
 }
@@ -41,6 +41,10 @@ pub enum CampAction {
     /// Signup or running; matches created afterwards use it.
     SetSRank { user_id: u64, s_rank: bool },
     StartQueue,
+    /// The queue in a new order: exactly the players queued now. Holds until the next result.
+    ReorderQueue { user_ids: Vec<u64> },
+    /// Mentions, in the camp's channel, the players of a match who haven't voted yet.
+    RemindVoters { match_id: String },
     /// Soft: the camp keeps its data and can be resumed.
     CancelCamp,
     ResumeCamp,
@@ -70,7 +74,10 @@ pub trait BotLink: Send + Sync {
     ) -> BoxFuture<'a, anyhow::Result<()>>;
 
     /// Text channels of a server, in Discord's order.
-    fn text_channels(&self, guild_id: u64) -> Vec<TextChannel>;
+    fn text_channels(&self, guild_id: u64) -> Vec<Channel>;
+
+    /// Voice channels of a server, in Discord's order.
+    fn voice_channels(&self, guild_id: u64) -> Vec<Channel>;
 
     /// Members whose name or nickname starts with `query`, at most `limit`.
     fn search_members<'a>(
@@ -81,7 +88,7 @@ pub trait BotLink: Send + Sync {
     ) -> BoxFuture<'a, anyhow::Result<Vec<(u64, Profile)>>>;
 
     /// Users in the server's Queue voice channel right now.
-    fn queue_voice_members(&self, guild_id: u64) -> Vec<u64>;
+    fn queue_voice_members(&self, guild_id: u64) -> BoxFuture<'_, Vec<u64>>;
 
     /// Opens signup for a new camp in a text channel of this server and posts its message there.
     /// Returns the camp ID. A server has one active camp at a time.

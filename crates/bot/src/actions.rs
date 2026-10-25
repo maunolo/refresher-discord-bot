@@ -31,7 +31,7 @@ pub async fn run(
             start_draft(discord, data, guild_id, camp_id, &normalize(match_id)).await
         }
         CampAction::StartMatch { match_id } => {
-            start_match(discord, data, camp_id, &normalize(match_id)).await
+            start_match(discord, data, guild_id, camp_id, &normalize(match_id)).await
         }
         CampAction::ReportWinner { match_id, side } => {
             report_winner(discord, data, guild_id, camp_id, &normalize(match_id), side).await
@@ -56,6 +56,14 @@ pub async fn run(
             redraw_board(discord, data, camp_id).await
         }
         CampAction::StartQueue => start_queue(discord, data, guild_id, camp_id).await,
+        CampAction::ReorderQueue { user_ids } => {
+            let ids: Vec<i64> = user_ids.iter().map(|id| *id as i64).collect();
+            db::reorder_queue(&data.db, camp_id, &ids).await?;
+            redraw_board(discord, data, camp_id).await
+        }
+        CampAction::RemindVoters { match_id } => {
+            remind_voters(discord, data, camp_id, &normalize(match_id)).await
+        }
         CampAction::CancelCamp => cancel_camp(discord, data, camp_id).await,
         CampAction::ResumeCamp => resume_camp(discord, data, guild_id, camp_id).await,
         CampAction::EndCamp => end_camp(discord, data, camp_id).await,
@@ -104,7 +112,8 @@ async fn start_queue(discord: &Discord, data: &Data, guild_id: GuildId, camp_id:
     let channel = channel(&state);
     let queued_ids: Vec<i64> = state.players.iter().map(|p| p.user_id).collect();
     sync::redraw_all(discord, &data.db, &state).await?;
-    sync::apply_moves(discord, guild_id, &data.config, channel, &sync::queue_voice_moves(&queued_ids)).await;
+    let settings = data.settings(guild_id.get()).await?;
+    sync::apply_moves(discord, guild_id, &settings, channel, &sync::queue_voice_moves(&queued_ids)).await;
     let _ = channel
         .say(
             &discord.http,
@@ -232,6 +241,41 @@ async fn close_vote(discord: &Discord, data: &Data, camp_id: &str, match_id: &st
     Ok(())
 }
 
+/// Mentions the match's players who haven't voted, in the camp's channel.
+async fn remind_voters(discord: &Discord, data: &Data, camp_id: &str, match_id: &str) -> Result<()> {
+    let state = load(data, camp_id).await?;
+    let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) else {
+        bail!("Partida não encontrada.");
+    };
+    if open.row.status != "voting" || open.row.refresh_used {
+        bail!("A votação desta partida já terminou.");
+    }
+    let missing: Vec<i64> = open
+        .players
+        .iter()
+        .filter(|p| !open.votes.iter().any(|v| v.user_id == p.user_id))
+        .map(|p| p.user_id)
+        .collect();
+    if missing.is_empty() {
+        bail!("Todos já votaram.");
+    }
+    let name = if open.row.is_final {
+        "partida final".to_string()
+    } else {
+        format!("partida {}", open.row.slot)
+    };
+    channel(&state)
+        .say(
+            &discord.http,
+            format!(
+                "{} falta o seu voto na {name}: **Refresh** ou **Manter**, nos botões da mensagem da partida.",
+                sync::mention_list(&missing)
+            ),
+        )
+        .await?;
+    Ok(())
+}
+
 async fn start_draft(
     discord: &Discord,
     data: &Data,
@@ -250,10 +294,12 @@ async fn start_draft(
         bail!("O draft desta partida já foi iniciado.");
     }
 
+    let settings = data.settings(guild_id.get()).await?;
     let draft = crate::draft::create_draft(
         &data.http,
         &data.config.draft_base_url,
         before.camp.layout().match_size,
+        settings.draft_timer_seconds,
     )
     .await?;
     db::set_draft(&data.db, match_id, &draft).await?;
@@ -262,7 +308,7 @@ async fn start_draft(
     let channel = channel(&state);
     sync::redraw_all(discord, &data.db, &state).await?;
     if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
-        sync::apply_moves(discord, guild_id, &data.config, channel, &sync::match_voice_moves(open)).await;
+        sync::apply_moves(discord, guild_id, &settings, channel, &sync::match_voice_moves(open)).await;
         let _ = channel
             .say(
                 &discord.http,
@@ -280,7 +326,13 @@ async fn start_draft(
     Ok(())
 }
 
-async fn start_match(discord: &Discord, data: &Data, camp_id: &str, match_id: &str) -> Result<()> {
+async fn start_match(
+    discord: &Discord,
+    data: &Data,
+    guild_id: GuildId,
+    camp_id: &str,
+    match_id: &str,
+) -> Result<()> {
     let before = load(data, camp_id).await?;
     let Some(open) = before.open_matches.iter().find(|m| m.row.id == match_id) else {
         bail!("Partida não encontrada.");
@@ -289,11 +341,12 @@ async fn start_match(discord: &Discord, data: &Data, camp_id: &str, match_id: &s
         bail!("Inicie o draft antes de começar a partida.");
     }
 
-    let (party_id, party_code) = if data.config.enable_custom_match_create {
+    let settings = data.settings(guild_id.get()).await?;
+    let (party_id, party_code) = if settings.create_lobby {
         let (id, code) = deadlock::create_custom_match(
             &data.http,
             data.config.deadlock_api_key.as_deref(),
-            data.config.deadlock_server_region.as_deref(),
+            settings.server_region.as_deref(),
         )
         .await
         .map_err(|err| anyhow!("Falha ao criar o lobby do Deadlock: {err}"))?;
@@ -356,7 +409,8 @@ async fn report_winner(
                 .await;
         }
     }
-    sync::apply_moves(discord, guild_id, &data.config, channel, &sync::queue_voice_moves(&finished_ids)).await;
+    let settings = data.settings(guild_id.get()).await?;
+    sync::apply_moves(discord, guild_id, &settings, channel, &sync::queue_voice_moves(&finished_ids)).await;
     let state = load(data, camp_id).await?;
     sync::redraw_all(discord, &data.db, &state).await?;
     let winner = ui::winner_label(side);
@@ -425,7 +479,8 @@ async fn reopen_match(
     let channel = channel(&state);
     sync::redraw_all(discord, &data.db, &state).await?;
     if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
-        sync::apply_moves(discord, guild_id, &data.config, channel, &sync::match_voice_moves(open)).await;
+        let settings = data.settings(guild_id.get()).await?;
+        sync::apply_moves(discord, guild_id, &settings, channel, &sync::match_voice_moves(open)).await;
     }
     let _ = channel
         .say(&discord.http, "Partida reaberta. Jogadores voltam aos canais de time.")

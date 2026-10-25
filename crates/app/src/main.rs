@@ -1,5 +1,5 @@
 use anyhow::Result;
-use refresher_core::{config::Config, db};
+use refresher_core::{config::Config, db, settings::GuildSettings};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -15,6 +15,7 @@ async fn main() -> Result<()> {
     let db = db::connect(&config.database_url).await?;
     let bot = refresher_bot::Bot::new(config.clone(), db.clone()).await?;
     let link = bot.link();
-    tokio::try_join!(bot.run(), refresher_web::run(config.web, db, link))?;
+    let defaults = GuildSettings::from_config(&config);
+    tokio::try_join!(bot.run(), refresher_web::run(config.web, defaults, db, link))?;
     Ok(())
 }

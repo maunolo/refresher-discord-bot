@@ -37,13 +37,19 @@ fn draft_order(match_size: usize) -> &'static str {
 }
 
 /// Creates a draft on draft.deadlock.pro.br (or a self-hosted copy). Team A is Hiddenking.
-pub async fn create_draft(http: &Client, base_url: &str, match_size: usize) -> Result<CreatedDraft> {
+/// `timer_seconds` is per pick or ban, one of `settings::DRAFT_TIMERS`.
+pub async fn create_draft(
+    http: &Client,
+    base_url: &str,
+    match_size: usize,
+    timer_seconds: u32,
+) -> Result<CreatedDraft> {
     let base = base_url.trim_end_matches('/');
     let body = serde_json::json!({
         "name_a": "Hiddenking",
         "name_b": "Archmother",
         "sort": draft_order(match_size),
-        "timer_seconds": 30
+        "timer_seconds": timer_seconds
     });
     let response = http
         .post(format!("{base}/api/draft"))

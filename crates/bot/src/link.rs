@@ -3,13 +3,14 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use poise::serenity_prelude as serenity;
-use refresher_core::link::{BotLink, BoxFuture, CampAction, Profile, TextChannel};
+use refresher_core::link::{BotLink, BoxFuture, CampAction, Channel, Profile};
 use refresher_core::queue::CampSize;
 use serenity::all::{ChannelType, GuildId, Member, UserId};
 
 use crate::actions;
 use crate::discord::Discord;
 use crate::state::{with_guild_lock, Data};
+use crate::voice::{self, VoiceDest};
 
 /// Names change rarely; this spares Discord thirty member lookups on every page refresh.
 const PROFILE_TTL: Duration = Duration::from_secs(10 * 60);
@@ -51,6 +52,24 @@ impl SerenityLink {
             }),
         }
     }
+}
+
+/// A server's channels of one kind, in Discord's order.
+fn channels_of(discord: &Discord, guild_id: u64, kind: ChannelType) -> Vec<Channel> {
+    let Some(guild) = discord.cache.guild(GuildId::new(guild_id)) else {
+        return Vec::new();
+    };
+    let mut channels: Vec<_> = guild
+        .channels
+        .values()
+        .filter(|c| c.kind == kind)
+        .map(|c| (c.position, c.id.get(), c.name.clone()))
+        .collect();
+    channels.sort();
+    channels
+        .into_iter()
+        .map(|(_, id, name)| Channel { id, name })
+        .collect()
 }
 
 fn member_profile(member: &Member) -> Profile {
@@ -98,21 +117,12 @@ impl BotLink for SerenityLink {
         })
     }
 
-    fn text_channels(&self, guild_id: u64) -> Vec<TextChannel> {
-        let Some(guild) = self.discord.cache.guild(GuildId::new(guild_id)) else {
-            return Vec::new();
-        };
-        let mut channels: Vec<_> = guild
-            .channels
-            .values()
-            .filter(|c| c.kind == ChannelType::Text)
-            .map(|c| (c.position, c.id.get(), c.name.clone()))
-            .collect();
-        channels.sort();
-        channels
-            .into_iter()
-            .map(|(_, id, name)| TextChannel { id, name })
-            .collect()
+    fn text_channels(&self, guild_id: u64) -> Vec<Channel> {
+        channels_of(&self.discord, guild_id, ChannelType::Text)
+    }
+
+    fn voice_channels(&self, guild_id: u64) -> Vec<Channel> {
+        channels_of(&self.discord, guild_id, ChannelType::Voice)
     }
 
     fn search_members<'a>(
@@ -137,27 +147,30 @@ impl BotLink for SerenityLink {
         })
     }
 
-    fn queue_voice_members(&self, guild_id: u64) -> Vec<u64> {
-        let Some(guild) = self.discord.cache.guild(GuildId::new(guild_id)) else {
-            return Vec::new();
-        };
-        // The same channel the bot moves waiting players to: the configured one, else "Queue".
-        let queue = self.data.config.queue_voice_channel_id.or_else(|| {
+    fn queue_voice_members(&self, guild_id: u64) -> BoxFuture<'_, Vec<u64>> {
+        Box::pin(async move {
+            let settings = match self.data.settings(guild_id).await {
+                Ok(settings) => settings,
+                Err(err) => {
+                    tracing::warn!(guild_id, error = %err, "failed to load server settings");
+                    return Vec::new();
+                }
+            };
+            // The same channel the bot moves waiting players to.
+            let id = GuildId::new(guild_id);
+            let Some(queue) = voice::find_channel(&self.discord, id, VoiceDest::Queue, &settings) else {
+                return Vec::new();
+            };
+            let Some(guild) = self.discord.cache.guild(id) else {
+                return Vec::new();
+            };
             guild
-                .channels
+                .voice_states
                 .values()
-                .find(|c| c.kind == ChannelType::Voice && c.name.eq_ignore_ascii_case("Queue"))
-                .map(|c| c.id.get())
-        });
-        let Some(queue) = queue else {
-            return Vec::new();
-        };
-        guild
-            .voice_states
-            .values()
-            .filter(|v| v.channel_id.map(|c| c.get()) == Some(queue))
-            .map(|v| v.user_id.get())
-            .collect()
+                .filter(|v| v.channel_id == Some(queue))
+                .map(|v| v.user_id.get())
+                .collect()
+        })
     }
 
     fn create_camp<'a>(

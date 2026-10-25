@@ -3,8 +3,8 @@ use serenity::all::{
     ChannelId, ChannelType, CreateChannel, GuildId, Mentionable, UserId,
 };
 
-use crate::config::Config;
 use crate::discord::Discord;
+use crate::settings::GuildSettings;
 
 #[derive(Clone, Copy)]
 pub enum VoiceDest {
@@ -36,46 +36,63 @@ impl VoiceDest {
         }
     }
 
-    fn configured_id(self, config: &Config) -> Option<ChannelId> {
+    fn configured_id(self, settings: &GuildSettings) -> Option<ChannelId> {
         let id = match self {
-            VoiceDest::Queue => config.queue_voice_channel_id,
+            VoiceDest::Queue => settings.queue_voice_id,
             VoiceDest::Match {
                 slot: 1,
                 hiddenking: true,
-            } => config.match1_hiddenking_voice_id,
+            } => settings.match1_hiddenking_voice_id,
             VoiceDest::Match {
                 slot: 1,
                 hiddenking: false,
-            } => config.match1_archmother_voice_id,
+            } => settings.match1_archmother_voice_id,
             VoiceDest::Match {
                 slot: 2,
                 hiddenking: true,
-            } => config.match2_hiddenking_voice_id,
+            } => settings.match2_hiddenking_voice_id,
             VoiceDest::Match {
                 slot: 2,
                 hiddenking: false,
-            } => config.match2_archmother_voice_id,
+            } => settings.match2_archmother_voice_id,
             VoiceDest::Match { .. } => None,
         };
         id.map(ChannelId::new)
     }
 }
 
+/// The voice channel for `dest`: the one picked in the server's settings while it still exists,
+/// else the first channel with one of its names. `None` when the server has neither.
+pub fn find_channel(
+    discord: &Discord,
+    guild_id: GuildId,
+    dest: VoiceDest,
+    settings: &GuildSettings,
+) -> Option<ChannelId> {
+    let guild = discord.cache.guild(guild_id)?;
+    if let Some(id) = dest.configured_id(settings) {
+        if guild.channels.contains_key(&id) {
+            return Some(id);
+        }
+    }
+    dest.names().iter().find_map(|name| {
+        guild
+            .channels
+            .values()
+            .find(|ch| ch.kind == ChannelType::Voice && ch.name.eq_ignore_ascii_case(name))
+            .map(|ch| ch.id)
+    })
+}
+
+/// Like `find_channel`, creating the channel when the server has none for `dest`.
 async fn resolve_channel(
     discord: &Discord,
     guild_id: GuildId,
     dest: VoiceDest,
-    config: &Config,
+    settings: &GuildSettings,
 ) -> Result<ChannelId> {
-    if let Some(id) = dest.configured_id(config) {
+    if let Some(id) = find_channel(discord, guild_id, dest, settings) {
         return Ok(id);
-    }
-    let channels = guild_id.channels(&discord.http).await?;
-    for name in dest.names() {
-        if let Some((id, _)) = channels.iter().find(|(_, ch)| ch.name.eq_ignore_ascii_case(name))
-        {
-            return Ok(*id);
-        }
     }
     let created = guild_id
         .create_channel(
@@ -90,7 +107,7 @@ async fn resolve_channel(
 pub async fn move_players(
     discord: &Discord,
     guild_id: GuildId,
-    config: &Config,
+    settings: &GuildSettings,
     moves: &[(UserId, VoiceDest)],
 ) -> Vec<UserId> {
     let mut skipped = Vec::new();
@@ -104,7 +121,7 @@ pub async fn move_players(
             skipped.push(*user_id);
             continue;
         }
-        let Ok(channel_id) = resolve_channel(discord, guild_id, *dest, config).await else {
+        let Ok(channel_id) = resolve_channel(discord, guild_id, *dest, settings).await else {
             skipped.push(*user_id);
             continue;
         };
@@ -119,7 +136,7 @@ pub async fn move_players(
 pub async fn skipped_message(
     discord: &Discord,
     guild_id: GuildId,
-    config: &Config,
+    settings: &GuildSettings,
     skipped: &[UserId],
 ) -> Option<String> {
     if skipped.is_empty() {
@@ -130,7 +147,7 @@ pub async fn skipped_message(
         .map(|id| id.mention().to_string())
         .collect::<Vec<_>>()
         .join(" ");
-    let queue = match resolve_channel(discord, guild_id, VoiceDest::Queue, config).await {
+    let queue = match resolve_channel(discord, guild_id, VoiceDest::Queue, settings).await {
         Ok(id) => id.mention().to_string(),
         Err(_) => "#Fila".to_string(),
     };
@@ -143,12 +160,12 @@ pub async fn skipped_message(
 pub async fn move_to_dest(
     discord: &Discord,
     guild_id: GuildId,
-    config: &Config,
+    settings: &GuildSettings,
     user_id: UserId,
     dest: VoiceDest,
     current: ChannelId,
 ) {
-    let Ok(dest_id) = resolve_channel(discord, guild_id, dest, config).await else {
+    let Ok(dest_id) = resolve_channel(discord, guild_id, dest, settings).await else {
         return;
     };
     if dest_id == current {

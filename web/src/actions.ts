@@ -1,12 +1,28 @@
 import { createContext, useContext } from 'react';
 
-import type { Camp, CampAction } from './api';
+import type { Camp, CampAction, Match, Side } from './api';
+import { SIDE_LABEL, matchName } from './camp';
+
+/** A question asked before an action, shown in the page's confirm dialog. */
+export interface Confirm {
+  title: string;
+  /** What will happen. */
+  message: string;
+  /** A second, quieter line: what stays, what can be undone. */
+  note?: string;
+  /** The confirm button: the action itself, e.g. "Encerrar camp". */
+  action: string;
+  /** `danger` for what can't be undone; a team color for its winner. Default `primary`. */
+  tone?: 'primary' | 'danger' | 'hiddenking' | 'archmother';
+}
 
 export interface RunOptions {
-  /** Ask first, with this question. */
-  confirm?: string;
+  /** Ask first. */
+  confirm?: Confirm;
   /** Act on this camp instead of the one on screen. */
   campId?: string;
+  /** Shown for a few seconds after the action works, when the page itself wouldn't show it. */
+  success?: string;
   /** Called with the camp after the action. */
   then?: (camp: Camp) => void;
 }
@@ -22,6 +38,28 @@ export const ActionsContext = createContext<Actions>({ run: () => {}, busy: true
 
 export function useActions(): Actions {
   return useContext(ActionsContext);
+}
+
+/** Before reporting a match's winner. */
+export function confirmWinner(match: Match, side: Side): Confirm {
+  return {
+    title: `${SIDE_LABEL[side]} venceu a ${matchName(match)}?`,
+    message: 'Os vencedores ganham 1 ponto e todos voltam para a fila e para o canal Queue.',
+    note: 'Se errar, dá para trocar o vencedor enquanto esses jogadores estiverem na fila.',
+    action: `${SIDE_LABEL[side]} venceu`,
+    tone: side,
+  };
+}
+
+/** Before an admin ends a refresh vote early. */
+export function confirmCloseVote(match: Match): Confirm {
+  const missing = match.players.length - match.votes.length;
+  return {
+    title: `Encerrar a votação da ${matchName(match)}?`,
+    message: `Os times ficam como estão e o draft libera. ${missing === 1 ? 'Falta 1 voto.' : `Faltam ${missing} votos.`}`,
+    note: 'Os botões de voto somem da mensagem da partida no Discord.',
+    action: 'Encerrar e manter times',
+  };
 }
 
 /** Why "Criar partida" is off, in the bot's words. */

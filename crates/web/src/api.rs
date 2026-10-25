@@ -6,9 +6,12 @@ use std::collections::HashMap;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
-use refresher_core::db::{self, CampState, CampSummary, MatchPlayerRow, MatchRow, PlayerRow, RecentMatch, RefreshVote};
-use refresher_core::link::{CampAction, Profile};
+use refresher_core::db::{
+    self, CampRow, CampState, CampSummary, MatchPlayerRow, MatchRow, PlayerRow, RecentMatch, RefreshVote,
+};
+use refresher_core::link::{CampAction, Channel, Profile};
 use refresher_core::queue::{self, CampSize};
+use refresher_core::settings::{GuildSettings, DRAFT_TIMERS};
 use serde::{Deserialize, Serialize};
 
 use crate::session::Session;
@@ -47,6 +50,8 @@ pub struct CampSummaryDto {
     match_size: i64,
     match_count: i64,
     created_at: i64,
+    /// The camp's message in Discord, else its channel.
+    discord_url: String,
 }
 
 #[derive(Serialize)]
@@ -72,6 +77,8 @@ pub struct CampDto {
     members: HashMap<String, MemberDto>,
     /// During signup: who is in the Queue voice channel right now, roster or not.
     queue_voice: Vec<String>,
+    /// The camp's message in Discord (signup, then queue), else its channel.
+    discord_url: String,
 }
 
 #[derive(Serialize)]
@@ -120,6 +127,9 @@ struct PlayerDto {
     queue_position: Option<i64>,
     consecutive_matches: i64,
     s_rank: bool,
+    /// Finished matches only.
+    matches_played: i64,
+    wins: i64,
 }
 
 #[derive(Serialize)]
@@ -136,6 +146,11 @@ pub struct MatchDto {
     draft: Option<DraftDto>,
     players: Vec<MatchPlayerDto>,
     votes: Vec<VoteDto>,
+    /// Finished matches: position in the order they ended, 1 being the first.
+    number: Option<i64>,
+    completed_at: Option<i64>,
+    /// The match's message in Discord, else the camp's channel.
+    discord_url: String,
 }
 
 /// Admins see every link, team links included, so they can help a captain whose DM failed.
@@ -169,10 +184,18 @@ fn icon_url(guild_id: u64, hash: &str) -> String {
     format!("https://cdn.discordapp.com/icons/{guild_id}/{hash}.png")
 }
 
-fn match_dto(camp_id: &str, row: &MatchRow, players: &[MatchPlayerRow], votes: &[RefreshVote]) -> MatchDto {
+/// A message in Discord, or the channel when the message isn't known.
+fn discord_url(guild_id: i64, channel_id: i64, message_id: Option<i64>) -> String {
+    match message_id {
+        Some(message_id) => format!("https://discord.com/channels/{guild_id}/{channel_id}/{message_id}"),
+        None => format!("https://discord.com/channels/{guild_id}/{channel_id}"),
+    }
+}
+
+fn match_dto(camp: &CampRow, row: &MatchRow, players: &[MatchPlayerRow], votes: &[RefreshVote]) -> MatchDto {
     MatchDto {
         id: row.id.clone(),
-        camp_id: camp_id.to_string(),
+        camp_id: camp.id.clone(),
         slot: row.slot,
         status: row.status.clone(),
         is_final: row.is_final,
@@ -202,6 +225,9 @@ fn match_dto(camp_id: &str, row: &MatchRow, players: &[MatchPlayerRow], votes: &
                 refresh: v.refresh,
             })
             .collect(),
+        number: None,
+        completed_at: None,
+        discord_url: discord_url(camp.guild_id, camp.channel_id, row.message_id),
     }
 }
 
@@ -254,6 +280,7 @@ fn recent_dto(state: &CampState, recent: &[RecentMatch]) -> Vec<RecentMatchDto> 
 fn camp_dto(
     state: &CampState,
     recent: &[RecentMatch],
+    stats: &HashMap<i64, (i64, i64)>,
     profiles: &HashMap<u64, Profile>,
     queue_voice: Vec<u64>,
 ) -> CampDto {
@@ -272,20 +299,25 @@ fn camp_dto(
         players: state
             .players
             .iter()
-            .map(|p| PlayerDto {
-                user_id: p.user_id.to_string(),
-                points: p.points,
-                location: p.location.clone(),
-                queue_position: p.queue_position,
-                consecutive_matches: p.consecutive_matches,
-                s_rank: p.s_rank,
+            .map(|p| {
+                let (matches_played, wins) = stats.get(&p.user_id).copied().unwrap_or_default();
+                PlayerDto {
+                    user_id: p.user_id.to_string(),
+                    points: p.points,
+                    location: p.location.clone(),
+                    queue_position: p.queue_position,
+                    consecutive_matches: p.consecutive_matches,
+                    s_rank: p.s_rank,
+                    matches_played,
+                    wins,
+                }
             })
             .collect(),
         up_next: up_next(state),
         open_matches: state
             .open_matches
             .iter()
-            .map(|m| match_dto(&state.camp.id, &m.row, &m.players, &m.votes))
+            .map(|m| match_dto(&state.camp, &m.row, &m.players, &m.votes))
             .collect(),
         recent_matches: recent_dto(state, recent),
         members: profiles
@@ -301,11 +333,13 @@ fn camp_dto(
             })
             .collect(),
         queue_voice: queue_voice.iter().map(u64::to_string).collect(),
+        discord_url: discord_url(state.camp.guild_id, state.camp.channel_id, state.camp.board_message_id),
     }
 }
 
-fn summary_dto(camp: CampSummary) -> CampSummaryDto {
+fn summary_dto(guild_id: u64, camp: CampSummary) -> CampSummaryDto {
     CampSummaryDto {
+        discord_url: discord_url(guild_id as i64, camp.channel_id, camp.board_message_id),
         id: camp.id,
         channel_id: camp.channel_id.to_string(),
         status: camp.status,
@@ -345,7 +379,7 @@ pub async fn guild_camps(
         return Err(ApiError::NotFound);
     }
     let camps = db::list_camps_for_guild(&state.db, guild_id as i64).await?;
-    Ok(Json(camps.into_iter().map(summary_dto).collect()))
+    Ok(Json(camps.into_iter().map(|c| summary_dto(guild_id, c)).collect()))
 }
 
 /// A camp in a server the admin manages, or 404.
@@ -365,19 +399,40 @@ pub async fn camp(
     camp_response(&state, camp).await
 }
 
+/// Every match of a camp, open ones first, then finished ones newest first.
+pub async fn camp_matches(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(camp_id): Path<String>,
+) -> Result<Json<Vec<MatchDto>>, ApiError> {
+    let camp = admin_camp(&state, &session, &camp_id).await?;
+    let matches = db::list_matches(&state.db, &camp.camp.id).await?;
+    Ok(Json(
+        matches
+            .iter()
+            .map(|m| MatchDto {
+                number: m.number,
+                completed_at: m.completed_at,
+                ..match_dto(&camp.camp, &m.row, &m.players, &m.votes)
+            })
+            .collect(),
+    ))
+}
+
 async fn camp_response(state: &AppState, camp: CampState) -> Result<Json<CampDto>, ApiError> {
     let recent = db::recent_matches(&state.db, &camp.camp.id, 5).await?;
+    let stats = db::player_stats(&state.db, &camp.camp.id).await?;
     let user_ids: Vec<u64> = camp.players.iter().map(|p| p.user_id as u64).collect();
     let profiles = state
         .link
         .profiles(camp.camp.guild_id as u64, &user_ids)
         .await;
     let queue_voice = if camp.camp.status == "signup" {
-        state.link.queue_voice_members(camp.camp.guild_id as u64)
+        state.link.queue_voice_members(camp.camp.guild_id as u64).await
     } else {
         Vec::new()
     };
-    Ok(Json(camp_dto(&camp, &recent, &profiles, queue_voice)))
+    Ok(Json(camp_dto(&camp, &recent, &stats, &profiles, queue_voice)))
 }
 
 /// A server the admin manages and the bot is in, or 404.
@@ -491,6 +546,9 @@ pub enum ActionRequest {
     RemovePlayer { user_id: String },
     SetSRank { user_id: String, s_rank: bool },
     StartQueue,
+    /// The whole queue in its new order.
+    ReorderQueue { user_ids: Vec<String> },
+    RemindVoters { match_id: String },
     CancelCamp,
     ResumeCamp,
     EndCamp,
@@ -530,6 +588,10 @@ impl TryFrom<ActionRequest> for CampAction {
                 s_rank,
             },
             ActionRequest::StartQueue => CampAction::StartQueue,
+            ActionRequest::ReorderQueue { user_ids } => CampAction::ReorderQueue {
+                user_ids: user_ids.iter().map(|id| user_id(id)).collect::<Result<_, _>>()?,
+            },
+            ActionRequest::RemindVoters { match_id } => CampAction::RemindVoters { match_id },
             ActionRequest::CancelCamp => CampAction::CancelCamp,
             ActionRequest::ResumeCamp => CampAction::ResumeCamp,
             ActionRequest::EndCamp => CampAction::EndCamp,
@@ -570,5 +632,123 @@ pub async fn match_info(
         .filter(|g| session.is_admin_of(*g as u64))
         .ok_or(ApiError::NotFound)?;
     let info = db::load_match_info(&state.db, &match_id, guild_id).await?;
-    Ok(Json(match_dto(&info.camp_id, &info.row, &info.players, &[])))
+    let camp = db::load_camp(&state.db, &info.camp_id)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+    Ok(Json(match_dto(&camp.camp, &info.row, &info.players, &[])))
+}
+
+/// A server's settings as the Configurações screen edits them, with the choices it offers.
+#[derive(Serialize)]
+pub struct SettingsDto {
+    queue_voice_id: Option<String>,
+    match1_hiddenking_voice_id: Option<String>,
+    match1_archmother_voice_id: Option<String>,
+    match2_hiddenking_voice_id: Option<String>,
+    match2_archmother_voice_id: Option<String>,
+    create_lobby: bool,
+    server_region: Option<String>,
+    draft_timer_seconds: u32,
+    /// False until an admin saves this server's settings: until then it runs on the `.env` values.
+    saved: bool,
+    voice_channels: Vec<ChannelDto>,
+    draft_timers: Vec<u32>,
+}
+
+/// The body of `PUT /api/guilds/{id}/settings`. A voice channel left out is found by its name.
+#[derive(Deserialize)]
+pub struct SettingsRequest {
+    queue_voice_id: Option<String>,
+    match1_hiddenking_voice_id: Option<String>,
+    match1_archmother_voice_id: Option<String>,
+    match2_hiddenking_voice_id: Option<String>,
+    match2_archmother_voice_id: Option<String>,
+    create_lobby: bool,
+    server_region: Option<String>,
+    draft_timer_seconds: u32,
+}
+
+const MAX_REGION_LEN: usize = 40;
+
+fn settings_dto(settings: GuildSettings, saved: bool, voice: Vec<Channel>) -> SettingsDto {
+    let id = |v: Option<u64>| v.map(|v| v.to_string());
+    SettingsDto {
+        queue_voice_id: id(settings.queue_voice_id),
+        match1_hiddenking_voice_id: id(settings.match1_hiddenking_voice_id),
+        match1_archmother_voice_id: id(settings.match1_archmother_voice_id),
+        match2_hiddenking_voice_id: id(settings.match2_hiddenking_voice_id),
+        match2_archmother_voice_id: id(settings.match2_archmother_voice_id),
+        create_lobby: settings.create_lobby,
+        server_region: settings.server_region,
+        draft_timer_seconds: settings.draft_timer_seconds,
+        saved,
+        voice_channels: voice
+            .into_iter()
+            .map(|c| ChannelDto {
+                id: c.id.to_string(),
+                name: c.name,
+            })
+            .collect(),
+        draft_timers: DRAFT_TIMERS.to_vec(),
+    }
+}
+
+/// Checks a settings form against the server's voice channels.
+fn parse_settings(request: SettingsRequest, voice: &[Channel]) -> Result<GuildSettings, ApiError> {
+    let channel = |id: Option<String>| -> Result<Option<u64>, ApiError> {
+        let Some(id) = id.map(|id| id.trim().to_string()).filter(|id| !id.is_empty()) else {
+            return Ok(None);
+        };
+        match id.parse::<u64>() {
+            Ok(id) if voice.iter().any(|c| c.id == id) => Ok(Some(id)),
+            _ => Err(ApiError::BadRequest(
+                "Um dos canais de voz não existe neste servidor. Escolha outro ou deixe automático.".to_string(),
+            )),
+        }
+    };
+    if !DRAFT_TIMERS.contains(&request.draft_timer_seconds) {
+        return Err(ApiError::BadRequest("tempo de draft inválido".to_string()));
+    }
+    let server_region = request
+        .server_region
+        .map(|r| r.trim().to_string())
+        .filter(|r| !r.is_empty());
+    if server_region.as_ref().is_some_and(|r| r.chars().count() > MAX_REGION_LEN) {
+        return Err(ApiError::BadRequest("região muito longa".to_string()));
+    }
+    Ok(GuildSettings {
+        queue_voice_id: channel(request.queue_voice_id)?,
+        match1_hiddenking_voice_id: channel(request.match1_hiddenking_voice_id)?,
+        match1_archmother_voice_id: channel(request.match1_archmother_voice_id)?,
+        match2_hiddenking_voice_id: channel(request.match2_hiddenking_voice_id)?,
+        match2_archmother_voice_id: channel(request.match2_archmother_voice_id)?,
+        create_lobby: request.create_lobby,
+        server_region,
+        draft_timer_seconds: request.draft_timer_seconds,
+    })
+}
+
+pub async fn guild_settings(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+) -> Result<Json<SettingsDto>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    let (settings, saved) = db::guild_settings(&state.db, guild_id as i64, &state.default_settings).await?;
+    Ok(Json(settings_dto(settings, saved, state.link.voice_channels(guild_id))))
+}
+
+/// Takes effect on the next action: matches already running keep their draft and lobby.
+pub async fn save_guild_settings(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+    Json(request): Json<SettingsRequest>,
+) -> Result<Json<SettingsDto>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    let voice = state.link.voice_channels(guild_id);
+    let settings = parse_settings(request, &voice)?;
+    tracing::info!(user_id = session.user_id, guild_id, ?settings, "server settings saved from the web");
+    db::save_guild_settings(&state.db, guild_id as i64, &settings).await?;
+    Ok(Json(settings_dto(settings, true, voice)))
 }

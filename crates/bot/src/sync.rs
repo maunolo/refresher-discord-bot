@@ -4,9 +4,9 @@ use serenity::all::{
 };
 use sqlx::SqlitePool;
 
-use crate::config::Config;
 use crate::db::{self, CampState, MatchPlayerRow, OpenMatch};
 use crate::discord::Discord;
+use crate::settings::GuildSettings;
 use crate::state::{with_guild_lock, Data};
 use crate::voice::{self, VoiceDest};
 
@@ -135,12 +135,12 @@ pub fn queue_voice_moves(user_ids: &[i64]) -> Vec<(UserId, VoiceDest)> {
 pub async fn apply_moves(
     discord: &Discord,
     guild_id: GuildId,
-    config: &Config,
+    settings: &GuildSettings,
     channel: ChannelId,
     moves: &[(UserId, VoiceDest)],
 ) {
-    let skipped = voice::move_players(discord, guild_id, config, moves).await;
-    if let Some(text) = voice::skipped_message(discord, guild_id, config, &skipped).await {
+    let skipped = voice::move_players(discord, guild_id, settings, moves).await;
+    if let Some(text) = voice::skipped_message(discord, guild_id, settings, &skipped).await {
         let _ = channel.say(&discord.http, text).await;
     }
 }
@@ -242,10 +242,11 @@ pub async fn place_late_voice_join(
         let Some(player) = open.players.iter().find(|p| p.user_id == user_id) else {
             return Ok(());
         };
+        let settings = data.settings(guild_id.get()).await?;
         voice::move_to_dest(
             discord,
             guild_id,
-            &data.config,
+            &settings,
             new.user_id,
             VoiceDest::Match {
                 slot: open.row.slot,

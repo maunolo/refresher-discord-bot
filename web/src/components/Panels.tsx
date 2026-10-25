@@ -1,11 +1,12 @@
 import { useActions } from '../actions';
 import type { Camp, RecentMatch } from '../api';
 import { SIDE_LABEL, playerName, points, queuedPlayers, ranking } from '../camp';
-import { SRankChip } from './common';
+import { routeHref } from '../route';
+import { DiscordLink, SRankChip } from './common';
 
 const PLAYERS_MOVED_ON = 'Os jogadores já estão em outra partida.';
 
-function Corrections({ match }: { match: RecentMatch }) {
+export function Corrections({ match }: { match: RecentMatch }) {
   const { run, busy } = useActions();
   const other = match.winner_side === 'hiddenking' ? 'archmother' : 'hiddenking';
   const off = busy || !match.correctable;
@@ -21,7 +22,12 @@ function Corrections({ match }: { match: RecentMatch }) {
           run(
             { type: 'correct_winner', match_id: match.id },
             {
-              confirm: `Trocar o vencedor da partida #${match.number} para ${SIDE_LABEL[other]}? Os pontos e a fila são refeitos.`,
+              confirm: {
+                title: `Trocar o vencedor da partida #${match.number}?`,
+                message: `${SIDE_LABEL[other]} passa a ser o vencedor. Os pontos e a fila são refeitos.`,
+                action: `${SIDE_LABEL[other]} venceu`,
+                tone: other,
+              },
             },
           )
         }
@@ -37,7 +43,12 @@ function Corrections({ match }: { match: RecentMatch }) {
           run(
             { type: 'reopen_match', match_id: match.id },
             {
-              confirm: `Reabrir a partida #${match.number}? O ponto dos vencedores é desfeito e os jogadores voltam para os canais do time.`,
+              confirm: {
+                title: `Reabrir a partida #${match.number}?`,
+                message: 'O ponto dos vencedores é desfeito e a partida volta a ficar ao vivo.',
+                note: 'Os jogadores voltam para os canais de voz dos times.',
+                action: 'Reabrir partida',
+              },
             },
           )
         }
@@ -91,6 +102,12 @@ export function QueuePanel({ camp }: { camp: Camp }) {
         Depois de cada partida: quem ficou de fora vai na frente; depois, quem jogou menos partidas seguidas, com
         vencedores antes dos perdedores.
       </p>
+      <div className="inline-actions">
+        <a className="button button-small" href={routeHref('queue')}>
+          Reordenar
+        </a>
+        <DiscordLink url={camp.discord_url} />
+      </div>
     </aside>
   );
 }

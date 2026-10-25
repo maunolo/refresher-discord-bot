@@ -110,3 +110,43 @@ export function SettingsIcon(props: IconProps) {
     </Svg>
   );
 }
+
+export function ExternalIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" />
+    </Svg>
+  );
+}
+
+export function GripIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01" />
+    </Svg>
+  );
+}
+
+export function ArrowUpIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 19V5M6 11l6-6 6 6" />
+    </Svg>
+  );
+}
+
+export function ArrowDownIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M12 5v14M6 13l6 6 6-6" />
+    </Svg>
+  );
+}
+
+export function ToTopIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M5 4h14M12 20V9M6 14l6-6 6 6" />
+    </Svg>
+  );
+}

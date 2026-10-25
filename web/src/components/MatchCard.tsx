@@ -1,16 +1,14 @@
-import { useActions } from '../actions';
+import { confirmCloseVote, confirmWinner, useActions } from '../actions';
 import type { Camp, Draft, Match, Side } from '../api';
-import { SIDES, SIDE_LABEL, playerById, playerName, points, stage, voteSummary, type Stage } from '../camp';
-import { Captain, CopyButton, SRankChip } from './common';
-
-function matchName(match: Match): string {
-  return match.is_final ? 'Partida final' : `Partida ${match.slot}`;
-}
+import { SIDES, SIDE_LABEL, matchName, playerById, playerName, points, stage, voteSummary, type Stage } from '../camp';
+import { Captain, CopyButton, DiscordLink, SRankChip } from './common';
+import { matchHref } from '../route';
 
 const STEPS = ['Votação', 'Draft', 'Ao vivo', 'Resultado'];
 const STEP_INDEX: Record<Stage, number> = { voting: 0, draft: 1, live: 2 };
 
-function StagePill({ match }: { match: Match }) {
+export function StagePill({ match }: { match: Match }) {
+  if (match.status === 'completed') return <span className="pill pill-muted">Encerrada</span>;
   const current = stage(match);
   if (current === 'live') {
     return (
@@ -26,8 +24,8 @@ function StagePill({ match }: { match: Match }) {
   return <span className="pill pill-running">Votação aberta</span>;
 }
 
-function Stepper({ match }: { match: Match }) {
-  const current = STEP_INDEX[stage(match)];
+export function Stepper({ match }: { match: Match }) {
+  const current = match.status === 'completed' ? STEPS.length : STEP_INDEX[stage(match)];
   return (
     <ol className="stepper" aria-label="Etapas da partida">
       {STEPS.map((label, i) => (
@@ -71,7 +69,7 @@ function Team({ camp, match, side }: { camp: Camp; match: Match; side: Side }) {
   );
 }
 
-function DraftLinks({ camp, match, draft }: { camp: Camp; match: Match; draft: Draft }) {
+export function DraftLinks({ camp, match, draft }: { camp: Camp; match: Match; draft: Draft }) {
   const captain = (side: Side) => match.players.find((p) => p.side === side && p.is_captain);
   const teamUrl = (side: Side) => (side === 'hiddenking' ? draft.hiddenking_url : draft.archmother_url);
   return (
@@ -110,10 +108,7 @@ function Actions({ match }: { match: Match }) {
   const current = stage(match);
   if (current === 'live') {
     const win = (side: Side) =>
-      run(
-        { type: 'report_winner', match_id: match.id, side },
-        { confirm: `Confirmar: ${SIDE_LABEL[side]} venceu a ${matchName(match)}?` },
-      );
+      run({ type: 'report_winner', match_id: match.id, side }, { confirm: confirmWinner(match, side) });
     return (
       <div className="actions two">
         <button type="button" className="button button-hk" disabled={busy} onClick={() => win('hiddenking')}>
@@ -126,7 +121,6 @@ function Actions({ match }: { match: Match }) {
     );
   }
   if (current === 'voting') {
-    const missing = match.players.length - match.votes.length;
     return (
       <div className="actions">
         <button type="button" className="button button-primary" disabled title="Espere a votação terminar no Discord.">
@@ -136,16 +130,7 @@ function Actions({ match }: { match: Match }) {
           type="button"
           className="button"
           disabled={busy}
-          onClick={() =>
-            run(
-              { type: 'close_vote', match_id: match.id },
-              {
-                confirm: `Encerrar a votação da ${matchName(match)} agora e manter os times? ${
-                  missing === 1 ? 'Falta 1 voto.' : `Faltam ${missing} votos.`
-                } Os botões de voto somem do Discord.`,
-              },
-            )
-          }
+          onClick={() => run({ type: 'close_vote', match_id: match.id }, { confirm: confirmCloseVote(match) })}
         >
           Encerrar votação e manter times
         </button>
@@ -183,7 +168,11 @@ export function MatchCard({ camp, match }: { camp: Camp; match: Match }) {
     <section className="card match" aria-labelledby={titleId}>
       <div className="card-head">
         <div className="title-row">
-          <h2 id={titleId}>{matchName(match)}</h2>
+          <h2 id={titleId}>
+            <a className="title-link" href={matchHref(match.id)}>
+              {matchName(match)}
+            </a>
+          </h2>
           <span className="mono muted small">{match.id}</span>
         </div>
         <StagePill match={match} />
@@ -204,6 +193,7 @@ export function MatchCard({ camp, match }: { camp: Camp; match: Match }) {
         </div>
       )}
       <Actions match={match} />
+      <DiscordLink url={match.discord_url} label="Abrir a mensagem no Discord" />
     </section>
   );
 }

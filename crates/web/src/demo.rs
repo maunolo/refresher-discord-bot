@@ -12,8 +12,9 @@ use axum_extra::extract::cookie::CookieJar;
 use refresher_core::config::WebConfig;
 use refresher_core::db::{self, RefreshOutcome};
 use refresher_core::draft::CreatedDraft;
-use refresher_core::link::{BotLink, BoxFuture, CampAction, Profile, TextChannel};
+use refresher_core::link::{BotLink, BoxFuture, CampAction, Channel, Profile};
 use refresher_core::queue::CampSize;
+use refresher_core::settings::GuildSettings;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
 
@@ -86,6 +87,23 @@ impl BotLink for DemoLink {
                 CampAction::StartQueue => {
                     db::start_queue(pool, camp_id).await?;
                 }
+                CampAction::ReorderQueue { user_ids } => {
+                    let ids: Vec<i64> = user_ids.iter().map(|id| *id as i64).collect();
+                    db::reorder_queue(pool, camp_id, &ids).await?;
+                }
+                CampAction::RemindVoters { match_id } => {
+                    // The bot would mention them in the camp's channel; here it only checks.
+                    let state = db::load_camp(pool, camp_id).await?.ok_or_else(|| anyhow::anyhow!("camp não encontrado"))?;
+                    let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) else {
+                        anyhow::bail!("Partida não encontrada.");
+                    };
+                    if open.row.status != "voting" || open.row.refresh_used {
+                        anyhow::bail!("A votação desta partida já terminou.");
+                    }
+                    if open.players.len() == open.votes.len() {
+                        anyhow::bail!("Todos já votaram.");
+                    }
+                }
                 CampAction::CancelCamp => db::cancel_camp(pool, camp_id).await?,
                 CampAction::ResumeCamp => {
                     db::resume_camp(pool, camp_id, guild).await?;
@@ -98,11 +116,19 @@ impl BotLink for DemoLink {
         })
     }
 
-    fn text_channels(&self, _guild_id: u64) -> Vec<TextChannel> {
+    fn text_channels(&self, _guild_id: u64) -> Vec<Channel> {
         vec![
-            TextChannel { id: 10, name: "camp-deadlock".to_string() },
-            TextChannel { id: 11, name: "testes-bot".to_string() },
+            Channel { id: 10, name: "camp-deadlock".to_string() },
+            Channel { id: 11, name: "testes-bot".to_string() },
         ]
+    }
+
+    fn voice_channels(&self, _guild_id: u64) -> Vec<Channel> {
+        ["Queue", "Match 1 Hiddenking", "Match 1 Archmother", "Match 2 Hiddenking", "Match 2 Archmother", "Geral"]
+            .iter()
+            .zip(20..)
+            .map(|(name, id)| Channel { id, name: name.to_string() })
+            .collect()
     }
 
     fn search_members<'a>(
@@ -122,8 +148,8 @@ impl BotLink for DemoLink {
         })
     }
 
-    fn queue_voice_members(&self, _guild_id: u64) -> Vec<u64> {
-        (30..36).map(|i| FIRST_USER + i).collect()
+    fn queue_voice_members(&self, _guild_id: u64) -> BoxFuture<'_, Vec<u64>> {
+        Box::pin(async { (30..36).map(|i| FIRST_USER + i).collect() })
     }
 
     fn create_camp<'a>(&'a self, _guild_id: u64, channel_id: u64, size: CampSize) -> BoxFuture<'a, Result<String>> {
@@ -227,8 +253,12 @@ async fn demo_login(state: AppState, jar: CookieJar) -> Result<(CookieJar, Redir
 }
 
 pub async fn run(bind: &str, static_dir: &str) -> Result<()> {
+    // The camp lives only as long as this one connection: never let the pool close it.
     let db = SqlitePoolOptions::new()
         .max_connections(1)
+        .min_connections(1)
+        .idle_timeout(None)
+        .max_lifetime(None)
         .connect("sqlite::memory:")
         .await?;
     db::migrate(&db).await?;
@@ -245,6 +275,16 @@ pub async fn run(bind: &str, static_dir: &str) -> Result<()> {
         }),
         http: reqwest::Client::new(),
         link,
+        default_settings: GuildSettings {
+            queue_voice_id: None,
+            match1_hiddenking_voice_id: None,
+            match1_archmother_voice_id: None,
+            match2_hiddenking_voice_id: None,
+            match2_archmother_voice_id: None,
+            create_lobby: false,
+            server_region: None,
+            draft_timer_seconds: 30,
+        },
     };
     let login_state = state.clone();
     let app = router(state).route(

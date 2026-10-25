@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { useActions } from '../actions';
 import { api, type Camp, type MemberResult, type Player } from '../api';
-import { SIDE_LABEL, formatLabel, playerName, points, queuedPlayers } from '../camp';
+import { formatLabel, playerName, points, whereIs } from '../camp';
 import { CheckIcon } from './Icons';
 
 function Avatar({ url, name }: { url?: string; name: string }) {
@@ -204,8 +204,12 @@ function Signup({ camp }: { camp: Camp }) {
               run(
                 { type: 'start_queue' },
                 {
-                  confirm:
-                    'Iniciar a fila? O elenco é embaralhado e postado no Discord, quem estiver em voz vai para Queue, e o elenco não muda mais.',
+                  confirm: {
+                    title: 'Iniciar a fila?',
+                    message: 'O elenco é embaralhado e postado no Discord, e quem estiver em voz vai para o canal Queue.',
+                    note: 'Depois disso não dá para adicionar nem remover jogadores.',
+                    action: 'Iniciar fila',
+                  },
                 },
               )
             }
@@ -217,18 +221,6 @@ function Signup({ camp }: { camp: Camp }) {
       </aside>
     </div>
   );
-}
-
-function whereIs(camp: Camp, player: Player): string {
-  if (player.location === 'queued') {
-    const position = queuedPlayers(camp).findIndex((p) => p.user_id === player.user_id) + 1;
-    return `Fila · ${position}º`;
-  }
-  for (const match of camp.open_matches) {
-    const seat = match.players.find((p) => p.user_id === player.user_id);
-    if (seat) return `${match.is_final ? 'Final' : `Partida ${match.slot}`} · ${SIDE_LABEL[seat.side]}`;
-  }
-  return '—';
 }
 
 function Roster({ camp }: { camp: Camp }) {

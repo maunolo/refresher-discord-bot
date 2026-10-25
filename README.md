@@ -9,7 +9,7 @@ Admins run the camp from a **web admin page** (sign in with Discord). In Discord
 1. Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications). No privileged intents are needed.
 2. Invite the bot with: View Channels, Send Messages, Embed Links, Connect, Move Members, and Manage Channels if you want it to create the voice channels.
 3. In the application's **OAuth2** page, copy the **Client ID**, reset and copy the **Client Secret**, and add the redirect `http://localhost:8080/auth/callback` (or `{WEB_PUBLIC_URL}/auth/callback` if you change the address).
-4. Copy `.env.example` to `.env` and set `DISCORD_TOKEN`, `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`. Leave `ENABLE_CUSTOM_MATCH_CREATE=false` until you need a real Deadlock lobby (then the IP limit is **10 creates per hour** without a key); `DEADLOCK_API_KEY` is optional.
+4. Copy `.env.example` to `.env` and set `DISCORD_TOKEN`, `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`. Leave `ENABLE_CUSTOM_MATCH_CREATE=false` until you need a real Deadlock lobby (then the IP limit is **10 creates per hour** without a key); `DEADLOCK_API_KEY` is optional. The voice channel, lobby and region values in `.env` are only defaults: each server can change them on the admin page's **Configurações**.
 5. Build the admin page once (needs [Node.js](https://nodejs.org) 20 or newer): `cd web`, `npm install`, `npm run build`. The server serves `web/dist` (change it with `WEB_STATIC_DIR`).
 6. Install Rust (`https://rustup.rs`), then from the repo root:
 
@@ -26,6 +26,12 @@ Anyone with **Manage Server** in a server the bot is in can sign in and run that
 - **Camps:** every camp of the server. **Novo camp** opens signup in a text channel you pick, with a size (24, 30, 4-1v1, 4-2v2); a server has one active camp at a time. **Cancelar** keeps the roster, queue and points so the camp can be resumed with **Retomar**. **Encerrar** posts the final ranking and can't be undone.
 - **Jogadores:** during signup, search server members by name, add everyone in the Queue voice channel at once, mark S rank, remove players, and **Iniciar fila** once the roster is exactly full. After that, the roster with points, consecutive matches and where each player is. S rank can still change; it applies to matches created afterwards.
 - **Ao vivo:** both match slots, the queue (→ marks who the next match takes), the last results and the ranking, refreshed every few seconds. **Criar partida**, **Partida final**, **Encerrar votação e manter times**, **Iniciar draft**, **Iniciar partida**, the winner buttons, and **Trocar vencedor** / **Reabrir** on the latest result. Buttons that can't be used yet say why.
+- **Fila:** the queue in order. Move players with ↑, ↓ and *topo*, or drag them on a computer; the new order stays on the page until **Salvar ordem**, which also updates the queue message in Discord. If a match starts or ends meanwhile, saving is blocked so nobody is dropped. After each result, players who were waiting keep this order at the front; the ones who just played join the end by the usual rule.
+- **Partidas:** every match of the camp, open ones first. A match's page shows each player's vote (Refresh, Manter or waiting) with tallies, the next step for its stage, **Lembrar quem falta votar** (mentions only the players who haven't voted), **Fechar e manter times**, the draft links and the party code. Finished matches show the result and, for the latest one, the corrections.
+- **Ranking:** every player by points, with wins, matches played and win rate. Ties share a place; among them, fewer matches comes first.
+- **Configurações:** per server. The five voice channels the bot moves players to (*Automático* finds or creates them by name), whether starting a match creates the Deadlock lobby and in which region, and the draft timer (none, or 15 to 90 seconds per pick or ban). Until an admin saves, a server uses the `.env` values. Changes apply from the next action; a draft already created keeps its timer.
+
+Each match, the queue and each camp have an **Abrir no Discord** link to their message.
 
 Every action also does its Discord side: the camp and match messages are redrawn, the channel gets an announcement, players are moved between voice channels, and captains get their draft DMs. Actions in the same server run one at a time, so two admins can't step on each other.
 
@@ -45,7 +51,7 @@ There are no slash commands. On startup the bot clears the old `/camp` command f
 2. **Criar partida** pulls the next group from the queue (12, 4 in a 2v2 test, or 2 in a 1v1 test) and sorts Hiddenking / Archmother. The first two queued S rank players are always pulled in, one per team (see below). A second concurrent match can be created while a slot is free. With 30 players, leftover players stay in queue until the next match.
 3. Players in a match each vote once in Discord: **Refresh** or **Manter times**. If at least 4 players from either side vote refresh (2 in a 2v2 test, 1 in a 1v1 test), teams are re-sorted, still keeping S rank players apart. When everyone has voted, or a refresh can no longer pass, voting ends. An admin can also end it early with **Encerrar votação e manter times** (for when someone can't vote); the teams stay as they are. Each match only votes once.
 4. **Iniciar draft** creates a pick/ban draft on [draft.deadlock.pro.br](https://draft.deadlock.pro.br/docs) (no API key needed), DMs each captain their own team's private link, posts the spectator link and moves the players into the team voice channels.
-5. **Iniciar partida** marks the match live. With `ENABLE_CUSTOM_MATCH_CREATE=true`, it also creates a Deadlock custom lobby and posts the party code.
+5. **Iniciar partida** marks the match live. If the server has the lobby turned on (**Configurações**, default `ENABLE_CUSTOM_MATCH_CREATE`), it also creates a Deadlock custom lobby and posts the party code.
 6. Admin reports the winner. Winners get +1 point. Players re-enter the queue by consecutive-match count (winners before losers in the same count; blocks with more than two players are shuffled). Anyone who sat out has their consecutive count reset to 0. The latest result can be corrected (**Trocar vencedor**) or reopened while its players are still in the queue.
 7. When no match is open and at least one has been scored, **Partida final** seats the highest-point players (same count as a normal match; ties for the last seats are shuffled) and balances the teams by points. S rank players are not guaranteed a final seat, but any who make it are kept apart. After a final is created, no other match can be.
 8. **Encerrar** on the Camps screen posts gold / silver / bronze for the top distinct point totals.
@@ -55,7 +61,7 @@ There are no slash commands. On startup the bot clears the old `/camp` command f
 - Each new match pulls the first two S rank players in queue order, one per team. Other S rank players keep their place in line. Only when there aren't enough regular players to fill a match does a third one get in; the teams then split 2/1.
 - Every team has a captain (👑): its S rank player, or, if it has none, its highest-points player (ties are random). Captains are chosen when teams are made and again after a refresh.
 - **Iniciar draft** DMs each captain the private link for their own team. Whoever opens a team link picks and bans for that team, so team links are never posted in the channel. If a DM fails, the bot mentions that captain, who clicks **Link do capitão** to see it privately. Admins can copy every link from the match card on the admin page.
-- Each team gets 2 bans and one pick per player, with a 30-second timer per turn. To run your own copy of the [draft tool](https://github.com/deadlockprobr/draft), set `DRAFT_BASE_URL`.
+- Each team gets 2 bans and one pick per player, with a 30-second timer per turn unless the server picked another on **Configurações**. To run your own copy of the [draft tool](https://github.com/deadlockprobr/draft), set `DRAFT_BASE_URL`.
 - Aim for two S rank players per concurrent match (four in a 24- or 30-player camp). With only two, they play nearly every match.
 
 ### Testing with four accounts
@@ -69,7 +75,7 @@ When the test matches are done, **Partida final** seats the two (1v1) or four (2
 
 ## Voice channels
 
-The `*_VOICE_CHANNEL_ID` settings are voice channels only, used to move players who are already in voice. Leave them blank and the bot looks up (or creates) channels named `Queue`, `Match 1 Hiddenking`, `Match 1 Archmother`, `Match 2 Hiddenking` and `Match 2 Archmother`.
+Pick each server's voice channels on **Configurações** (the `*_VOICE_CHANNEL_ID` values in `.env` are the defaults for servers that never saved). They are used to move players who are already in voice. Left on *Automático*, or if the picked channel was deleted, the bot looks up (or creates) channels named `Queue`, `Match 1 Hiddenking`, `Match 1 Archmother`, `Match 2 Hiddenking` and `Match 2 Archmother`.
 
 Players are moved into their team channels when the draft starts; anyone who joins voice later (Queue is fine) is moved automatically. After a winner they return to Queue. Creating a match and refreshing teams move no one.
 
@@ -115,6 +121,9 @@ Discord IDs are sent as strings, since they don't fit in a JavaScript number. Ev
 | `POST /api/guilds/{guild_id}/camps` | Opens signup for a new camp: `{"channel_id": "…", "size": "24"}` (`24`, `30`, `4-1v1`, `4-2v2`). |
 | `GET /api/guilds/{guild_id}/channels` | The server's text channels. |
 | `GET /api/guilds/{guild_id}/members?query=` | Members whose name starts with `query` (up to 10). |
-| `GET /api/camps/{camp_id}` | Roster with names, queue and who goes next, open matches with teams, votes and draft links, recent results. |
+| `GET /api/guilds/{guild_id}/settings` | The server's settings, whether they were saved, its voice channels and the draft timers allowed. |
+| `PUT /api/guilds/{guild_id}/settings` | Saves them: the five `*_voice_id` (a voice channel ID or `null` for automatic), `create_lobby`, `server_region` and `draft_timer_seconds`. A channel from another server or an unlisted timer is a 400. |
+| `GET /api/camps/{camp_id}` | Roster with names, points, wins and matches played, queue and who goes next, open matches with teams, votes and draft links, recent results, and Discord links. |
+| `GET /api/camps/{camp_id}/matches` | Every match of the camp: open ones by slot, then finished ones newest first with their number. |
 | `GET /api/matches/{match_id}` | One match, finished or not. |
-| `POST /api/camps/{camp_id}/actions` | Runs an admin action and returns the camp afterwards. Body: `{"type": "create_match"}`, `create_final`, or `close_vote` / `start_draft` / `start_match` / `correct_winner` / `reopen_match` with `"match_id"`, or `report_winner` with `"match_id"` and `"side"` (`hiddenking` / `archmother`); for the roster, `add_players` (`"user_ids"`), `remove_player` and `set_s_rank` (`"user_id"`, `"s_rank"`); and `start_queue`, `cancel_camp`, `resume_camp`, `end_camp`. A refusal (e.g. a draft before the vote ended) is a 409 with the bot's message. |
+| `POST /api/camps/{camp_id}/actions` | Runs an admin action and returns the camp afterwards. Body: `{"type": "create_match"}`, `create_final`, or `close_vote` / `start_draft` / `start_match` / `correct_winner` / `reopen_match` with `"match_id"`, or `report_winner` with `"match_id"` and `"side"` (`hiddenking` / `archmother`); for the roster, `add_players` (`"user_ids"`), `remove_player` and `set_s_rank` (`"user_id"`, `"s_rank"`); `reorder_queue` with the whole queue in its new order (`"user_ids"`), `remind_voters` with `"match_id"`, and `start_queue`, `cancel_camp`, `resume_camp`, `end_camp`. A refusal (e.g. a draft before the vote ended) is a 409 with the bot's message. |

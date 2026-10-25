@@ -5,6 +5,8 @@ use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 
 use crate::config::Config;
+use crate::db;
+use crate::settings::GuildSettings;
 
 #[derive(Clone)]
 pub struct Data {
@@ -20,6 +22,12 @@ impl Data {
         map.entry(guild_id)
             .or_insert_with(|| Arc::new(Mutex::new(())))
             .clone()
+    }
+
+    /// How this server's camps run: its settings from the admin page, else the `.env` values.
+    pub async fn settings(&self, guild_id: u64) -> anyhow::Result<GuildSettings> {
+        let defaults = GuildSettings::from_config(&self.config);
+        Ok(db::guild_settings(&self.db, guild_id as i64, &defaults).await?.0)
     }
 }
 

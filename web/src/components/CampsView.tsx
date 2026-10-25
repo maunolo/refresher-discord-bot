@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useActions } from '../actions';
 import { api, type Camp, type CampSizeChoice, type CampSummary, type Channel } from '../api';
 import { campStatusLabel, formatLabel, isActive, playerName, points, ranking } from '../camp';
+import { DiscordLink } from './common';
 
 const SIZES: { value: CampSizeChoice; title: string; detail: string }[] = [
   { value: '24', title: '24 jogadores', detail: 'Duas partidas 6v6 ao mesmo tempo' },
@@ -208,7 +209,9 @@ export function CampsView({ guildId, camps, onOpen, onCreated }: CampsViewProps)
                     <td>{sizeLabel(c)}</td>
                     <td>{c.match_count}</td>
                     <td className="muted">{createdOn(c.created_at)}</td>
-                    <td className="muted">{channelName(c.channel_id) ? `#${channelName(c.channel_id)}` : '—'}</td>
+                    <td>
+                      <DiscordLink url={c.discord_url} label={channelName(c.channel_id) ? `#${channelName(c.channel_id)}` : 'Discord'} />
+                    </td>
                     <td className="align-end">
                       <div className="inline-actions">
                         {isActive(c.status) && (
@@ -225,7 +228,13 @@ export function CampsView({ guildId, camps, onOpen, onCreated }: CampsViewProps)
                                   { type: 'cancel_camp' },
                                   {
                                     campId: c.id,
-                                    confirm: `Cancelar o camp ${c.id}? Elenco, fila e pontos ficam guardados e dá para retomar depois.`,
+                                    confirm: {
+                                      title: `Cancelar o camp ${c.id}?`,
+                                      message: 'O camp para agora. Elenco, fila e pontos ficam guardados.',
+                                      note: 'Dá para retomar depois, aqui em Camps.',
+                                      action: 'Cancelar camp',
+                                      tone: 'danger',
+                                    },
                                   },
                                 )
                               }
@@ -245,7 +254,13 @@ export function CampsView({ guildId, camps, onOpen, onCreated }: CampsViewProps)
                                 { type: 'end_camp' },
                                 {
                                   campId: c.id,
-                                  confirm: `Encerrar o camp ${c.id} e publicar o ranking final no Discord? Não dá para desfazer.`,
+                                  confirm: {
+                                    title: `Encerrar o camp ${c.id}?`,
+                                    message: 'O ranking final é publicado no Discord e o camp termina.',
+                                    note: 'Não dá para desfazer.',
+                                    action: 'Encerrar camp',
+                                    tone: 'danger',
+                                  },
                                   then: () => setRankingOf(c.id),
                                 },
                               )

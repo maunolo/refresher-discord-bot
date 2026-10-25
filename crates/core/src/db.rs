@@ -5,8 +5,11 @@ use sqlx::{sqlite::SqliteConnectOptions, SqlitePool, Transaction, Sqlite};
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use std::collections::HashMap;
+
 use crate::draft::CreatedDraft;
 use crate::queue::{self, CampLayout, QueuePlayer, Seat, TeamSplit};
+use crate::settings::GuildSettings;
 
 #[derive(Clone, Debug)]
 pub struct CampRow {
@@ -282,6 +285,7 @@ pub async fn load_active_for_guild(pool: &SqlitePool, guild_id: i64) -> Result<O
 pub struct CampSummary {
     pub id: String,
     pub channel_id: i64,
+    pub board_message_id: Option<i64>,
     pub target_size: i64,
     pub match_size: i64,
     pub status: String,
@@ -291,8 +295,8 @@ pub struct CampSummary {
 
 /// Every camp of a server, newest first.
 pub async fn list_camps_for_guild(pool: &SqlitePool, guild_id: i64) -> Result<Vec<CampSummary>> {
-    let rows = sqlx::query_as::<_, (String, i64, i64, i64, String, i64, i64)>(
-        "SELECT id, channel_id, target_size, match_size, status, match_count, created_at
+    let rows = sqlx::query_as::<_, (String, i64, i64, i64, String, i64, i64, Option<i64>)>(
+        "SELECT id, channel_id, target_size, match_size, status, match_count, created_at, board_message_id
          FROM camps WHERE guild_id = ? ORDER BY created_at DESC, id",
     )
     .bind(guild_id)
@@ -308,6 +312,7 @@ pub async fn list_camps_for_guild(pool: &SqlitePool, guild_id: i64) -> Result<Ve
             status: r.4,
             match_count: r.5,
             created_at: r.6,
+            board_message_id: r.7,
         })
         .collect())
 }
@@ -357,6 +362,251 @@ pub async fn recent_matches(pool: &SqlitePool, camp_id: &str, limit: i64) -> Res
         });
     }
     Ok(out)
+}
+
+/// A match with everything the admin page shows about it.
+#[derive(Clone, Debug)]
+pub struct MatchDetail {
+    pub row: MatchRow,
+    /// Finished matches only: position in the order they ended, 1 being the first.
+    pub number: Option<i64>,
+    pub completed_at: Option<i64>,
+    pub players: Vec<MatchPlayerRow>,
+    pub votes: Vec<RefreshVote>,
+}
+
+/// Every match of a camp: open ones by slot, then finished ones newest first.
+pub async fn list_matches(pool: &SqlitePool, camp_id: &str) -> Result<Vec<MatchDetail>> {
+    let rows = sqlx::query_as::<
+        _,
+        (
+            String,
+            i64,
+            String,
+            i64,
+            Option<i64>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            i64,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+            i64,
+            Option<i64>,
+        ),
+    >(
+        "SELECT id, slot, status, refresh_used, message_id, party_id, party_code, winner_side, is_final,
+                draft_url, draft_hiddenking_url, draft_archmother_url, draft_admin_url,
+                vote_closed_by_admin, completed_at
+         FROM camp_matches WHERE camp_id = ?",
+    )
+    .bind(camp_id)
+    .fetch_all(pool)
+    .await?;
+
+    let mut matches = Vec::with_capacity(rows.len());
+    for m in rows {
+        let players = sqlx::query_as::<_, (i64, String, Option<i64>, i64)>(
+            "SELECT user_id, side, points_after, is_captain FROM camp_match_players WHERE match_id = ?",
+        )
+        .bind(&m.0)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|p| MatchPlayerRow {
+            user_id: p.0,
+            side: p.1,
+            points_after: p.2,
+            is_captain: p.3 != 0,
+        })
+        .collect();
+        let votes = sqlx::query_as::<_, (i64, String)>(
+            "SELECT user_id, choice FROM camp_refresh_votes WHERE match_id = ?",
+        )
+        .bind(&m.0)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .map(|(user_id, choice)| RefreshVote {
+            user_id,
+            refresh: choice != "keep",
+        })
+        .collect();
+        matches.push(MatchDetail {
+            row: MatchRow {
+                id: m.0,
+                slot: m.1,
+                status: m.2,
+                refresh_used: m.3 != 0,
+                message_id: m.4,
+                party_id: m.5,
+                party_code: m.6,
+                winner_side: m.7,
+                is_final: m.8 != 0,
+                draft_url: m.9,
+                draft_hiddenking_url: m.10,
+                draft_archmother_url: m.11,
+                draft_admin_url: m.12,
+                vote_closed_by_admin: m.13 != 0,
+            },
+            number: None,
+            completed_at: m.14,
+            players,
+            votes,
+        });
+    }
+
+    let finished = |m: &MatchDetail| m.row.status == "completed" && m.completed_at.is_some();
+    let mut order: Vec<(i64, String)> = matches
+        .iter()
+        .filter(|m| finished(m))
+        .map(|m| (m.completed_at.unwrap_or(0), m.row.id.clone()))
+        .collect();
+    order.sort();
+    for m in matches.iter_mut().filter(|m| finished(m)) {
+        m.number = order
+            .iter()
+            .position(|(_, id)| *id == m.row.id)
+            .map(|i| i as i64 + 1);
+    }
+    matches.sort_by(|a, b| match (finished(a), finished(b)) {
+        (false, false) => a.row.slot.cmp(&b.row.slot),
+        (false, true) => std::cmp::Ordering::Less,
+        (true, false) => std::cmp::Ordering::Greater,
+        (true, true) => b.number.cmp(&a.number),
+    });
+    Ok(matches)
+}
+
+/// Finished matches played and won, per player of a camp.
+pub async fn player_stats(pool: &SqlitePool, camp_id: &str) -> Result<HashMap<i64, (i64, i64)>> {
+    let rows: Vec<(i64, i64, i64)> = sqlx::query_as(
+        "SELECT mp.user_id, COUNT(*), SUM(CASE WHEN mp.side = m.winner_side THEN 1 ELSE 0 END)
+         FROM camp_match_players mp
+         JOIN camp_matches m ON m.id = mp.match_id
+         WHERE m.camp_id = ? AND m.status = 'completed'
+         GROUP BY mp.user_id",
+    )
+    .bind(camp_id)
+    .fetch_all(pool)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|(user_id, played, won)| (user_id, (played, won)))
+        .collect())
+}
+
+/// Puts the queue in this order. `user_ids` must be exactly the players queued right now, so a
+/// page showing an outdated queue can't drop or duplicate anyone.
+pub async fn reorder_queue(pool: &SqlitePool, camp_id: &str, user_ids: &[i64]) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    let status: Option<String> = sqlx::query_scalar("SELECT status FROM camps WHERE id = ?")
+        .bind(camp_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    if status.as_deref() != Some("running") {
+        return Err(anyhow!("a fila só existe com o camp em andamento"));
+    }
+    let mut queued: Vec<i64> = sqlx::query_scalar(
+        "SELECT user_id FROM camp_players WHERE camp_id = ? AND location = 'queued'",
+    )
+    .bind(camp_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    let mut wanted = user_ids.to_vec();
+    queued.sort_unstable();
+    wanted.sort_unstable();
+    if queued != wanted {
+        return Err(anyhow!("a fila mudou enquanto você reordenava; confira e tente de novo"));
+    }
+    for (position, user_id) in user_ids.iter().enumerate() {
+        sqlx::query("UPDATE camp_players SET queue_position = ? WHERE camp_id = ? AND user_id = ?")
+            .bind(position as i64)
+            .bind(camp_id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    sqlx::query("UPDATE camps SET updated_at = ? WHERE id = ?")
+        .bind(now())
+        .bind(camp_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// A server's settings, and whether they were saved on the admin page. A server that never
+/// saved any runs on `defaults`, the `.env` values (`GuildSettings::from_config`).
+pub async fn guild_settings(
+    pool: &SqlitePool,
+    guild_id: i64,
+    defaults: &GuildSettings,
+) -> Result<(GuildSettings, bool)> {
+    let row = sqlx::query_as::<
+        _,
+        (Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>, i64, Option<String>, i64),
+    >(
+        "SELECT queue_voice_id, match1_hiddenking_voice_id, match1_archmother_voice_id,
+                match2_hiddenking_voice_id, match2_archmother_voice_id, create_lobby, server_region,
+                draft_timer_seconds
+         FROM guild_settings WHERE guild_id = ?",
+    )
+    .bind(guild_id)
+    .fetch_optional(pool)
+    .await?;
+    let Some(r) = row else {
+        return Ok((defaults.clone(), false));
+    };
+    let id = |v: Option<i64>| v.map(|v| v as u64);
+    Ok((
+        GuildSettings {
+            queue_voice_id: id(r.0),
+            match1_hiddenking_voice_id: id(r.1),
+            match1_archmother_voice_id: id(r.2),
+            match2_hiddenking_voice_id: id(r.3),
+            match2_archmother_voice_id: id(r.4),
+            create_lobby: r.5 != 0,
+            server_region: r.6,
+            draft_timer_seconds: r.7 as u32,
+        },
+        true,
+    ))
+}
+
+pub async fn save_guild_settings(pool: &SqlitePool, guild_id: i64, settings: &GuildSettings) -> Result<()> {
+    let id = |v: Option<u64>| v.map(|v| v as i64);
+    sqlx::query(
+        "INSERT INTO guild_settings (guild_id, queue_voice_id, match1_hiddenking_voice_id,
+             match1_archmother_voice_id, match2_hiddenking_voice_id, match2_archmother_voice_id,
+             create_lobby, server_region, draft_timer_seconds, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(guild_id) DO UPDATE SET
+             queue_voice_id = excluded.queue_voice_id,
+             match1_hiddenking_voice_id = excluded.match1_hiddenking_voice_id,
+             match1_archmother_voice_id = excluded.match1_archmother_voice_id,
+             match2_hiddenking_voice_id = excluded.match2_hiddenking_voice_id,
+             match2_archmother_voice_id = excluded.match2_archmother_voice_id,
+             create_lobby = excluded.create_lobby,
+             server_region = excluded.server_region,
+             draft_timer_seconds = excluded.draft_timer_seconds,
+             updated_at = excluded.updated_at",
+    )
+    .bind(guild_id)
+    .bind(id(settings.queue_voice_id))
+    .bind(id(settings.match1_hiddenking_voice_id))
+    .bind(id(settings.match1_archmother_voice_id))
+    .bind(id(settings.match2_hiddenking_voice_id))
+    .bind(id(settings.match2_archmother_voice_id))
+    .bind(settings.create_lobby)
+    .bind(&settings.server_region)
+    .bind(settings.draft_timer_seconds as i64)
+    .bind(now())
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 /// The server a match belongs to, through its camp.
@@ -1862,5 +2112,113 @@ mod tests {
         assert!(close_voting(&pool, &camp_id, &match_id).await.is_err());
         let state = load_camp(&pool, &camp_id).await.unwrap().unwrap();
         assert_eq!(state.open_matches[0].row.status, "live");
+    }
+
+    fn queue_order(state: &CampState) -> Vec<i64> {
+        let mut queued: Vec<&PlayerRow> = state
+            .players
+            .iter()
+            .filter(|p| p.location == "queued")
+            .collect();
+        queued.sort_by_key(|p| p.queue_position);
+        queued.iter().map(|p| p.user_id).collect()
+    }
+
+    #[tokio::test]
+    async fn reorder_takes_exactly_the_queued_players() {
+        let pool = memory_db().await;
+        // A 1v1 camp of 4: two play, two wait.
+        let camp = create_camp(&pool, 1, 10, 4, 2).await.unwrap();
+        add_players(&pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
+        start_queue(&pool, &camp.id).await.unwrap();
+        create_match(&pool, &camp.id, 1).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        let before = queue_order(&state);
+        assert_eq!(before.len(), 2);
+
+        let reversed: Vec<i64> = before.iter().rev().copied().collect();
+        reorder_queue(&pool, &camp.id, &reversed).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert_eq!(queue_order(&state), reversed);
+
+        assert!(reorder_queue(&pool, &camp.id, &[before[0]]).await.is_err(), "someone left out");
+        assert!(reorder_queue(&pool, &camp.id, &[before[0], before[0]]).await.is_err(), "duplicate");
+        let playing = state.players.iter().find(|p| p.location != "queued").unwrap().user_id;
+        assert!(reorder_queue(&pool, &camp.id, &[before[0], playing]).await.is_err(), "not queued");
+    }
+
+    #[tokio::test]
+    async fn match_list_and_stats_count_finished_matches() {
+        let pool = memory_db().await;
+        let (camp_id, first) = camp_with_match(&pool).await;
+        close_voting(&pool, &camp_id, &first).await.unwrap();
+        start_live_match(&pool, &first, None, None).await.unwrap();
+        report_winner(&pool, &camp_id, &first, "hiddenking").await.unwrap();
+        let (_, second) = create_match(&pool, &camp_id, 1).await.unwrap();
+
+        let matches = list_matches(&pool, &camp_id).await.unwrap();
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].row.id, second, "open matches come first");
+        assert_eq!(matches[0].number, None);
+        assert_eq!(matches[1].row.id, first);
+        assert_eq!(matches[1].number, Some(1));
+        assert_eq!(matches[1].players.len(), 4);
+
+        let stats = player_stats(&pool, &camp_id).await.unwrap();
+        let winners: Vec<i64> = matches[1]
+            .players
+            .iter()
+            .filter(|p| p.side == "hiddenking")
+            .map(|p| p.user_id)
+            .collect();
+        for p in &matches[1].players {
+            let won = i64::from(winners.contains(&p.user_id));
+            assert_eq!(stats[&p.user_id], (1, won));
+        }
+    }
+
+    #[tokio::test]
+    async fn settings_fall_back_to_env_until_saved() {
+        let pool = memory_db().await;
+        let config = crate::config::Config {
+            discord_token: String::new(),
+            deadlock_api_key: None,
+            database_url: String::new(),
+            deadlock_server_region: Some("SouthAmerica".to_string()),
+            enable_custom_match_create: true,
+            draft_base_url: String::new(),
+            queue_voice_channel_id: Some(5),
+            match1_hiddenking_voice_id: None,
+            match1_archmother_voice_id: None,
+            match2_hiddenking_voice_id: None,
+            match2_archmother_voice_id: None,
+            web: crate::config::WebConfig {
+                bind: String::new(),
+                public_url: String::new(),
+                discord_client_id: String::new(),
+                discord_client_secret: String::new(),
+                static_dir: String::new(),
+            },
+        };
+        let env = GuildSettings::from_config(&config);
+        let (defaults, saved) = guild_settings(&pool, 1, &env).await.unwrap();
+        assert!(!saved);
+        assert_eq!(defaults, env);
+
+        let mine = GuildSettings {
+            queue_voice_id: None,
+            match1_hiddenking_voice_id: Some(11),
+            create_lobby: false,
+            server_region: None,
+            draft_timer_seconds: 60,
+            ..defaults.clone()
+        };
+        save_guild_settings(&pool, 1, &mine).await.unwrap();
+        assert_eq!(guild_settings(&pool, 1, &env).await.unwrap(), (mine.clone(), true));
+        assert_eq!(guild_settings(&pool, 2, &env).await.unwrap(), (defaults, false), "per server");
+
+        let changed = GuildSettings { draft_timer_seconds: 0, ..mine };
+        save_guild_settings(&pool, 1, &changed).await.unwrap();
+        assert_eq!(guild_settings(&pool, 1, &env).await.unwrap().0, changed);
     }
 }

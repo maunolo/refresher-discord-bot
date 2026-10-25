@@ -8,6 +8,7 @@ use axum::routing::{get, post};
 use axum::Router;
 use refresher_core::config::WebConfig;
 use refresher_core::link::BotLink;
+use refresher_core::settings::GuildSettings;
 use sqlx::SqlitePool;
 use tower_http::services::{ServeDir, ServeFile};
 
@@ -26,6 +27,8 @@ pub struct AppState {
     pub config: Arc<WebConfig>,
     pub http: reqwest::Client,
     pub link: Arc<dyn BotLink>,
+    /// Settings of a server that never saved its own: the `.env` values.
+    pub default_settings: GuildSettings,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -35,7 +38,9 @@ pub fn router(state: AppState) -> Router {
         .route("/guilds/{guild_id}/camps", get(api::guild_camps).post(api::create_camp))
         .route("/guilds/{guild_id}/channels", get(api::guild_channels))
         .route("/guilds/{guild_id}/members", get(api::search_members))
+        .route("/guilds/{guild_id}/settings", get(api::guild_settings).put(api::save_guild_settings))
         .route("/camps/{camp_id}", get(api::camp))
+        .route("/camps/{camp_id}/matches", get(api::camp_matches))
         .route("/camps/{camp_id}/actions", post(api::act))
         .route("/matches/{match_id}", get(api::match_info))
         .fallback(|| async { ApiError::NotFound });
@@ -56,7 +61,12 @@ pub fn router(state: AppState) -> Router {
 }
 
 /// Serves the admin web page and its API until the server stops.
-pub async fn run(config: WebConfig, db: SqlitePool, link: Arc<dyn BotLink>) -> Result<()> {
+pub async fn run(
+    config: WebConfig,
+    default_settings: GuildSettings,
+    db: SqlitePool,
+    link: Arc<dyn BotLink>,
+) -> Result<()> {
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()?;
@@ -75,6 +85,7 @@ pub async fn run(config: WebConfig, db: SqlitePool, link: Arc<dyn BotLink>) -> R
         config: Arc::new(config),
         http,
         link,
+        default_settings,
     };
     axum::serve(listener, router(state)).await?;
     Ok(())
@@ -103,7 +114,7 @@ mod tests {
 
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
-    use refresher_core::link::{BoxFuture, CampAction, Profile, TextChannel};
+    use refresher_core::link::{BoxFuture, CampAction, Channel, Profile};
     use refresher_core::queue::CampSize;
     use sqlx::sqlite::SqlitePoolOptions;
     use tower::ServiceExt;
@@ -148,10 +159,17 @@ mod tests {
             })
         }
 
-        fn text_channels(&self, guild_id: u64) -> Vec<TextChannel> {
-            vec![TextChannel {
+        fn text_channels(&self, guild_id: u64) -> Vec<Channel> {
+            vec![Channel {
                 id: guild_id * 10,
                 name: "camp-deadlock".to_string(),
+            }]
+        }
+
+        fn voice_channels(&self, guild_id: u64) -> Vec<Channel> {
+            vec![Channel {
+                id: guild_id * 10 + 1,
+                name: "Queue".to_string(),
             }]
         }
 
@@ -173,8 +191,8 @@ mod tests {
             })
         }
 
-        fn queue_voice_members(&self, _guild_id: u64) -> Vec<u64> {
-            vec![5]
+        fn queue_voice_members(&self, _guild_id: u64) -> BoxFuture<'_, Vec<u64>> {
+            Box::pin(async { vec![5] })
         }
 
         fn create_camp<'a>(
@@ -239,11 +257,34 @@ mod tests {
             }),
             http: reqwest::Client::new(),
             link,
+            default_settings: GuildSettings {
+                queue_voice_id: None,
+                match1_hiddenking_voice_id: None,
+                match1_archmother_voice_id: None,
+                match2_hiddenking_voice_id: None,
+                match2_archmother_voice_id: None,
+                create_lobby: true,
+                server_region: Some("SouthAmerica".to_string()),
+                draft_timer_seconds: 30,
+            },
         }
     }
 
     async fn post(state: &AppState, path: &str, token: Option<&str>, body: &str) -> (StatusCode, serde_json::Value) {
-        let mut request = Request::post(path).header("content-type", "application/json");
+        send(state, Request::post(path), token, body).await
+    }
+
+    async fn put(state: &AppState, path: &str, token: Option<&str>, body: &str) -> (StatusCode, serde_json::Value) {
+        send(state, Request::put(path), token, body).await
+    }
+
+    async fn send(
+        state: &AppState,
+        request: axum::http::request::Builder,
+        token: Option<&str>,
+        body: &str,
+    ) -> (StatusCode, serde_json::Value) {
+        let mut request = request.header("content-type", "application/json");
         if let Some(token) = token {
             request = request.header("cookie", format!("{}={token}", session::COOKIE_NAME));
         }
@@ -544,6 +585,115 @@ mod tests {
                 CampAction::SetSRank { user_id: 5, s_rank: true },
             ]
         );
+    }
+
+    #[tokio::test]
+    async fn queue_order_and_reminders_go_to_the_bot() {
+        let link = Arc::new(FakeLink::default());
+        let state = test_state_with(link.clone()).await;
+        let camp = refresher_core::db::create_camp(&state.db, 111, 900, 4, 2).await.unwrap();
+        let token = sign_in(&state, &[111]).await;
+        let path = format!("/api/camps/{}/actions", camp.id);
+
+        let reorder = r#"{"type": "reorder_queue", "user_ids": ["7", "5", "6"]}"#;
+        assert_eq!(post(&state, &path, Some(&token), reorder).await.0, StatusCode::OK);
+        let remind = r#"{"type": "remind_voters", "match_id": "R4T8WN"}"#;
+        assert_eq!(post(&state, &path, Some(&token), remind).await.0, StatusCode::OK);
+        let bad = r#"{"type": "reorder_queue", "user_ids": ["7", "x"]}"#;
+        assert_eq!(post(&state, &path, Some(&token), bad).await.0, StatusCode::BAD_REQUEST);
+
+        let actions = link.actions.lock().unwrap();
+        assert_eq!(
+            actions.iter().map(|a| a.2.clone()).collect::<Vec<_>>(),
+            [
+                CampAction::ReorderQueue { user_ids: vec![7, 5, 6] },
+                CampAction::RemindVoters {
+                    match_id: "R4T8WN".to_string()
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn match_list_stats_and_discord_links() {
+        let state = test_state(FakeLink {
+            guilds: vec![111],
+            ..FakeLink::default()
+        })
+        .await;
+        let db = &state.db;
+        let camp = refresher_core::db::create_camp(db, 111, 900, 4, 4).await.unwrap();
+        refresher_core::db::add_players(db, &camp.id, &[1, 2, 3, 4]).await.unwrap();
+        refresher_core::db::start_queue(db, &camp.id).await.unwrap();
+        let (_, first) = refresher_core::db::create_match(db, &camp.id, 111).await.unwrap();
+        refresher_core::db::set_match_message_id(db, &first, 555).await.unwrap();
+        refresher_core::db::close_voting(db, &camp.id, &first).await.unwrap();
+        refresher_core::db::start_live_match(db, &first, None, None).await.unwrap();
+        refresher_core::db::report_winner(db, &camp.id, &first, "archmother").await.unwrap();
+        let (_, second) = refresher_core::db::create_match(db, &camp.id, 111).await.unwrap();
+        let token = sign_in(&state, &[111]).await;
+
+        let (status, body) = get(&state, &format!("/api/camps/{}/matches", camp.id), Some(&token)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body[0]["id"], second.as_str());
+        assert_eq!(body[0]["number"], serde_json::Value::Null);
+        assert_eq!(body[0]["discord_url"], "https://discord.com/channels/111/900");
+        assert_eq!(body[1]["id"], first.as_str());
+        assert_eq!(body[1]["number"], 1);
+        assert_eq!(body[1]["winner_side"], "archmother");
+        assert_eq!(body[1]["discord_url"], "https://discord.com/channels/111/900/555");
+
+        let (_, camp_body) = get(&state, &format!("/api/camps/{}", camp.id), Some(&token)).await;
+        let players = camp_body["players"].as_array().unwrap();
+        assert!(players.iter().all(|p| p["matches_played"] == 1));
+        assert_eq!(players.iter().filter(|p| p["wins"] == 1).count(), 2);
+        assert_eq!(camp_body["discord_url"], "https://discord.com/channels/111/900");
+
+        let other = sign_in(&state, &[222]).await;
+        assert_eq!(
+            get(&state, &format!("/api/camps/{}/matches", camp.id), Some(&other)).await.0,
+            StatusCode::NOT_FOUND
+        );
+    }
+
+    #[tokio::test]
+    async fn settings_are_per_server_and_checked() {
+        let state = test_state(FakeLink {
+            guilds: vec![111, 222],
+            ..FakeLink::default()
+        })
+        .await;
+        let token = sign_in(&state, &[111]).await;
+
+        let (status, body) = get(&state, "/api/guilds/111/settings", Some(&token)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["saved"], false);
+        assert_eq!(body["create_lobby"], true, "the .env values until saved");
+        assert_eq!(body["server_region"], "SouthAmerica");
+        assert_eq!(body["voice_channels"][0]["id"], "1111");
+        assert_eq!(body["draft_timers"], serde_json::json!([0, 15, 30, 45, 60, 90]));
+
+        let form = r#"{"queue_voice_id": "1111", "match1_hiddenking_voice_id": null,
+            "match1_archmother_voice_id": "", "match2_hiddenking_voice_id": null,
+            "match2_archmother_voice_id": null, "create_lobby": false,
+            "server_region": "  Europe ", "draft_timer_seconds": 45}"#;
+        let (status, body) = put(&state, "/api/guilds/111/settings", Some(&token), form).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["saved"], true);
+        let (_, body) = get(&state, "/api/guilds/111/settings", Some(&token)).await;
+        assert_eq!(body["queue_voice_id"], "1111");
+        assert_eq!(body["match1_archmother_voice_id"], serde_json::Value::Null);
+        assert_eq!(body["create_lobby"], false);
+        assert_eq!(body["server_region"], "Europe");
+        assert_eq!(body["draft_timer_seconds"], 45);
+
+        let elsewhere = form.replace("\"1111\"", "\"2221\"");
+        assert_eq!(put(&state, "/api/guilds/111/settings", Some(&token), &elsewhere).await.0, StatusCode::BAD_REQUEST);
+        let odd_timer = form.replace("45", "50");
+        assert_eq!(put(&state, "/api/guilds/111/settings", Some(&token), &odd_timer).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(get(&state, "/api/guilds/111/settings", Some(&token)).await.1["draft_timer_seconds"], 45);
+        assert_eq!(get(&state, "/api/guilds/222/settings", Some(&token)).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(put(&state, "/api/guilds/222/settings", Some(&token), form).await.0, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

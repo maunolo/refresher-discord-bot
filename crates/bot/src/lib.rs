@@ -16,7 +16,7 @@ mod ui;
 mod voice;
 
 // Camp rules and storage live in refresher-core; the bot modules reach them as `crate::db` etc.
-use refresher_core::{config, db, deadlock, draft, queue};
+use refresher_core::{config, db, deadlock, draft, queue, settings};
 
 use config::Config;
 use discord::Discord;
