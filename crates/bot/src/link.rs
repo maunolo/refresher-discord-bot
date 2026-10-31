@@ -6,6 +6,7 @@ use poise::serenity_prelude as serenity;
 use refresher_core::link::{BotLink, BoxFuture, CampAction, Channel, Profile};
 use refresher_core::queue::CampSize;
 use serenity::all::{ChannelType, GuildId, Member, UserId};
+use serenity::http::StatusCode;
 
 use crate::actions;
 use crate::discord::Discord;
@@ -14,6 +15,9 @@ use crate::voice::{self, VoiceDest};
 
 /// Names change rarely; this spares Discord thirty member lookups on every page refresh.
 const PROFILE_TTL: Duration = Duration::from_secs(10 * 60);
+
+/// The most members Discord returns per request.
+const MEMBER_PAGE: u64 = 1000;
 
 /// Answers the web admin through the bot's Discord connection.
 pub struct SerenityLink {
@@ -125,25 +129,34 @@ impl BotLink for SerenityLink {
         channels_of(&self.discord, guild_id, ChannelType::Voice)
     }
 
-    fn search_members<'a>(
-        &'a self,
-        guild_id: u64,
-        query: &'a str,
-        limit: u64,
-    ) -> BoxFuture<'a, anyhow::Result<Vec<(u64, Profile)>>> {
+    fn members(&self, guild_id: u64) -> BoxFuture<'_, anyhow::Result<Vec<(u64, Profile)>>> {
         Box::pin(async move {
-            let members = GuildId::new(guild_id)
-                .search_members(&self.discord.http, query, Some(limit))
-                .await?;
-            Ok(members
-                .iter()
-                .filter(|m| !m.user.bot)
-                .map(|m| {
+            let mut found = Vec::new();
+            let mut after = None;
+            loop {
+                // Discord pages members by user ID, at most 1000 at a time.
+                let page = match GuildId::new(guild_id)
+                    .members(&self.discord.http, Some(MEMBER_PAGE), after)
+                    .await
+                {
+                    Ok(page) => page,
+                    Err(serenity::Error::Http(err)) if err.status_code() == Some(StatusCode::FORBIDDEN) => {
+                        anyhow::bail!(
+                            "O Discord não deixou o bot listar os membros do servidor. Ative o Server Members Intent do bot no Discord Developer Portal."
+                        )
+                    }
+                    Err(err) => return Err(err.into()),
+                };
+                after = page.last().map(|m| m.user.id);
+                for m in page.iter().filter(|m| !m.user.bot) {
                     let profile = member_profile(m);
                     self.remember(guild_id, m.user.id.get(), &profile);
-                    (m.user.id.get(), profile)
-                })
-                .collect())
+                    found.push((m.user.id.get(), profile));
+                }
+                if page.len() < MEMBER_PAGE as usize {
+                    return Ok(found);
+                }
+            }
         })
     }
 

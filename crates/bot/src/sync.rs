@@ -169,8 +169,9 @@ pub fn side_mentions(players: &[MatchPlayerRow], side: &str) -> String {
         .join(" ")
 }
 
-/// DM each captain their team's private draft link. The link is never posted in the channel:
-/// a captain who can't be DM'd is pointed at the captain-only button on the match message.
+/// DM each captain their team's private draft link. A team can have several captains (all its
+/// S-rank players); they all get the same link. The link is never posted in the channel: a
+/// captain who can't be DM'd is pointed at the captain-only button on the match message.
 pub async fn send_draft_to_captains(
     discord: &Discord,
     channel: ChannelId,
@@ -188,8 +189,22 @@ pub async fn send_draft_to_captains(
         };
         let team = crate::ui::winner_label(&captain.side);
         let user = UserId::new(captain.user_id as u64);
+        let co_captains: Vec<String> = open
+            .players
+            .iter()
+            .filter(|p| p.is_captain && p.side == captain.side && p.user_id != captain.user_id)
+            .map(|p| UserId::new(p.user_id as u64).mention().to_string())
+            .collect();
+        let shared = if co_captains.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\nO time tem mais capitães com este mesmo link: {}. Combinem quem escolhe e bane.",
+                co_captains.join(", ")
+            )
+        };
         let text = format!(
-            "Você é o capitão do **{team}** na {match_name} (ID `{}`) do camp `{camp_id}`.\nSeu link do draft — não compartilhe, quem abrir escolhe e bane pelo seu time:\n{team_url}",
+            "Você é capitão do **{team}** na {match_name} (ID `{}`) do camp `{camp_id}`.{shared}\nSeu link do draft — não compartilhe, quem abrir escolhe e bane pelo seu time:\n{team_url}",
             open.row.id
         );
         if let Err(err) = user

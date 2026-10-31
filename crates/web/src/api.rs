@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use refresher_core::db::{
@@ -91,7 +91,7 @@ pub struct ChannelDto {
 }
 
 #[derive(Serialize)]
-pub struct MemberSearchDto {
+pub struct ServerMemberDto {
     id: String,
     name: String,
     avatar_url: String,
@@ -491,28 +491,22 @@ pub async fn guild_channels(
     ))
 }
 
-#[derive(Deserialize)]
-pub struct MemberQuery {
-    query: String,
-}
-
-/// Server members whose name starts with `query`, for adding players.
-pub async fn search_members(
+/// Every server member except bots, for adding players. The page filters them by name.
+pub async fn guild_members(
     State(state): State<AppState>,
     Admin(session): Admin,
     Path(guild_id): Path<u64>,
-    Query(params): Query<MemberQuery>,
-) -> Result<Json<Vec<MemberSearchDto>>, ApiError> {
+) -> Result<Json<Vec<ServerMemberDto>>, ApiError> {
     managed_guild(&state, &session, guild_id)?;
-    let query = params.query.trim();
-    if query.is_empty() {
-        return Ok(Json(Vec::new()));
-    }
-    let members = state.link.search_members(guild_id, query, 10).await?;
+    let members = state
+        .link
+        .members(guild_id)
+        .await
+        .map_err(|err| ApiError::Conflict(err.to_string()))?;
     Ok(Json(
         members
             .into_iter()
-            .map(|(id, p)| MemberSearchDto {
+            .map(|(id, p)| ServerMemberDto {
                 id: id.to_string(),
                 name: p.name,
                 avatar_url: p.avatar_url,

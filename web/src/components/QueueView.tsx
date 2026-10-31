@@ -119,7 +119,7 @@ export function QueueView({ camp }: { camp: Camp }) {
           <p className="muted small">
             {missing > 0
               ? `Uma partida precisa de ${camp.match_size}. Faltam ${missing}; os próximos entram quando uma partida terminar.`
-              : 'Marcados com → entram na próxima partida (S rank primeiro, para cada time ter um capitão).'}
+              : 'Marcados com → entram na próxima partida: os primeiros da fila.'}
           </p>
         )}
         {order.length === 0 ? (
@@ -199,7 +199,8 @@ export function QueueView({ camp }: { camp: Camp }) {
         <section className="card" aria-labelledby="queue-rules-title">
           <h2 id="queue-rules-title">Como a fila anda</h2>
           <p className="muted small">
-            Uma partida nova pega os primeiros da fila, garantindo dois S rank quando houver. Depois de cada resultado, quem
+            A fila começa sorteada em times, com os S rank divididos por igual. Uma partida nova pega os primeiros da fila,
+            S rank ou não. Depois de cada resultado, quem
             estava esperando continua na frente, nesta ordem; quem acabou de jogar entra no fim, quem jogou menos partidas
             seguidas primeiro e vencedores antes dos perdedores.
           </p>

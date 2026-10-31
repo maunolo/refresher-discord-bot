@@ -37,7 +37,7 @@ pub fn router(state: AppState) -> Router {
         .route("/me", get(api::me))
         .route("/guilds/{guild_id}/camps", get(api::guild_camps).post(api::create_camp))
         .route("/guilds/{guild_id}/channels", get(api::guild_channels))
-        .route("/guilds/{guild_id}/members", get(api::search_members))
+        .route("/guilds/{guild_id}/members", get(api::guild_members))
         .route("/guilds/{guild_id}/settings", get(api::guild_settings).put(api::save_guild_settings))
         .route("/camps/{camp_id}", get(api::camp))
         .route("/camps/{camp_id}/matches", get(api::camp_matches))
@@ -173,19 +173,10 @@ mod tests {
             }]
         }
 
-        fn search_members<'a>(
-            &'a self,
-            _guild_id: u64,
-            query: &'a str,
-            _limit: u64,
-        ) -> BoxFuture<'a, anyhow::Result<Vec<(u64, Profile)>>> {
+        fn members(&self, _guild_id: u64) -> BoxFuture<'_, anyhow::Result<Vec<(u64, Profile)>>> {
             Box::pin(async move {
-                let mut found: Vec<(u64, Profile)> = self
-                    .names
-                    .iter()
-                    .filter(|(_, name)| name.starts_with(query))
-                    .map(|(id, name)| (*id, profile(name)))
-                    .collect();
+                let mut found: Vec<(u64, Profile)> =
+                    self.names.iter().map(|(id, name)| (*id, profile(name))).collect();
                 found.sort_by_key(|(id, _)| *id);
                 Ok(found)
             })
@@ -548,7 +539,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn channels_and_member_search_need_a_managed_server() {
+    async fn channels_and_members_need_a_managed_server() {
         let state = test_state(FakeLink {
             guilds: vec![111, 222],
             names: HashMap::from([(5, "kaze".to_string()), (6, "kami".to_string()), (7, "zeca".to_string())]),
@@ -561,14 +552,14 @@ mod tests {
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body[0]["id"], "1110");
 
-        let (status, body) = get(&state, "/api/guilds/111/members?query=ka", Some(&token)).await;
+        let (status, body) = get(&state, "/api/guilds/111/members", Some(&token)).await;
         assert_eq!(status, StatusCode::OK);
         let names: Vec<&str> = body.as_array().unwrap().iter().map(|m| m["name"].as_str().unwrap()).collect();
-        assert_eq!(names, ["kaze", "kami"]);
+        assert_eq!(names, ["kaze", "kami", "zeca"]);
         assert_eq!(body[0]["id"], "5");
 
         assert_eq!(get(&state, "/api/guilds/222/channels", Some(&token)).await.0, StatusCode::NOT_FOUND);
-        assert_eq!(get(&state, "/api/guilds/222/members?query=ka", Some(&token)).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(get(&state, "/api/guilds/222/members", Some(&token)).await.0, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

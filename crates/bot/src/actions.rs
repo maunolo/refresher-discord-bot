@@ -128,7 +128,7 @@ async fn start_queue(discord: &Discord, data: &Data, guild_id: GuildId, camp_id:
         .say(
             &discord.http,
             format!(
-                "Fila embaralhada do camp `{}`:\n{}\nOs times saem da fila quando um admin cria a partida.",
+                "Fila embaralhada do camp `{}`, com os S rank divididos por igual entre os times:\n{}\nOs times saem da fila quando um admin cria a partida.",
                 state.camp.id,
                 sync::mention_list(&order)
             ),

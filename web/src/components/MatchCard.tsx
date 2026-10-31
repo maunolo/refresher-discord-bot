@@ -84,24 +84,29 @@ function Team({ camp, match, side }: { camp: Camp; match: Match; side: Side }) {
   );
 }
 
+/** A team's captains by name: all its S-rank players, or its top scorer. */
+function captainNames(camp: Camp, match: Match, side: Side): string {
+  return match.players
+    .filter((p) => p.side === side && p.is_captain)
+    .map((p) => playerName(camp, p.user_id))
+    .join(', ');
+}
+
 /** A draft started without the draft tool: who should get the link an admin shares. */
 export function ManualDraftNote({ camp, match }: { camp: Camp; match: Match }) {
-  const captains = SIDES.flatMap((side) => match.players.filter((p) => p.is_captain && p.side === side));
+  const teams = SIDES.map((side) => ({ side, names: captainNames(camp, match, side) })).filter((t) => t.names);
   return (
     <div className="inset">
       <span className="eyebrow">Draft manual</span>
       <span className="small text-2">
         Mande o link do draft para os capitães
-        {captains.length > 0 &&
-          `: ${captains.map((c) => `${playerName(camp, c.user_id)} (${SIDE_LABEL[c.side]})`).join(' e ')}`}
-        .
+        {teams.length > 0 && `: ${teams.map((t) => `${t.names} (${SIDE_LABEL[t.side]})`).join(' e ')}`}.
       </span>
     </div>
   );
 }
 
 export function DraftLinks({ camp, match, draft }: { camp: Camp; match: Match; draft: Draft }) {
-  const captain = (side: Side) => match.players.find((p) => p.side === side && p.is_captain);
   const teamUrl = (side: Side) => (side === 'hiddenking' ? draft.hiddenking_url : draft.archmother_url);
   return (
     <div className="inset">
@@ -115,12 +120,14 @@ export function DraftLinks({ camp, match, draft }: { camp: Camp; match: Match; d
       </div>
       {SIDES.map((side) => {
         const url = teamUrl(side);
-        const cap = captain(side);
+        const names = captainNames(camp, match, side);
         if (!url) return null;
         return (
           <div key={side} className="link-row">
             <span className="muted small">{SIDE_LABEL[side]}</span>
-            <span className="small ellipsis">{cap ? `link de ${playerName(camp, cap.user_id)}` : 'link do capitão'}</span>
+            <span className="small ellipsis" title={names || undefined}>
+              {names ? `link de ${names}` : 'link do capitão'}
+            </span>
             <CopyButton text={url} label={`Copiar link do capitão (${SIDE_LABEL[side]})`} />
           </div>
         );

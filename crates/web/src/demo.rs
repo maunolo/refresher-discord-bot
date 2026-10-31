@@ -145,19 +145,11 @@ impl BotLink for DemoLink {
             .collect()
     }
 
-    fn search_members<'a>(
-        &'a self,
-        _guild_id: u64,
-        query: &'a str,
-        limit: u64,
-    ) -> BoxFuture<'a, Result<Vec<(u64, Profile)>>> {
+    fn members(&self, _guild_id: u64) -> BoxFuture<'_, Result<Vec<(u64, Profile)>>> {
         Box::pin(async move {
-            let query = query.to_lowercase();
             Ok((0..NAMES.len() as u64)
                 .map(|i| FIRST_USER + i)
                 .filter_map(|id| demo_profile(id).map(|p| (id, p)))
-                .filter(|(_, p)| p.name.starts_with(&query))
-                .take(limit as usize)
                 .collect())
         })
     }
