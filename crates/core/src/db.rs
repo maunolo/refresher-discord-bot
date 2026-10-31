@@ -1092,9 +1092,9 @@ async fn insert_match_players(
     match_id: &str,
     split: &TeamSplit,
 ) -> Result<()> {
-    for (side, team, captain) in [
-        ("hiddenking", &split.hiddenking, split.hiddenking_captain),
-        ("archmother", &split.archmother, split.archmother_captain),
+    for (side, team, captains) in [
+        ("hiddenking", &split.hiddenking, &split.hiddenking_captains),
+        ("archmother", &split.archmother, &split.archmother_captains),
     ] {
         for user_id in team {
             sqlx::query(
@@ -1103,7 +1103,7 @@ async fn insert_match_players(
             .bind(match_id)
             .bind(user_id)
             .bind(side)
-            .bind(captain == Some(*user_id))
+            .bind(captains.contains(user_id))
             .execute(&mut **tx)
             .await?;
         }
@@ -1197,21 +1197,25 @@ pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<Vec<i64>> {
     }
 
     let mut tx = pool.begin().await?;
-    let original: Vec<i64> = sqlx::query_scalar(
-        "SELECT user_id FROM camp_players WHERE camp_id = ? ORDER BY joined_at, user_id",
+    let roster: Vec<(i64, bool)> = sqlx::query_as::<_, (i64, i64)>(
+        "SELECT user_id, is_s_rank FROM camp_players WHERE camp_id = ? ORDER BY joined_at, user_id",
     )
     .bind(camp_id)
     .fetch_all(&mut *tx)
-    .await?;
-    let mut ids = original.clone();
+    .await?
+    .into_iter()
+    .map(|(user_id, s_rank)| (user_id, s_rank != 0))
+    .collect();
+    let original: Vec<i64> = roster.iter().map(|p| p.0).collect();
+    let team_size = state.camp.layout().match_size / 2;
     let mut rng = StdRng::from_entropy();
-    if ids.len() > 1 {
-        for _ in 0..16 {
-            queue::shuffle_ids(&mut ids, &mut rng);
-            if ids != original {
-                break;
-            }
+    let mut ids = queue::starting_queue(&roster, team_size, &mut rng);
+    // Shuffle again if it happened to keep the signup order.
+    for _ in 0..16 {
+        if ids != original || ids.len() < 2 {
+            break;
         }
+        ids = queue::starting_queue(&roster, team_size, &mut rng);
     }
     for (i, user_id) in ids.iter().enumerate() {
         sqlx::query(
@@ -2197,6 +2201,48 @@ mod tests {
             .iter()
             .map(|p| (p.user_id, p.side.clone()))
             .collect()
+    }
+
+    #[tokio::test]
+    async fn starting_the_queue_spreads_s_rank_over_the_teams() {
+        let pool = memory_db().await;
+        let camp = create_camp(&pool, 1, 10, 30, 12).await.unwrap();
+        let roster: Vec<i64> = (1..=30).collect();
+        add_players(&pool, &camp.id, &roster).await.unwrap();
+        let s_rank: Vec<i64> = (1..=8).collect();
+        set_s_rank(&pool, &camp.id, &s_rank).await.unwrap();
+
+        let order = start_queue(&pool, &camp.id).await.unwrap();
+
+        let per_team: Vec<usize> = order
+            .chunks(6)
+            .map(|team| team.iter().filter(|id| s_rank.contains(id)).count())
+            .collect();
+        assert_eq!(per_team.len(), 5);
+        assert!(per_team.iter().all(|n| (1..=2).contains(n)), "{per_team:?}");
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        let mut queued = state.players.clone();
+        queued.sort_by_key(|p| p.queue_position);
+        assert_eq!(queued.iter().map(|p| p.user_id).collect::<Vec<_>>(), order, "saved in that order");
+    }
+
+    #[tokio::test]
+    async fn every_s_rank_player_in_a_match_is_captain() {
+        let pool = memory_db().await;
+        let camp = create_camp(&pool, 1, 10, 4, 4).await.unwrap();
+        add_players(&pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
+        set_s_rank(&pool, &camp.id, &[1, 2, 3]).await.unwrap();
+        start_queue(&pool, &camp.id).await.unwrap();
+        create_match(&pool, &camp.id, 1).await.unwrap();
+
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        let players = &state.open_matches[0].players;
+        let mut captains: Vec<i64> = players.iter().filter(|p| p.is_captain).map(|p| p.user_id).collect();
+        captains.sort();
+        assert_eq!(captains, [1, 2, 3], "three S rank in one 2v2: all captains, one team has two");
+        let side_of = |id: i64| players.iter().find(|p| p.user_id == id).unwrap().side.clone();
+        let regular_side = side_of(4);
+        assert_eq!([1, 2, 3].iter().filter(|id| side_of(**id) == regular_side).count(), 1);
     }
 
     #[tokio::test]

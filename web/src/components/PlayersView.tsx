@@ -32,39 +32,48 @@ function SRankSwitch({ camp, player }: { camp: Camp; player: Player }) {
   );
 }
 
+/** Lowercase without accents, so "fumaca" finds "fumaça". */
+function folded(text: string): string {
+  return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+}
+
+/** The most members the list shows at once; typing narrows it. */
+const SHOWN = 50;
+
+type ServerMember = MemberResult & { folded: string };
+
 function MemberSearch({ camp }: { camp: Camp }) {
   const { run, busy } = useActions();
   const [query, setQuery] = useState('');
-  const [found, setFound] = useState<{ query: string; members: MemberResult[] } | null>(null);
+  const [members, setMembers] = useState<ServerMember[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Once per server: the list is filtered here, not on Discord.
   useEffect(() => {
-    const q = query.trim();
-    if (!q) {
-      setFound(null);
-      return;
-    }
     let cancelled = false;
-    const timer = window.setTimeout(() => {
-      api
-        .searchMembers(camp.guild_id, q)
-        .then((members) => {
-          if (!cancelled) {
-            setFound({ query: q, members });
-            setError(null);
-          }
-        })
-        .catch((e: Error) => !cancelled && setError(e.message));
-    }, 300);
+    setMembers(null);
+    setError(null);
+    api
+      .members(camp.guild_id)
+      .then((list) => {
+        if (cancelled) return;
+        const sorted = list
+          .map((m) => ({ ...m, folded: folded(m.name) }))
+          .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }));
+        setMembers(sorted);
+      })
+      .catch((e: Error) => !cancelled && setError(e.message));
     return () => {
       cancelled = true;
-      window.clearTimeout(timer);
     };
-  }, [query, camp.guild_id]);
+  }, [camp.guild_id]);
 
   const onRoster = new Set(camp.players.map((p) => p.user_id));
   const inVoice = new Set(camp.queue_voice);
   const full = camp.players.length >= camp.target_size;
+  const q = folded(query.trim());
+  const available = members?.filter((m) => !onRoster.has(m.id)) ?? [];
+  const matching = q ? available.filter((m) => m.folded.includes(q)) : available;
 
   return (
     <div className="field">
@@ -73,42 +82,56 @@ function MemberSearch({ camp }: { camp: Camp }) {
         id="member-search"
         type="search"
         className="input"
-        placeholder="Comece a digitar o nome"
+        placeholder="Filtrar por nome"
         autoComplete="off"
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      {error && <p className="error small">{error}</p>}
-      {found && found.query === query.trim() && (
-        found.members.length === 0 ? (
-          <p className="muted small">Ninguém com esse começo de nome no servidor.</p>
-        ) : (
-          <ul className="search-results" aria-label="Resultados da busca">
-            {found.members.map((m) => (
+      {error ? (
+        <p className="error small">{error}</p>
+      ) : members === null ? (
+        <p className="muted small">Carregando membros do servidor…</p>
+      ) : available.length === 0 ? (
+        <p className="muted small">Todos os membros do servidor já estão no elenco.</p>
+      ) : matching.length === 0 ? (
+        <p className="muted small">Ninguém fora do elenco com esse nome.</p>
+      ) : (
+        <>
+          <ul className="search-results" aria-label="Membros do servidor fora do elenco">
+            {matching.slice(0, SHOWN).map((m) => (
               <li key={m.id} className="search-result">
                 <Avatar url={m.avatar_url} name={m.name} />
                 <span className="ellipsis">{m.name}</span>
                 {inVoice.has(m.id) && <span className="muted small">em voz: Queue</span>}
-                {onRoster.has(m.id) ? (
-                  <span className="row-end muted small">Já está no elenco</span>
-                ) : (
-                  <button
-                    type="button"
-                    className="button button-primary button-small row-end"
-                    disabled={busy || full}
-                    title={full ? 'O elenco está completo.' : undefined}
-                    onClick={() => run({ type: 'add_players', user_ids: [m.id] })}
-                  >
-                    Adicionar
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="button button-primary button-small row-end"
+                  disabled={busy || full}
+                  title={full ? 'O elenco está completo.' : undefined}
+                  onClick={() => run({ type: 'add_players', user_ids: [m.id] })}
+                >
+                  Adicionar
+                </button>
               </li>
             ))}
           </ul>
-        )
+          {matching.length > SHOWN && (
+            <p className="muted small">
+              Mostrando {SHOWN} de {matching.length}. Digite para filtrar.
+            </p>
+          )}
+        </>
       )}
     </div>
   );
+}
+
+/** How the starting queue spreads S rank over the camp's teams, e.g. "3 times com 2 e 2 com 1". */
+function sRankSpread(sRank: number, teams: number): string {
+  const each = Math.floor(sRank / teams);
+  const more = sRank % teams;
+  if (more === 0) return `${each} por time`;
+  return `${more} ${more === 1 ? 'time' : 'times'} com ${each + 1} e ${teams - more} com ${each}`;
 }
 
 function Signup({ camp }: { camp: Camp }) {
@@ -120,6 +143,8 @@ function Signup({ camp }: { camp: Camp }) {
   const voiceToAdd = camp.queue_voice.filter((id) => !onRoster.has(id));
   const sRank = camp.players.filter((p) => p.s_rank).length;
   const isTest = camp.target_size === 4;
+  const teamSize = camp.match_size / 2;
+  const teams = camp.target_size / teamSize;
 
   return (
     <div className="split">
@@ -176,12 +201,15 @@ function Signup({ camp }: { camp: Camp }) {
             <h2 id="s-title">S rank</h2>
             <span className="chip chip-s">{sRank} marcados</span>
           </div>
-          <p className="small">Cada partida puxa os dois primeiros S rank da fila, um em cada time, e eles viram capitães.</p>
-          {!isTest && (
-            <p className="muted small">
-              Com duas partidas ao mesmo tempo, o ideal são 4.{sRank > 4 ? ` Com ${sRank}, alguns esperam na fila.` : ''}
-            </p>
-          )}
+          <p className="small">
+            {`Ao iniciar a fila, o elenco é sorteado em ${teams} times de ${teamSize}, com os S rank divididos por igual${
+              sRank > 0 ? `: ${sRankSpread(sRank, teams)}` : ''
+            }. Depois disso, S rank não têm prioridade na fila.`}
+          </p>
+          <p className="muted small">
+            Numa partida, os S rank ficam divididos entre os dois times, e todo S rank do time é capitão e recebe o link do
+            draft. Um time sem S rank tem como capitão quem tem mais pontos.
+          </p>
         </section>
         <section className="card" aria-labelledby="check-title">
           <h2 id="check-title">Antes de iniciar a fila</h2>
@@ -207,7 +235,7 @@ function Signup({ camp }: { camp: Camp }) {
                 {
                   confirm: {
                     title: 'Iniciar a fila?',
-                    message: 'O elenco é embaralhado e postado no Discord, e quem estiver em voz vai para o canal Queue.',
+                    message: `O elenco é embaralhado em ${teams} times de ${teamSize}, com os S rank divididos por igual, e postado no Discord. Quem estiver em voz vai para o canal Queue.`,
                     note: 'Depois disso não dá para adicionar nem remover jogadores.',
                     action: 'Iniciar fila',
                   },

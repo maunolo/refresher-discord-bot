@@ -109,7 +109,7 @@ pub fn signup_embed(state: &CampState) -> CreateEmbed {
     CreateEmbed::new()
         .title("Elenco do camp de Deadlock")
         .description(format!(
-            "Inscrição aberta: {}/{} jogadores. Quando o elenco fechar, a fila aparece aqui.{}\n{S_RANK_TAG} S rank: **{s_rank}** — capitães, dois por partida, sempre em times separados.",
+            "Inscrição aberta: {}/{} jogadores. Quando o elenco fechar, a fila aparece aqui.{}\n{S_RANK_TAG} S rank: **{s_rank}** — a fila começa com eles divididos por igual entre os times, e todos são capitães.",
             state.players.len(),
             state.camp.target_size,
             match state.camp.layout().match_size {

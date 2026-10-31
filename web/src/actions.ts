@@ -55,7 +55,7 @@ export function confirmCloseVote(match: Match): Confirm {
 export function confirmRefreshTeams(match: Match): Confirm {
   return {
     title: `Sortear os times da ${matchName(match)} de novo?`,
-    message: 'A votação acaba e os mesmos jogadores são sorteados em times novos, com os S rank separados e capitães escolhidos de novo. O draft libera em seguida.',
+    message: 'A votação acaba e os mesmos jogadores são sorteados em times novos, com os S rank divididos entre os times e capitães escolhidos de novo. O draft libera em seguida.',
     note: 'Os votos dados até agora são descartados, e a partida não tem outro refresh.',
     action: 'Sortear de novo',
   };

@@ -211,8 +211,8 @@ export const api = {
   saveSettings: (guildId: string, form: SettingsForm) =>
     send<Settings>('PUT', `/api/guilds/${guildId}/settings`, form),
   channels: (guildId: string) => request<Channel[]>(`/api/guilds/${guildId}/channels`),
-  searchMembers: (guildId: string, query: string) =>
-    request<MemberResult[]>(`/api/guilds/${guildId}/members?query=${encodeURIComponent(query)}`),
+  /** Every server member except bots. */
+  members: (guildId: string) => request<MemberResult[]>(`/api/guilds/${guildId}/members`),
   /** Resolves with the camp once the bot has also updated Discord. */
   act: (campId: string, action: CampAction) => post<Camp>(`/api/camps/${campId}/actions`, action),
   createCamp: (guildId: string, channelId: string, size: CampSizeChoice) =>

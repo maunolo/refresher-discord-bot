@@ -84,10 +84,6 @@ impl CampLayout {
     }
 }
 
-pub fn shuffle_ids(ids: &mut [i64], rng: &mut impl Rng) {
-    ids.shuffle(rng);
-}
-
 /// Top `n` players by points. Equal scores are shuffled so ties for the last seats are fair.
 pub fn select_finalists(players: &[(i64, i64)], n: usize, rng: &mut impl Rng) -> Vec<i64> {
     let mut by_points: std::collections::BTreeMap<i64, Vec<i64>> =
@@ -108,8 +104,36 @@ pub fn select_finalists(players: &[(i64, i64)], n: usize, rng: &mut impl Rng) ->
     result
 }
 
-/// S-rank players pulled into each new match: one per team.
-const S_RANK_PER_MATCH: usize = 2;
+/// The queue when a camp starts: the roster shuffled into the camp's teams, `team_size` places of
+/// the line each, with S-rank players spread over the teams as evenly as possible (which teams get
+/// one more is random). The first match takes the first two teams, the next match the two after.
+pub fn starting_queue(players: &[(i64, bool)], team_size: usize, rng: &mut impl Rng) -> Vec<i64> {
+    let teams = players.len().div_ceil(team_size.max(1));
+    if teams == 0 {
+        return Vec::new();
+    }
+    let mut s_rank: Vec<i64> = players.iter().filter(|p| p.1).map(|p| p.0).collect();
+    let mut others: Vec<i64> = players.iter().filter(|p| !p.1).map(|p| p.0).collect();
+    s_rank.shuffle(rng);
+    others.shuffle(rng);
+
+    let mut per_team = vec![s_rank.len() / teams; teams];
+    let mut one_more: Vec<usize> = (0..teams).collect();
+    one_more.shuffle(rng);
+    for team in one_more.into_iter().take(s_rank.len() % teams) {
+        per_team[team] += 1;
+    }
+
+    let mut order = Vec::with_capacity(players.len());
+    for count in per_team {
+        let mut team: Vec<i64> = s_rank.drain(..count).collect();
+        let fill = team_size.saturating_sub(count).min(others.len());
+        team.extend(others.drain(..fill));
+        team.shuffle(rng);
+        order.extend(team);
+    }
+    order
+}
 
 /// A player being seated in a match.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -123,33 +147,14 @@ pub struct Seat {
 pub struct TeamSplit {
     pub hiddenking: Vec<i64>,
     pub archmother: Vec<i64>,
-    pub hiddenking_captain: Option<i64>,
-    pub archmother_captain: Option<i64>,
+    pub hiddenking_captains: Vec<i64>,
+    pub archmother_captains: Vec<i64>,
 }
 
-/// Pick who leaves the queue for the next match: the first two queued S-rank players, then the
-/// other seats in queue order. Extra S-rank players keep their place in line unless there are not
-/// enough regular players left to fill the match.
+/// Who leaves the queue for the next match: the first `match_size` of `queued`, in queue order.
+/// S rank gives no priority; `starting_queue` spreads S-rank players over the camp's teams instead.
 pub fn pick_match_seats(queued: &[Seat], match_size: usize) -> Vec<Seat> {
-    let mut picked: Vec<Seat> = queued
-        .iter()
-        .filter(|s| s.s_rank)
-        .take(S_RANK_PER_MATCH.min(match_size))
-        .copied()
-        .collect();
-    let open = match_size - picked.len();
-    picked.extend(queued.iter().filter(|s| !s.s_rank).take(open).copied());
-    if picked.len() < match_size {
-        let open = match_size - picked.len();
-        let extra: Vec<Seat> = queued
-            .iter()
-            .filter(|s| !picked.iter().any(|p| p.user_id == s.user_id))
-            .take(open)
-            .copied()
-            .collect();
-        picked.extend(extra);
-    }
-    picked
+    queued.iter().take(match_size).copied().collect()
 }
 
 /// Highest points first. Equal scores are shuffled.
@@ -194,28 +199,28 @@ fn total_points(seats: &[Seat]) -> i64 {
     seats.iter().map(|s| s.points).sum()
 }
 
-/// The team's S-rank player is captain. With none (or several), the most points wins; ties are random.
-fn pick_captain(team: &[Seat], rng: &mut impl Rng) -> Option<i64> {
-    let s_rank: Vec<&Seat> = team.iter().filter(|s| s.s_rank).collect();
-    let pool: Vec<&Seat> = if s_rank.is_empty() {
-        team.iter().collect()
-    } else {
-        s_rank
+/// Every S-rank player on the team is a captain. With none, the one with the most points; ties are random.
+fn pick_captains(team: &[Seat], rng: &mut impl Rng) -> Vec<i64> {
+    let s_rank: Vec<i64> = team.iter().filter(|s| s.s_rank).map(|s| s.user_id).collect();
+    if !s_rank.is_empty() {
+        return s_rank;
+    }
+    let Some(best) = team.iter().map(|s| s.points).max() else {
+        return Vec::new();
     };
-    let best = pool.iter().map(|s| s.points).max()?;
-    let top: Vec<i64> = pool
+    let top: Vec<i64> = team
         .iter()
         .filter(|s| s.points == best)
         .map(|s| s.user_id)
         .collect();
-    top.choose(rng).copied()
+    top.choose(rng).copied().into_iter().collect()
 }
 
-/// Split a match roster into Hiddenking and Archmother and name each team's captain.
+/// Split a match roster into Hiddenking and Archmother and name each team's captains.
 ///
-/// S-rank players are dealt first, alternating teams, so two of them only share a team when the
-/// match has more than two. `balanced` (final match) snake-drafts everyone else by points with ties
-/// shuffled; otherwise they are shuffled. A coin flip decides which side is Hiddenking.
+/// S-rank players are dealt first, alternating teams, so the two teams' counts differ by one at
+/// most. `balanced` (final match) snake-drafts everyone else by points with ties shuffled;
+/// otherwise they are shuffled. A coin flip decides which side is Hiddenking.
 pub fn split_match(seats: &[Seat], balanced: bool, rng: &mut impl Rng) -> TeamSplit {
     let half = seats.len() / 2;
     let (s_rank, others): (Vec<Seat>, Vec<Seat>) = seats.iter().copied().partition(|s| s.s_rank);
@@ -248,13 +253,13 @@ pub fn split_match(seats: &[Seat], balanced: bool, rng: &mut impl Rng) -> TeamSp
     if rng.gen_bool(0.5) {
         std::mem::swap(&mut team_a, &mut team_b);
     }
-    let hiddenking_captain = pick_captain(&team_a, rng);
-    let archmother_captain = pick_captain(&team_b, rng);
+    let hiddenking_captains = pick_captains(&team_a, rng);
+    let archmother_captains = pick_captains(&team_b, rng);
     TeamSplit {
         hiddenking: team_a.iter().map(|s| s.user_id).collect(),
         archmother: team_b.iter().map(|s| s.user_id).collect(),
-        hiddenking_captain,
-        archmother_captain,
+        hiddenking_captains,
+        archmother_captains,
     }
 }
 
@@ -319,33 +324,64 @@ mod tests {
         seats.iter().map(|s| s.user_id).collect()
     }
 
+    /// S-rank players in each team of the starting queue, in line order.
+    fn s_rank_per_team(order: &[i64], s_rank: &[i64], team_size: usize) -> Vec<usize> {
+        order
+            .chunks(team_size)
+            .map(|team| team.iter().filter(|id| s_rank.contains(id)).count())
+            .collect()
+    }
+
     #[test]
-    fn pick_takes_first_two_s_rank_then_queue_order() {
+    fn starting_queue_spreads_s_rank_over_the_teams() {
+        // 30 players, 8 S rank, teams of 6: three teams get 2, two get 1, and which ones varies.
+        let s_rank: Vec<i64> = (0..8).collect();
+        let players: Vec<(i64, bool)> = (0..30).map(|i| (i, i < 8)).collect();
+        let mut layouts = std::collections::HashSet::new();
+        for seed in 0..50 {
+            let order = starting_queue(&players, 6, &mut StdRng::seed_from_u64(seed));
+            let mut sorted = order.clone();
+            sorted.sort();
+            assert_eq!(sorted, (0..30).collect::<Vec<_>>(), "everyone once");
+            let per_team = s_rank_per_team(&order, &s_rank, 6);
+            let mut counts = per_team.clone();
+            counts.sort();
+            assert_eq!(counts, [1, 1, 2, 2, 2]);
+            layouts.insert(per_team);
+        }
+        assert!(layouts.len() > 1, "the teams with one more change from camp to camp");
+    }
+
+    #[test]
+    fn starting_queue_handles_every_camp_size() {
+        for (size, team_size, s_count, expected) in [
+            (24, 6, 4, vec![1, 1, 1, 1]),
+            (24, 6, 0, vec![0, 0, 0, 0]),
+            (30, 6, 10, vec![2, 2, 2, 2, 2]),
+            (4, 1, 2, vec![0, 0, 1, 1]),
+            (4, 2, 2, vec![1, 1]),
+            (4, 2, 4, vec![2, 2]),
+        ] {
+            let s_rank: Vec<i64> = (0..s_count).collect();
+            let players: Vec<(i64, bool)> = (0..size).map(|i| (i, i < s_count)).collect();
+            let order = starting_queue(&players, team_size, &mut StdRng::seed_from_u64(7));
+            assert_eq!(order.len(), size as usize);
+            let mut counts = s_rank_per_team(&order, &s_rank, team_size);
+            counts.sort();
+            assert_eq!(counts, expected, "{size} players, teams of {team_size}, {s_count} S rank");
+        }
+    }
+
+    #[test]
+    fn pick_takes_the_front_of_the_queue_s_rank_or_not() {
         let queued: Vec<Seat> = (0..16).map(|i| seat(i, 0, [5, 13, 14].contains(&i))).collect();
-        let mut picked = ids(&pick_match_seats(&queued, 12));
-        picked.sort();
-        // 5 and 13 are the first two S-rank; 14 keeps waiting. Ten regulars fill the rest.
-        assert_eq!(picked, vec![0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 13]);
-    }
-
-    #[test]
-    fn pick_seats_extra_s_rank_when_regulars_run_out() {
-        let queued: Vec<Seat> = (0..12).map(|i| seat(i, 0, i < 3)).collect();
-        let mut picked = ids(&pick_match_seats(&queued, 12));
-        picked.sort();
-        assert_eq!(picked, (0..12).collect::<Vec<_>>());
-    }
-
-    #[test]
-    fn pick_without_s_rank_keeps_queue_order() {
-        let queued: Vec<Seat> = (0..14).map(|i| seat(i, 0, false)).collect();
         assert_eq!(ids(&pick_match_seats(&queued, 12)), (0..12).collect::<Vec<_>>());
     }
 
     #[test]
-    fn split_keeps_teams_even_and_s_rank_apart() {
+    fn split_keeps_teams_even_and_s_rank_spread() {
         for match_size in [2_i64, 4, 12] {
-            for s_count in 0..=match_size.min(4) {
+            for s_count in 0..=match_size {
                 for balanced in [false, true] {
                     for seed in 0..50 {
                         let mut rng = StdRng::seed_from_u64(seed);
@@ -361,15 +397,21 @@ mod tests {
                         let am_s = split.archmother.iter().filter(|id| **id < s_count).count();
                         assert!(hk_s.abs_diff(am_s) <= 1, "s_rank {hk_s} vs {am_s}");
 
-                        let hk_cap = split.hiddenking_captain.unwrap();
-                        let am_cap = split.archmother_captain.unwrap();
-                        assert!(split.hiddenking.contains(&hk_cap));
-                        assert!(split.archmother.contains(&am_cap));
-                        if hk_s > 0 {
-                            assert!(hk_cap < s_count, "S-rank player should captain Hiddenking");
-                        }
-                        if am_s > 0 {
-                            assert!(am_cap < s_count, "S-rank player should captain Archmother");
+                        for (team, captains, s_on_team) in [
+                            (&split.hiddenking, &split.hiddenking_captains, hk_s),
+                            (&split.archmother, &split.archmother_captains, am_s),
+                        ] {
+                            if s_on_team > 0 {
+                                let mut s_rank: Vec<i64> =
+                                    team.iter().copied().filter(|id| *id < s_count).collect();
+                                let mut captains = captains.clone();
+                                s_rank.sort();
+                                captains.sort();
+                                assert_eq!(captains, s_rank, "every S-rank player on the team captains it");
+                            } else {
+                                assert_eq!(captains.len(), 1);
+                                assert!(team.contains(&captains[0]));
+                            }
                         }
                     }
                 }
@@ -383,12 +425,12 @@ mod tests {
             let mut rng = StdRng::seed_from_u64(seed);
             let seats: Vec<Seat> = (0..12).map(|i| seat(i, i, i == 0)).collect();
             let split = split_match(&seats, false, &mut rng);
-            let (team, captain) = if split.hiddenking.contains(&0) {
-                (&split.archmother, split.archmother_captain)
+            let (team, captains) = if split.hiddenking.contains(&0) {
+                (&split.archmother, &split.archmother_captains)
             } else {
-                (&split.hiddenking, split.hiddenking_captain)
+                (&split.hiddenking, &split.hiddenking_captains)
             };
-            assert_eq!(captain, team.iter().copied().max());
+            assert_eq!(captains, &[*team.iter().max().unwrap()]);
         }
     }
 

@@ -86,13 +86,8 @@ pub trait BotLink: Send + Sync {
     /// Voice channels of a server, in Discord's order.
     fn voice_channels(&self, guild_id: u64) -> Vec<Channel>;
 
-    /// Members whose name or nickname starts with `query`, at most `limit`.
-    fn search_members<'a>(
-        &'a self,
-        guild_id: u64,
-        query: &'a str,
-        limit: u64,
-    ) -> BoxFuture<'a, anyhow::Result<Vec<(u64, Profile)>>>;
+    /// Every member of a server except bots. Errors are for the admin.
+    fn members(&self, guild_id: u64) -> BoxFuture<'_, anyhow::Result<Vec<(u64, Profile)>>>;
 
     /// Users in the server's Queue voice channel right now.
     fn queue_voice_members(&self, guild_id: u64) -> BoxFuture<'_, Vec<u64>>;
