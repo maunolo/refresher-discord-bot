@@ -4,7 +4,7 @@ import { useActions } from '../actions';
 import type { Camp } from '../api';
 import { playerById, playerName, points, queuedPlayers } from '../camp';
 import { routeHref } from '../route';
-import { DiscordLink, SRankChip } from './common';
+import { DiscordLink, RoleChip, SRankChip } from './common';
 import { ArrowDownIcon, ArrowUpIcon, GripIcon, ToTopIcon } from './Icons';
 
 function sameMembers(a: string[], b: string[]): boolean {
@@ -155,6 +155,7 @@ export function QueueView({ camp }: { camp: Camp }) {
                   </span>
                   <span className="ellipsis">{name}</span>
                   {player?.s_rank && <SRankChip />}
+                  <RoleChip role={player?.role ?? null} />
                   <span className="row-end muted small queue-seg">{player?.consecutive_matches ?? 0} seg.</span>
                   <span className="mono small points">{points(player?.points ?? 0)}</span>
                   <span className="reorder-buttons">

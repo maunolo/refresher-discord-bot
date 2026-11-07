@@ -15,7 +15,7 @@ use refresher_core::db::{
 };
 use refresher_core::draft;
 use refresher_core::link::{CampAction, Channel, Profile};
-use refresher_core::queue::{self, CampSize};
+use refresher_core::queue::{self, CampSize, Role};
 use refresher_core::settings::{GuildSettings, DRAFT_TIMERS};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::error::RecvError;
@@ -139,6 +139,8 @@ struct PlayerDto {
     queue_position: Option<i64>,
     consecutive_matches: i64,
     s_rank: bool,
+    /// `tank`, `carry` or `support`; kept per server.
+    role: Option<&'static str>,
     /// Finished matches only.
     matches_played: i64,
     wins: i64,
@@ -337,6 +339,7 @@ fn camp_dto(
                     queue_position: p.queue_position,
                     consecutive_matches: p.consecutive_matches,
                     s_rank: p.s_rank,
+                    role: p.role.map(Role::as_str),
                     matches_played: stats.played,
                     wins: stats.wins,
                     points_adjusted: stats.adjusted,
@@ -605,6 +608,8 @@ pub enum ActionRequest {
     AddPlayers { user_ids: Vec<String> },
     RemovePlayer { user_id: String },
     SetSRank { user_id: String, s_rank: bool },
+    /// `tank`, `carry`, `support`, or `null` to clear it.
+    SetRole { user_id: String, role: Option<String> },
     /// Points to add, or below zero to take.
     AdjustPoints { user_id: String, delta: i64 },
     StartQueue,
@@ -654,6 +659,12 @@ impl TryFrom<ActionRequest> for CampAction {
             ActionRequest::SetSRank { user_id: id, s_rank } => CampAction::SetSRank {
                 user_id: user_id(&id)?,
                 s_rank,
+            },
+            ActionRequest::SetRole { user_id: id, role } => CampAction::SetRole {
+                user_id: user_id(&id)?,
+                role: role
+                    .map(|name| Role::parse(&name).ok_or_else(|| ApiError::BadRequest(format!("função inválida: {name}"))))
+                    .transpose()?,
             },
             ActionRequest::AdjustPoints { user_id: id, delta } => CampAction::AdjustPoints {
                 user_id: user_id(&id)?,

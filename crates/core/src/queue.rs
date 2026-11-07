@@ -105,34 +105,97 @@ pub fn select_finalists(players: &[(i64, i64)], n: usize, rng: &mut impl Rng) ->
 }
 
 /// The queue when a camp starts: the roster shuffled into the camp's teams, `team_size` places of
-/// the line each, with S-rank players spread over the teams as evenly as possible (which teams get
-/// one more is random). The first match takes the first two teams, the next match the two after.
-pub fn starting_queue(players: &[(i64, bool)], team_size: usize, rng: &mut impl Rng) -> Vec<i64> {
-    let teams = players.len().div_ceil(team_size.max(1));
+/// the line each. S-rank players are spread over the teams as evenly as possible (which teams get
+/// one more is random), and so is each role, so every team has one of each where the roster
+/// allows. The first match takes the first two teams, the next match the two after.
+pub fn starting_queue(players: &[Seat], team_size: usize, rng: &mut impl Rng) -> Vec<i64> {
+    let team_size = team_size.max(1);
+    let teams = players.len().div_ceil(team_size);
     if teams == 0 {
         return Vec::new();
     }
-    let mut s_rank: Vec<i64> = players.iter().filter(|p| p.1).map(|p| p.0).collect();
-    let mut others: Vec<i64> = players.iter().filter(|p| !p.1).map(|p| p.0).collect();
-    s_rank.shuffle(rng);
-    others.shuffle(rng);
+    let size: Vec<usize> = (0..teams)
+        .map(|team| team_size.min(players.len() - team * team_size))
+        .collect();
+    let (s_rank, others): (Vec<Seat>, Vec<Seat>) = players.iter().copied().partition(|p| p.s_rank);
 
-    let mut per_team = vec![s_rank.len() / teams; teams];
-    let mut one_more: Vec<usize> = (0..teams).collect();
+    let each = s_rank.len() / teams;
+    let mut s_rank_places = vec![each; teams];
+    let mut one_more: Vec<usize> = (0..teams).filter(|team| size[*team] > each).collect();
     one_more.shuffle(rng);
     for team in one_more.into_iter().take(s_rank.len() % teams) {
-        per_team[team] += 1;
+        s_rank_places[team] += 1;
+    }
+    let other_places: Vec<usize> = (0..teams)
+        .map(|team| size[team].saturating_sub(s_rank_places[team]))
+        .collect();
+
+    let mut lineup: Vec<Vec<Seat>> = vec![Vec::new(); teams];
+    deal(&mut lineup, s_rank, s_rank_places, rng);
+    deal(&mut lineup, others, other_places, rng);
+    lineup
+        .into_iter()
+        .flat_map(|mut team| {
+            team.shuffle(rng);
+            team.into_iter().map(|s| s.user_id)
+        })
+        .collect()
+}
+
+/// Seats `players` on `teams`, `places[t]` more on team `t`, spreading each role: the rarest role
+/// first, each player on a team with room and the fewest of their role so far (ties at random).
+/// Players without a role take the places left.
+fn deal(teams: &mut [Vec<Seat>], players: Vec<Seat>, mut places: Vec<usize>, rng: &mut impl Rng) {
+    let mut roles = Role::ALL.to_vec();
+    roles.shuffle(rng);
+    // Stable: equally rare roles keep the shuffled order.
+    roles.sort_by_key(|role| players.iter().filter(|p| p.role == Some(*role)).count());
+    let mut order: Vec<Seat> = Vec::with_capacity(players.len());
+    for role in roles.into_iter().map(Some).chain([None]) {
+        let mut group: Vec<Seat> = players.iter().copied().filter(|p| p.role == role).collect();
+        group.shuffle(rng);
+        order.extend(group);
+    }
+    for player in order {
+        let with_room = (0..teams.len()).filter(|team| places[*team] > 0);
+        let fewest = |team: &usize| match player.role {
+            Some(role) => teams[*team].iter().filter(|s| s.role == Some(role)).count(),
+            None => 0,
+        };
+        let least = with_room.clone().map(|team| fewest(&team)).min();
+        let candidates: Vec<usize> = with_room.filter(|team| Some(fewest(team)) == least).collect();
+        // Places always add up to the players; the fallback only guards against losing anyone.
+        let team = candidates.choose(rng).copied().unwrap_or(teams.len() - 1);
+        teams[team].push(player);
+        places[team] = places[team].saturating_sub(1);
+    }
+}
+
+/// A player's main role, set per server. Splitting a match tries to give each team one of each.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Role {
+    /// Tank or bruiser.
+    Tank,
+    Carry,
+    /// Utility or support.
+    Support,
+}
+
+impl Role {
+    pub const ALL: [Role; 3] = [Role::Tank, Role::Carry, Role::Support];
+
+    /// `tank`, `carry` or `support`, as stored and as the admin page sends it.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Role::Tank => "tank",
+            Role::Carry => "carry",
+            Role::Support => "support",
+        }
     }
 
-    let mut order = Vec::with_capacity(players.len());
-    for count in per_team {
-        let mut team: Vec<i64> = s_rank.drain(..count).collect();
-        let fill = team_size.saturating_sub(count).min(others.len());
-        team.extend(others.drain(..fill));
-        team.shuffle(rng);
-        order.extend(team);
+    pub fn parse(name: &str) -> Option<Self> {
+        Role::ALL.into_iter().find(|role| role.as_str() == name)
     }
-    order
 }
 
 /// A player being seated in a match.
@@ -141,6 +204,7 @@ pub struct Seat {
     pub user_id: i64,
     pub points: i64,
     pub s_rank: bool,
+    pub role: Option<Role>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -184,46 +248,12 @@ pub fn refresh_roster(playing: &[Candidate], queued: &[Candidate], rng: &mut imp
     roster
 }
 
-/// Highest points first. Equal scores are shuffled.
-fn rank_by_points(seats: Vec<Seat>, rng: &mut impl Rng) -> Vec<Seat> {
-    let mut by_points: std::collections::BTreeMap<i64, Vec<Seat>> =
-        std::collections::BTreeMap::new();
-    for seat in seats {
-        by_points.entry(seat.points).or_default().push(seat);
-    }
-    let mut ranked = Vec::new();
-    for (_points, mut group) in by_points.into_iter().rev() {
-        group.shuffle(rng);
-        ranked.extend(group);
-    }
-    ranked
-}
-
-fn ordered(mut seats: Vec<Seat>, balanced: bool, rng: &mut impl Rng) -> Vec<Seat> {
-    if balanced {
-        rank_by_points(seats, rng)
-    } else {
-        seats.shuffle(rng);
-        seats
-    }
-}
-
-/// Snake: A B B A A B B A … so 1st/2nd, 3rd/4th, … land on opposite teams.
-fn snake(ranked: Vec<Seat>) -> (Vec<Seat>, Vec<Seat>) {
-    let mut team_a = Vec::new();
-    let mut team_b = Vec::new();
-    for (i, seat) in ranked.into_iter().enumerate() {
-        if i % 4 == 0 || i % 4 == 3 {
-            team_a.push(seat);
-        } else {
-            team_b.push(seat);
-        }
-    }
-    (team_a, team_b)
-}
-
-fn total_points(seats: &[Seat]) -> i64 {
-    seats.iter().map(|s| s.points).sum()
+/// Roles of `Role::ALL` nobody on the team plays.
+fn missing_roles(team: &[Seat]) -> usize {
+    Role::ALL
+        .iter()
+        .filter(|role| !team.iter().any(|s| s.role == Some(**role)))
+        .count()
 }
 
 /// Every S-rank player on the team is a captain. With none, the one with the most points; ties are random.
@@ -245,41 +275,49 @@ fn pick_captains(team: &[Seat], rng: &mut impl Rng) -> Vec<i64> {
 
 /// Split a match roster into Hiddenking and Archmother and name each team's captains.
 ///
-/// S-rank players are dealt first, alternating teams, so the two teams' counts differ by one at
-/// most. `balanced` (final match) snake-drafts everyone else by points with ties shuffled;
-/// otherwise they are shuffled. A coin flip decides which side is Hiddenking.
+/// Of every way to split the roster in half, it keeps those where the teams' S-rank counts
+/// differ by one at most. Among them, the ones where the teams miss the fewest roles (each team
+/// should have a tank or bruiser, a carry and a utility or support), the worse-off team counting
+/// next. `balanced` (final match) then keeps the closest point totals. One of those that are left
+/// is picked at random, sides included. A match has 12 players at most, 924 splits.
 pub fn split_match(seats: &[Seat], balanced: bool, rng: &mut impl Rng) -> TeamSplit {
     let half = seats.len() / 2;
-    let (s_rank, others): (Vec<Seat>, Vec<Seat>) = seats.iter().copied().partition(|s| s.s_rank);
-    let (mut team_a, mut team_b) = snake(ordered(s_rank, balanced, rng));
-    let a_open = half.saturating_sub(team_a.len());
-
-    let rest = ordered(others, balanced, rng);
-    let (rest_a, rest_b) = if balanced {
-        // The snake halves differ by at most one seat, and so do the open seats. Of the pairings
-        // that fill both teams, keep the one with the closer point totals.
-        let (x, y) = snake(rest);
-        let gap = |a: &[Seat], b: &[Seat]| {
-            (total_points(&team_a) + total_points(a) - total_points(&team_b) - total_points(b)).abs()
-        };
-        let keep_ok = x.len() == a_open;
-        let swap_ok = y.len() == a_open;
-        if swap_ok && (!keep_ok || gap(&y, &x) < gap(&x, &y)) {
-            (y, x)
-        } else {
-            (x, y)
-        }
-    } else {
-        let mut rest = rest;
-        let rest_b = rest.split_off(a_open.min(rest.len()));
-        (rest, rest_b)
+    let s_rank = seats.iter().filter(|s| s.s_rank).count();
+    // Bit `i` of a mask puts `seats[i]` on the first team.
+    let teams = |mask: u32| -> (Vec<Seat>, Vec<Seat>) {
+        let (a, b): (Vec<(usize, &Seat)>, Vec<(usize, &Seat)>) =
+            seats.iter().enumerate().partition(|(i, _)| mask & (1 << i) != 0);
+        (a.into_iter().map(|(_, s)| *s).collect(), b.into_iter().map(|(_, s)| *s).collect())
     };
-    team_a.extend(rest_a);
-    team_b.extend(rest_b);
-
-    if rng.gen_bool(0.5) {
-        std::mem::swap(&mut team_a, &mut team_b);
+    let mut best: Vec<u32> = Vec::new();
+    let mut best_score = None;
+    for mask in 0u32..1 << seats.len() {
+        if mask.count_ones() as usize != half {
+            continue;
+        }
+        let (team_a, team_b) = teams(mask);
+        let a_s_rank = team_a.iter().filter(|s| s.s_rank).count();
+        if a_s_rank.abs_diff(s_rank - a_s_rank) > 1 {
+            continue;
+        }
+        let (a_missing, b_missing) = (missing_roles(&team_a), missing_roles(&team_b));
+        let gap = if balanced {
+            let total = |team: &[Seat]| team.iter().map(|s| s.points).sum::<i64>();
+            (total(&team_a) - total(&team_b)).abs()
+        } else {
+            0
+        };
+        let score = (a_missing + b_missing, a_missing.max(b_missing), gap);
+        if best_score.is_none_or(|best| score < best) {
+            best_score = Some(score);
+            best.clear();
+        }
+        if best_score == Some(score) {
+            best.push(mask);
+        }
     }
+    let (team_a, team_b) = teams(best[rng.gen_range(0..best.len())]);
+
     let hiddenking_captains = pick_captains(&team_a, rng);
     let archmother_captains = pick_captains(&team_b, rng);
     TeamSplit {
@@ -344,7 +382,12 @@ mod tests {
             user_id,
             points,
             s_rank,
+            role: None,
         }
+    }
+
+    fn with_role(seat: Seat, role: Role) -> Seat {
+        Seat { role: Some(role), ..seat }
     }
 
     fn ids(seats: &[Seat]) -> Vec<i64> {
@@ -363,7 +406,7 @@ mod tests {
     fn starting_queue_spreads_s_rank_over_the_teams() {
         // 30 players, 8 S rank, teams of 6: three teams get 2, two get 1, and which ones varies.
         let s_rank: Vec<i64> = (0..8).collect();
-        let players: Vec<(i64, bool)> = (0..30).map(|i| (i, i < 8)).collect();
+        let players: Vec<Seat> = (0..30).map(|i| seat(i, 0, i < 8)).collect();
         let mut layouts = std::collections::HashSet::new();
         for seed in 0..50 {
             let order = starting_queue(&players, 6, &mut StdRng::seed_from_u64(seed));
@@ -390,12 +433,58 @@ mod tests {
             (4, 2, 4, vec![2, 2]),
         ] {
             let s_rank: Vec<i64> = (0..s_count).collect();
-            let players: Vec<(i64, bool)> = (0..size).map(|i| (i, i < s_count)).collect();
+            let players: Vec<Seat> = (0..size).map(|i| seat(i, 0, i < s_count)).collect();
             let order = starting_queue(&players, team_size, &mut StdRng::seed_from_u64(7));
             assert_eq!(order.len(), size as usize);
             let mut counts = s_rank_per_team(&order, &s_rank, team_size);
             counts.sort();
             assert_eq!(counts, expected, "{size} players, teams of {team_size}, {s_count} S rank");
+        }
+    }
+
+    #[test]
+    fn starting_queue_gives_every_team_each_role() {
+        // 30 players in 5 teams of 6: exactly 5 tanks and 5 supports, 12 carries, 8 without a
+        // role. S rank: 3 tanks, 3 supports and 2 without a role.
+        let role = |i: i64| match i {
+            0..5 => Some(Role::Tank),
+            5..10 => Some(Role::Support),
+            10..22 => Some(Role::Carry),
+            _ => None,
+        };
+        let s_rank = [0, 1, 2, 5, 6, 7, 22, 23];
+        let players: Vec<Seat> = (0..30)
+            .map(|i| Seat { role: role(i), ..seat(i, 0, s_rank.contains(&i)) })
+            .collect();
+        let mut layouts = std::collections::HashSet::new();
+        for seed in 0..100 {
+            let order = starting_queue(&players, 6, &mut StdRng::seed_from_u64(seed));
+            let mut sorted = order.clone();
+            sorted.sort();
+            assert_eq!(sorted, (0..30).collect::<Vec<_>>(), "everyone once");
+            for team in order.chunks(6) {
+                for wanted in Role::ALL {
+                    assert!(team.iter().any(|id| role(*id) == Some(wanted)), "{wanted:?} in {team:?}");
+                }
+            }
+            let mut counts = s_rank_per_team(&order, &s_rank, 6);
+            counts.sort();
+            assert_eq!(counts, [1, 1, 2, 2, 2], "S rank still even");
+            layouts.insert(order);
+        }
+        assert!(layouts.len() > 90, "still random");
+    }
+
+    #[test]
+    fn starting_queue_spreads_a_short_role_one_per_team() {
+        // Three tanks for five teams: three teams get one, none gets two.
+        let players: Vec<Seat> = (0..30)
+            .map(|i| if i < 3 { with_role(seat(i, 0, false), Role::Tank) } else { seat(i, 0, false) })
+            .collect();
+        for seed in 0..50 {
+            let order = starting_queue(&players, 6, &mut StdRng::seed_from_u64(seed));
+            let tanks: Vec<usize> = order.chunks(6).map(|team| team.iter().filter(|id| **id < 3).count()).collect();
+            assert!(tanks.iter().all(|n| *n <= 1), "{tanks:?}");
         }
     }
 
@@ -499,16 +588,88 @@ mod tests {
         assert!(refresh_roster(&playing, &[], &mut StdRng::seed_from_u64(3)).len() == 4);
     }
 
+    fn team_points(seats: &[Seat], team: &[i64]) -> i64 {
+        seats.iter().filter(|s| team.contains(&s.user_id)).map(|s| s.points).sum()
+    }
+
+    fn team_roles(seats: &[Seat], team: &[i64]) -> Vec<Role> {
+        let mut roles: Vec<Role> = seats
+            .iter()
+            .filter(|s| team.contains(&s.user_id))
+            .filter_map(|s| s.role)
+            .collect();
+        roles.sort_by_key(|r| r.as_str());
+        roles.dedup();
+        roles
+    }
+
     #[test]
-    fn balanced_split_without_s_rank_is_snake_draft() {
+    fn balanced_split_closes_the_point_gap() {
+        // 12 down to 1 point: 78 in all, so two teams of 39.
         let seats: Vec<Seat> = (0..12).map(|i| seat(i, 12 - i, false)).collect();
-        let split = split_match(&seats, true, &mut StdRng::seed_from_u64(1));
-        let mut a = split.hiddenking.clone();
-        let mut b = split.archmother.clone();
-        a.sort();
-        b.sort();
-        let snake_a = vec![0, 3, 4, 7, 8, 11];
-        let snake_b = vec![1, 2, 5, 6, 9, 10];
-        assert!((a == snake_a && b == snake_b) || (a == snake_b && b == snake_a));
+        for seed in 0..20 {
+            let split = split_match(&seats, true, &mut StdRng::seed_from_u64(seed));
+            assert_eq!(team_points(&seats, &split.hiddenking), 39);
+            assert_eq!(team_points(&seats, &split.archmother), 39);
+        }
+    }
+
+    #[test]
+    fn every_team_gets_each_role_when_the_match_has_two() {
+        // Two of each role, three of them S rank, and six players without a role.
+        let roles = [Role::Tank, Role::Tank, Role::Carry, Role::Carry, Role::Support, Role::Support];
+        let seats: Vec<Seat> = (0..12)
+            .map(|i| {
+                let seat = seat(i, (i * 5) % 7, [0, 2, 4].contains(&i));
+                roles.get(i as usize).map_or(seat, |role| with_role(seat, *role))
+            })
+            .collect();
+        for balanced in [false, true] {
+            let mut layouts = std::collections::HashSet::new();
+            for seed in 0..50 {
+                let split = split_match(&seats, balanced, &mut StdRng::seed_from_u64(seed));
+                assert_eq!(team_roles(&seats, &split.hiddenking).len(), 3, "{split:?}");
+                assert_eq!(team_roles(&seats, &split.archmother).len(), 3, "{split:?}");
+                let hk_s = split.hiddenking.iter().filter(|id| [0, 2, 4].contains(*id)).count();
+                assert!(hk_s == 1 || hk_s == 2, "S rank still split evenly");
+                let mut hk = split.hiddenking.clone();
+                hk.sort();
+                layouts.insert(hk);
+            }
+            assert!(layouts.len() > 1, "still random among the good splits");
+        }
+    }
+
+    #[test]
+    fn a_missing_role_is_missed_by_one_team_only_and_shared_out() {
+        // One tank and one support: each team gets one of the two, not both on one side.
+        let seats: Vec<Seat> = (0..4)
+            .map(|i| match i {
+                0 => with_role(seat(i, 0, false), Role::Tank),
+                1 => with_role(seat(i, 0, false), Role::Support),
+                _ => with_role(seat(i, 0, false), Role::Carry),
+            })
+            .collect();
+        for seed in 0..20 {
+            let split = split_match(&seats, false, &mut StdRng::seed_from_u64(seed));
+            assert_eq!(team_roles(&seats, &split.hiddenking).len(), 2, "{split:?}");
+            assert_eq!(team_roles(&seats, &split.archmother).len(), 2, "{split:?}");
+        }
+    }
+
+    #[test]
+    fn roles_come_before_points_in_the_final() {
+        // The only split with a tank on each side is 50 points apart; it still wins.
+        let seats = vec![
+            with_role(seat(0, 50, false), Role::Tank),
+            with_role(seat(1, 0, false), Role::Tank),
+            seat(2, 50, false),
+            seat(3, 0, false),
+        ];
+        for seed in 0..20 {
+            let split = split_match(&seats, true, &mut StdRng::seed_from_u64(seed));
+            let (a, b) = (team_points(&seats, &split.hiddenking), team_points(&seats, &split.archmother));
+            assert_eq!(a.abs_diff(b), 0, "{split:?}");
+        }
     }
 }

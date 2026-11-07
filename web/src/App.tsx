@@ -13,6 +13,7 @@ import { NavRail } from './components/NavRail';
 import { PlayersView } from './components/PlayersView';
 import { QueueView } from './components/QueueView';
 import { RankingView } from './components/RankingView';
+import { RulesView } from './components/RulesView';
 import { SettingsView } from './components/SettingsView';
 import { LiveContext, pollEvery, useLiveUpdates } from './live';
 import { routeHref, useRoute } from './route';
@@ -120,7 +121,9 @@ function Admin({ me }: { me: Me }) {
   };
 
   let content;
-  if (!guildId) {
+  if (route === 'rules') {
+    content = <RulesView />;
+  } else if (!guildId) {
     content = (
       <section className="card empty-card">
         <h2>Nenhum servidor</h2>

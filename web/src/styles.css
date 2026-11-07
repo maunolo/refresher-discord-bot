@@ -461,6 +461,18 @@ input {
   color: var(--s-text);
 }
 
+.chip-role {
+  border: 1px solid var(--control);
+  color: var(--text-2);
+  font-weight: 600;
+}
+
+.role-select {
+  min-height: 32px;
+  padding: 0 8px;
+  font-size: 13px;
+}
+
 .captain {
   display: inline-flex;
   color: var(--gold);
@@ -822,6 +834,30 @@ input {
 .page-title {
   font-size: 26px;
   font-weight: 700;
+}
+
+/* Regras: long text, kept to a readable width */
+
+.rules {
+  max-width: 880px;
+}
+
+.rules ul,
+.rules ol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding-left: 22px;
+}
+
+.rules strong {
+  color: var(--text);
+}
+
+.rules .card > p,
+.rules li {
+  color: var(--text-2);
 }
 
 /* Forms */

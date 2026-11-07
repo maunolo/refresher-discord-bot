@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use serenity::all::{ButtonStyle, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedFooter, Mentionable, UserId};
 
 use crate::db::{CampState, MatchPlayerRow, OpenMatch, PlayerRow};
-use crate::queue;
+use crate::queue::{self, Role};
 use crate::ranking::{self, Standing};
 
 pub const S_RANK_TAG: &str = "⭐";
@@ -17,28 +17,55 @@ pub fn mention(user_id: i64) -> String {
     UserId::new(user_id as u64).mention().to_string()
 }
 
-fn player_label(player: &PlayerRow) -> String {
-    if player.s_rank {
-        format!("{} {S_RANK_TAG}", mention(player.user_id))
-    } else {
-        mention(player.user_id)
+/// The main roles' tags, in the order team lists sort them.
+const ROLE_LEGEND: &str = "🛡️ Tank/Bruiser · 🎯 Carry · ✨ Utility/Support";
+
+fn role_tag(role: Role) -> &'static str {
+    match role {
+        Role::Tank => "🛡️",
+        Role::Carry => "🎯",
+        Role::Support => "✨",
     }
 }
 
-/// One team's mentions, one per line, captain first.
-fn team_list(players: &[MatchPlayerRow], side: &str) -> String {
+fn player_label(player: &PlayerRow) -> String {
+    let mut label = mention(player.user_id);
+    if player.s_rank {
+        label.push_str(&format!(" {S_RANK_TAG}"));
+    }
+    if let Some(role) = player.role {
+        label.push_str(&format!(" {}", role_tag(role)));
+    }
+    label
+}
+
+/// One team's mentions, one per line: captains first, then by role.
+fn team_list(state: &CampState, players: &[MatchPlayerRow], side: &str) -> String {
     let mut team: Vec<&MatchPlayerRow> = players.iter().filter(|p| p.side == side).collect();
     if team.is_empty() {
         return "_vazio_".to_string();
     }
-    team.sort_by_key(|p| (!p.is_captain, p.user_id));
+    let role_of = |user_id: i64| {
+        state
+            .players
+            .iter()
+            .find(|p| p.user_id == user_id)
+            .and_then(|p| p.role)
+    };
+    let role_order =
+        |user_id: i64| role_of(user_id).and_then(|role| Role::ALL.iter().position(|r| *r == role));
+    // Players without a role last.
+    team.sort_by_key(|p| (!p.is_captain, role_order(p.user_id).unwrap_or(usize::MAX), p.user_id));
     team.iter()
         .map(|p| {
+            let mut line = mention(p.user_id);
             if p.is_captain {
-                format!("{} {CAPTAIN_TAG}", mention(p.user_id))
-            } else {
-                mention(p.user_id)
+                line.push_str(&format!(" {CAPTAIN_TAG}"));
             }
+            if let Some(role) = role_of(p.user_id) {
+                line.push_str(&format!(" {}", role_tag(role)));
+            }
+            line
         })
         .collect::<Vec<_>>()
         .join("\n")
@@ -109,7 +136,7 @@ pub fn signup_embed(state: &CampState) -> CreateEmbed {
     CreateEmbed::new()
         .title("Elenco do camp de Deadlock")
         .description(format!(
-            "Inscrição aberta: {}/{} jogadores. Quando o elenco fechar, a fila aparece aqui.{}\n{S_RANK_TAG} S rank: **{s_rank}** — a fila começa com eles divididos por igual entre os times, e todos são capitães.",
+            "Inscrição aberta: {}/{} jogadores. Quando o elenco fechar, a fila aparece aqui.{}\n{S_RANK_TAG} S rank: **{s_rank}** — a fila começa com eles divididos por igual entre os times, e todos são capitães.\nFunções: {ROLE_LEGEND} — a fila começa com elas espalhadas, e cada time de uma partida recebe uma de cada, quando dá.",
             state.players.len(),
             state.camp.target_size,
             match state.camp.layout().match_size {
@@ -173,7 +200,7 @@ pub fn board_embed(state: &CampState) -> CreateEmbed {
     let mut embed = CreateEmbed::new()
         .title(format!("Camp de Deadlock {}", state.camp.id))
         .description(format!(
-            "Partidas jogadas: **{}** · Elenco: **{}**\nOs próximos times saem da fila quando um admin cria a partida. **→** indica quem entra no próximo sorteio.",
+            "Partidas jogadas: **{}** · Elenco: **{}**\nOs próximos times saem da fila quando um admin cria a partida. **→** indica quem entra no próximo sorteio.\nFunções: {ROLE_LEGEND}",
             state.camp.match_count,
             state.players.len()
         ))
@@ -206,18 +233,18 @@ pub fn board_embed(state: &CampState) -> CreateEmbed {
                 },
                 status_label(&open.row.status)
             ),
-            match_field(open),
+            match_field(state, open),
             false,
         );
     }
     embed
 }
 
-fn teams_text(players: &[MatchPlayerRow], party_code: Option<&str>) -> String {
+fn teams_text(state: &CampState, players: &[MatchPlayerRow], party_code: Option<&str>) -> String {
     let mut text = format!(
         "**Hiddenking**\n{}\n**Archmother**\n{}",
-        team_list(players, "hiddenking"),
-        team_list(players, "archmother")
+        team_list(state, players, "hiddenking"),
+        team_list(state, players, "archmother")
     );
     if let Some(code) = party_code.filter(|c| !c.is_empty()) {
         text.push_str(&format!("\nCódigo da party: `{code}`"));
@@ -225,8 +252,8 @@ fn teams_text(players: &[MatchPlayerRow], party_code: Option<&str>) -> String {
     text
 }
 
-fn match_field(open: &OpenMatch) -> String {
-    teams_text(&open.players, open.row.party_code.as_deref())
+fn match_field(state: &CampState, open: &OpenMatch) -> String {
+    teams_text(state, &open.players, open.row.party_code.as_deref())
 }
 
 pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
@@ -300,8 +327,8 @@ pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
             )
         })
         .description(desc)
-        .field("Hiddenking", team_list(&open.players, "hiddenking"), true)
-        .field("Archmother", team_list(&open.players, "archmother"), true)
+        .field("Hiddenking", team_list(state, &open.players, "hiddenking"), true)
+        .field("Archmother", team_list(state, &open.players, "archmother"), true)
         .footer(footer(&state.camp.id))
 }
 

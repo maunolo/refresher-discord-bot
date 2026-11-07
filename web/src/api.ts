@@ -64,6 +64,9 @@ export interface MemberResult {
 
 export type CampSizeChoice = '24' | '30' | '4-1v1' | '4-2v2';
 
+/** A player's main role, kept per server: tank or bruiser, carry, utility or support. */
+export type Role = 'tank' | 'carry' | 'support';
+
 export interface Player {
   user_id: string;
   points: number;
@@ -71,6 +74,7 @@ export interface Player {
   queue_position: number | null;
   consecutive_matches: number;
   s_rank: boolean;
+  role: Role | null;
   /** Finished matches only. */
   matches_played: number;
   wins: number;
@@ -160,6 +164,7 @@ export type CampAction =
   | { type: 'add_players'; user_ids: string[] }
   | { type: 'remove_player'; user_id: string }
   | { type: 'set_s_rank'; user_id: string; s_rank: boolean }
+  | { type: 'set_role'; user_id: string; role: Role | null }
   | { type: 'adjust_points'; user_id: string; delta: number }
   | { type: 'start_queue' }
   | { type: 'reorder_queue'; user_ids: string[] }

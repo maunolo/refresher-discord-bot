@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 
 import { useActions } from '../actions';
-import { api, type Camp, type MemberResult, type Player } from '../api';
-import { formatLabel, playerName, points, signed, whereIs } from '../camp';
+import { api, type Camp, type MemberResult, type Player, type Role } from '../api';
+import { formatLabel, playerName, points, ROLE_LABEL, roleCounts, ROLES, signed, whereIs } from '../camp';
 import { CheckIcon } from './Icons';
 import { PointsDialog } from './PointsDialog';
 
@@ -31,6 +31,30 @@ function SRankSwitch({ camp, player }: { camp: Camp; player: Player }) {
     </button>
   );
 }
+
+/** The player's main role, kept per server for later camps too. */
+function RoleSelect({ camp, player }: { camp: Camp; player: Player }) {
+  const { run, busy } = useActions();
+  return (
+    <select
+      className="input role-select"
+      aria-label={`Função: ${playerName(camp, player.user_id)}`}
+      value={player.role ?? ''}
+      disabled={busy}
+      onChange={(e) => run({ type: 'set_role', user_id: player.user_id, role: (e.target.value || null) as Role | null })}
+    >
+      <option value="">Sem função</option>
+      {ROLES.map((role) => (
+        <option key={role} value={role}>
+          {ROLE_LABEL[role]}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+const ROLES_HELP =
+  'Ao iniciar a fila, as funções são espalhadas entre os times como os S rank. Ao montar os times de uma partida, o bot tenta dar a cada time pelo menos um Tank/Bruiser, um Carry e um Utility/Support, sem mudar a divisão dos S rank. A função fica guardada no servidor e vale nos próximos camps.';
 
 /** Lowercase without accents, so "fumaca" finds "fumaça". */
 function folded(text: string): string {
@@ -178,7 +202,10 @@ function Signup({ camp }: { camp: Camp }) {
               <li key={p.user_id} className="row row-tall">
                 <Avatar url={camp.members[p.user_id]?.avatar_url} name={playerName(camp, p.user_id)} />
                 <span className="ellipsis">{playerName(camp, p.user_id)}</span>
-                <span className="row-end muted small">S rank</span>
+                <span className="row-end">
+                  <RoleSelect camp={camp} player={p} />
+                </span>
+                <span className="muted small">S rank</span>
                 <SRankSwitch camp={camp} player={p} />
                 <button
                   type="button"
@@ -211,6 +238,11 @@ function Signup({ camp }: { camp: Camp }) {
             draft. Um time sem S rank tem como capitão quem tem mais pontos.
           </p>
         </section>
+        <section className="card" aria-labelledby="roles-title">
+          <h2 id="roles-title">Funções</h2>
+          <p className="small">{roleCounts(camp.players)}</p>
+          <p className="muted small">{ROLES_HELP}</p>
+        </section>
         <section className="card" aria-labelledby="check-title">
           <h2 id="check-title">Antes de iniciar a fila</h2>
           <ul className="checklist">
@@ -235,7 +267,7 @@ function Signup({ camp }: { camp: Camp }) {
                 {
                   confirm: {
                     title: 'Iniciar a fila?',
-                    message: `O elenco é embaralhado em ${teams} times de ${teamSize}, com os S rank divididos por igual, e postado no Discord. Quem estiver em voz vai para o canal Queue.`,
+                    message: `O elenco é embaralhado em ${teams} times de ${teamSize}, com os S rank e as funções divididos por igual, e postado no Discord. Quem estiver em voz vai para o canal Queue.`,
                     note: 'Depois disso não dá para adicionar nem remover jogadores.',
                     action: 'Iniciar fila',
                   },
@@ -268,8 +300,11 @@ function Roster({ camp }: { camp: Camp }) {
       </div>
       <p className="muted small">
         {running
-          ? 'O elenco não muda depois que a fila começa. Marcar S rank vale para as próximas partidas criadas. Ajustar pontos é para correções e penalidades; o bot anuncia cada ajuste.'
+          ? 'O elenco não muda depois que a fila começa. S rank e função valem para os times montados daqui em diante, numa partida nova ou num refresh. Ajustar pontos é para correções e penalidades; o bot anuncia cada ajuste.'
           : 'Este camp não está em andamento.'}
+      </p>
+      <p className="muted small">
+        {roleCounts(players)}. {ROLES_HELP}
       </p>
       <div className="table-scroll">
         <table className="table">
@@ -277,6 +312,7 @@ function Roster({ camp }: { camp: Camp }) {
             <tr>
               <th scope="col">Jogador</th>
               <th scope="col">S rank</th>
+              <th scope="col">Função</th>
               <th scope="col" aria-sort="descending">
                 Pontos
               </th>
@@ -299,6 +335,7 @@ function Roster({ camp }: { camp: Camp }) {
                   </span>
                 </td>
                 <td>{running ? <SRankSwitch camp={camp} player={p} /> : p.s_rank ? 'Sim' : '—'}</td>
+                <td>{running ? <RoleSelect camp={camp} player={p} /> : p.role ? ROLE_LABEL[p.role] : '—'}</td>
                 <td className="mono">
                   {points(p.points)}
                   {p.points_adjusted !== 0 && (

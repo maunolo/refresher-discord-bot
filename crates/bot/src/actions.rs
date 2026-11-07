@@ -64,6 +64,11 @@ pub async fn run(
             db::set_player_s_rank(&data.db, camp_id, *user_id as i64, *s_rank).await?;
             redraw_board(discord, data, camp_id).await
         }
+        CampAction::SetRole { user_id, role } => {
+            db::set_player_role(&data.db, camp_id, *user_id as i64, *role).await?;
+            let state = load(data, camp_id).await?;
+            sync::redraw_all(discord, &data.db, &state).await
+        }
         CampAction::AdjustPoints { user_id, delta } => {
             adjust_points(discord, data, camp_id, *user_id as i64, *delta).await
         }
@@ -130,7 +135,7 @@ async fn start_queue(discord: &Discord, data: &Data, guild_id: GuildId, camp_id:
         .say(
             &discord.http,
             format!(
-                "Fila embaralhada do camp `{}`, com os S rank divididos por igual entre os times:\n{}\nOs times saem da fila quando um admin cria a partida.",
+                "Fila embaralhada do camp `{}`, com os S rank e as funções divididos por igual entre os times:\n{}\nOs times saem da fila quando um admin cria a partida.",
                 state.camp.id,
                 sync::mention_list(&order)
             ),

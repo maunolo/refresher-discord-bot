@@ -4,7 +4,7 @@ import { SIDE_LABEL, playerName, points, queuedPlayers, ranking } from '../camp'
 import { routeHref } from '../route';
 import { useState } from 'react';
 
-import { CardLink, DiscordLink, MvpTag, SRankChip } from './common';
+import { CardLink, DiscordLink, MvpTag, RoleChip, SRankChip } from './common';
 import { MvpDialog } from './ResultDialogs';
 
 const PLAYERS_MOVED_ON = 'Os jogadores já estão em outra partida.';
@@ -109,6 +109,7 @@ export function QueuePanel({ camp }: { camp: Camp }) {
               )}
               <span className="ellipsis">{playerName(camp, p.user_id)}</span>
               {p.s_rank && <SRankChip />}
+              <RoleChip role={p.role} />
               <span className="row-end muted small">{p.consecutive_matches} seg.</span>
               <span className="mono small points">{points(p.points)}</span>
             </li>

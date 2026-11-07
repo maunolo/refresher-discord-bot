@@ -1,6 +1,6 @@
 // Labels and derived values for camps and matches, matching what the bot shows in Discord.
 
-import type { Camp, Match, Player, Side } from './api';
+import type { Camp, Match, Player, Role, Side } from './api';
 
 export const SIDES: Side[] = ['hiddenking', 'archmother'];
 
@@ -8,6 +8,33 @@ export const SIDE_LABEL: Record<Side, string> = {
   hiddenking: 'Hiddenking',
   archmother: 'Archmother',
 };
+
+/** In the order teams list them. */
+export const ROLES: Role[] = ['tank', 'carry', 'support'];
+
+export const ROLE_LABEL: Record<Role, string> = {
+  tank: 'Tank/Bruiser',
+  carry: 'Carry',
+  support: 'Utility/Support',
+};
+
+const ROLE_SHORT: Record<Role, string> = {
+  tank: 'Tank',
+  carry: 'Carry',
+  support: 'Support',
+};
+
+export function roleShort(role: Role): string {
+  return ROLE_SHORT[role];
+}
+
+/** How many players have each role, e.g. "Tank/Bruiser 8 · Carry 10 · Utility/Support 6 · sem função 6". */
+export function roleCounts(players: Player[]): string {
+  const parts = ROLES.map((role) => `${ROLE_LABEL[role]} ${players.filter((p) => p.role === role).length}`);
+  const none = players.filter((p) => p.role === null).length;
+  if (none > 0) parts.push(`sem função ${none}`);
+  return parts.join(' · ');
+}
 
 const CAMP_STATUS: Record<string, string> = {
   signup: 'Inscrição',
