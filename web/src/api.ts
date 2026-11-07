@@ -194,6 +194,12 @@ export interface Settings extends SettingsForm {
   draft_timers: number[];
 }
 
+/** A server's OBS overlay links. Anyone with one sees the overlay, no login needed. */
+export interface OverlayLinks {
+  vote_url: string;
+  ranking_url: string;
+}
+
 /** The session is missing or expired: show the login screen. */
 export class Unauthorized extends Error {}
 
@@ -214,6 +220,9 @@ export const api = {
   /** Open matches first, then finished ones newest first. */
   matches: (campId: string) => request<Match[]>(`/api/camps/${campId}/matches`),
   settings: (guildId: string) => request<Settings>(`/api/guilds/${guildId}/settings`),
+  overlays: (guildId: string) => request<OverlayLinks>(`/api/guilds/${guildId}/overlays`),
+  /** New links; the old ones stop working. */
+  resetOverlays: (guildId: string) => send<OverlayLinks>('POST', `/api/guilds/${guildId}/overlays`, {}),
   saveSettings: (guildId: string, form: SettingsForm) =>
     send<Settings>('PUT', `/api/guilds/${guildId}/settings`, form),
   channels: (guildId: string) => request<Channel[]>(`/api/guilds/${guildId}/channels`),

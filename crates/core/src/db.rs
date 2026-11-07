@@ -695,6 +695,50 @@ pub async fn save_guild_settings(pool: &SqlitePool, guild_id: i64, settings: &Gu
     Ok(())
 }
 
+fn new_overlay_token() -> String {
+    let bytes: [u8; 16] = rand::random();
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+/// The secret in a server's OBS overlay links, made on first use.
+pub async fn overlay_token(pool: &SqlitePool, guild_id: i64) -> Result<String> {
+    sqlx::query("INSERT OR IGNORE INTO overlay_links (guild_id, token, created_at) VALUES (?, ?, ?)")
+        .bind(guild_id)
+        .bind(new_overlay_token())
+        .bind(now())
+        .execute(pool)
+        .await?;
+    let token = sqlx::query_scalar("SELECT token FROM overlay_links WHERE guild_id = ?")
+        .bind(guild_id)
+        .fetch_one(pool)
+        .await?;
+    Ok(token)
+}
+
+/// A new secret for the server's overlay links; the old links stop working.
+pub async fn reset_overlay_token(pool: &SqlitePool, guild_id: i64) -> Result<String> {
+    let token = new_overlay_token();
+    sqlx::query(
+        "INSERT INTO overlay_links (guild_id, token, created_at) VALUES (?, ?, ?)
+         ON CONFLICT (guild_id) DO UPDATE SET token = excluded.token, created_at = excluded.created_at",
+    )
+    .bind(guild_id)
+    .bind(&token)
+    .bind(now())
+    .execute(pool)
+    .await?;
+    Ok(token)
+}
+
+/// The server an overlay link's secret belongs to.
+pub async fn overlay_guild(pool: &SqlitePool, token: &str) -> Result<Option<i64>> {
+    let guild_id = sqlx::query_scalar("SELECT guild_id FROM overlay_links WHERE token = ?")
+        .bind(token)
+        .fetch_optional(pool)
+        .await?;
+    Ok(guild_id)
+}
+
 /// The server a match belongs to, through its camp.
 pub async fn match_guild_id(pool: &SqlitePool, match_id: &str) -> Result<Option<i64>> {
     let guild_id = sqlx::query_scalar(
@@ -2553,6 +2597,21 @@ mod tests {
         add_players(&pool, &other_server.id, &[1]).await.unwrap();
         assert_eq!(role_of(&load_camp(&pool, &next.id).await.unwrap().unwrap(), 1), Some(Role::Tank));
         assert_eq!(role_of(&load_camp(&pool, &other_server.id).await.unwrap().unwrap(), 1), None);
+    }
+
+    #[tokio::test]
+    async fn overlay_links_are_per_server_and_can_be_replaced() {
+        let pool = memory_db().await;
+        let first = overlay_token(&pool, 1).await.unwrap();
+        assert_eq!(first.len(), 32);
+        assert_eq!(overlay_token(&pool, 1).await.unwrap(), first, "kept once made");
+        assert_ne!(overlay_token(&pool, 2).await.unwrap(), first, "one per server");
+        assert_eq!(overlay_guild(&pool, &first).await.unwrap(), Some(1));
+
+        let second = reset_overlay_token(&pool, 1).await.unwrap();
+        assert_ne!(second, first);
+        assert_eq!(overlay_guild(&pool, &first).await.unwrap(), None, "the old link stops working");
+        assert_eq!(overlay_guild(&pool, &second).await.unwrap(), Some(1));
     }
 
     #[tokio::test]

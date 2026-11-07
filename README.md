@@ -42,7 +42,7 @@ Anyone with **Manage Server** in a server the bot is in can sign in and run that
 - **Fila:** the queue in order. Move players with ↑, ↓ and *topo*, or drag them on a computer; the new order stays on the page until **Salvar ordem**, which also updates the queue message in Discord. If a match starts or ends meanwhile, saving is blocked so nobody is dropped. After each result, players who were waiting keep this order at the front; the ones who just played join the end by the usual rule.
 - **Partidas:** every match of the camp, open ones first. A match's page shows each player's vote (Refresh, Manter or waiting) with tallies, the next step for its stage, **Lembrar quem falta votar** (mentions only the players who haven't voted), **Fechar e manter times**, the draft links and the party code. Finished matches show the result and, for the latest one, the corrections.
 - **Ranking:** every player by points, with MVPs, wins, matches played and win rate; manual adjustments show in parentheses, and **Ajustar** opens the same points dialog as Jogadores. Equal points are broken by MVPs; players equal on both share a place.
-- **Configurações:** per server. The five voice channels the bot moves players to (*Automático* finds or creates them by name), whether starting a match creates the Deadlock lobby and in which region, whether the bot creates drafts on DeadChaps, and the draft timer (15 to 90 seconds per pick or ban, or none, which DeadChaps caps at 5 minutes). Until an admin saves, a server uses the `.env` values. Changes apply from the next action; a draft already created keeps its timer.
+- **Configurações:** per server. The five voice channels the bot moves players to (*Automático* finds or creates them by name), whether starting a match creates the Deadlock lobby and in which region, whether the bot creates drafts on DeadChaps, and the draft timer (15 to 90 seconds per pick or ban, or none, which DeadChaps caps at 5 minutes). Until an admin saves, a server uses the `.env` values. The side column has the server's **Overlays do OBS** links (see [OBS overlays](#obs-overlays)). Changes apply from the next action; a draft already created keeps its timer.
 - **Regras:** the queue and match rules written out in Portuguese: starting the queue, who plays, the team split, the refresh vote and what a refresh changes, the requeue after a result, the final, and a 30-player example. It opens even with no camp selected.
 
 Each match, the queue and each camp have an **Abrir no Discord** link to their message.
@@ -123,6 +123,15 @@ On **Camps**, create a **4-1v1** camp (two matches at once) or **4-2v2** (one ma
 
 When the test matches are done, **Partida final** seats the two (1v1) or four (2v2) highest-point players. Keep `ENABLE_CUSTOM_MATCH_CREATE=false` so starting a match does not call the Deadlock API.
 
+## OBS overlays
+
+Pages for an OBS browser source, on a transparent background so only the panels show over the scene (a camera, the game, the camp's art). They update by themselves, from the same live updates as the admin page, and need no login: each server has a secret link, on **Configurações** → **Overlays do OBS**. Anyone with the link sees the overlay, so **Gerar link novo** replaces it if it leaks; the old link stops working. The page shows the link with its secret hidden.
+
+- **Votação** (`/overlay/{secret}/votacao`): a match's refresh vote, from the match's creation until its draft starts. Both teams with avatars, captains, S rank and roles, who has voted (never how), each side's Refresh votes against the 4 needed, and the votes to keep the teams. When the vote ends it shows the outcome for 10 seconds, the new teams with who came in from the queue or the teams kept, then fades out. Nothing shows while no vote is open. Suggested source size: 700 × 480, or 700 × 960 for both matches at once; `?partida=1` or `?partida=2` keeps one match's vote.
+- **Ranking** (`/overlay/{secret}/ranking`): the top 10 by points, then MVPs, with the bot's places (equal on both share a place). Each row has wins and matches played, the player's MVPs, a **+1** for the winners of the latest result, and how many places they moved with it (▲ ▼, from the second result on). Once the camp ends, its final ranking stays up until another camp starts; before the first result it says the ranking comes after it. Suggested source size: 440 × 700; `?top=15` shows more (up to 30).
+
+The party code and draft links are never on an overlay.
+
 ## Voice channels
 
 Pick each server's voice channels on **Configurações** (the `*_VOICE_CHANNEL_ID` values in `.env` are the defaults for servers that never saved). They are used to move players who are already in voice. Left on *Automático*, or if the picked channel was deleted, the bot looks up (or creates) channels named `Queue`, `Match 1 Hiddenking`, `Match 1 Archmother`, `Match 2 Hiddenking` and `Match 2 Archmother`.
@@ -156,12 +165,13 @@ A Cargo workspace. `cargo run` at the root starts the app crate, which builds th
 - **Without Discord:** `cargo run -p refresher-web --example demo --features demo` starts a made-up camp at `http://127.0.0.1:8090`. Open `/demo/login` to sign in as a test admin. Actions change only the in-memory camp; nothing touches Discord or `data/camps.db`. `POST /demo/discord-vote` casts a missing refresh vote as a player in Discord would, to watch the page update by itself.
 - **With hot reload:** run the bot (or the demo) and, in `web/`, `npm run dev`. Vite serves the page on `http://localhost:5173` and forwards `/api` and `/auth` to port 8080 (`API_TARGET=http://127.0.0.1:8090 npm run dev` for the demo). To sign in through Discord on 5173, set `WEB_PUBLIC_URL=http://localhost:5173` and add `http://localhost:5173/auth/callback` to the app's redirects.
 - `npm run typecheck` checks the TypeScript.
+- The OBS overlays are a second page (`web/overlay.html`, `web/src/overlay/`). In the demo, copy a link from **Configurações**; `npm run dev` serves `/overlay/...` too.
 
 Player names come from the bot: it looks members up on Discord (server nickname, then display name) and keeps them for 10 minutes.
 
 ### API
 
-Discord IDs are sent as strings, since they don't fit in a JavaScript number. Every endpoint except login needs a session and only covers servers the admin manages.
+Discord IDs are sent as strings, since they don't fit in a JavaScript number. Every endpoint except login and the overlays' needs a session and only covers servers the admin manages. The overlays' endpoints take the server's overlay secret instead.
 
 | Endpoint | Returns |
 | --- | --- |
@@ -171,6 +181,10 @@ Discord IDs are sent as strings, since they don't fit in a JavaScript number. Ev
 | `POST /api/guilds/{guild_id}/camps` | Opens signup for a new camp: `{"channel_id": "…", "size": "24"}` (`24`, `30`, `4-1v1`, `4-2v2`). |
 | `GET /api/guilds/{guild_id}/channels` | The server's text channels. |
 | `GET /api/guilds/{guild_id}/members` | Every member of the server except bots. Needs the Server Members Intent; without it, a 409 that says so. |
+| `GET /api/guilds/{guild_id}/overlays`, `POST` to replace | The server's OBS overlay links (`vote_url`, `ranking_url`), made on first use. `POST` makes new ones; the old ones stop working. |
+| `GET /api/overlay/{secret}/votes` | No session. The refresh votes of the server's camp, from each match's creation until its draft starts: `state` (`open`, then `refreshed` or `kept`), `needed`, `keep`, `voted`, `total`, and per team its Refresh votes and players (name, avatar, captain, S rank, role, whether they voted). A wrong or replaced secret is a 404. |
+| `GET /api/overlay/{secret}/ranking` | No session. The ranking of the server's active camp, else its latest one: `match_count`, `ended`, and per player best first `place`, `points`, `mvps`, `wins`, `played`, `moved` (places moved with the latest result, `null` before a second one) and `scored_last`, with name and avatar. |
+| `GET /api/overlay/{secret}/events` | No session. The same `change` events as below, for the overlay's server. |
 | `GET /api/guilds/{guild_id}/events` | Live updates as server-sent events: a `change` event each time the server's camp changes (admin actions, Discord buttons, the Queue voice channel), and a keep-alive comment every 15 seconds. |
 | `GET /api/guilds/{guild_id}/settings` | The server's settings, whether they were saved, its voice channels and the draft timers allowed. |
 | `PUT /api/guilds/{guild_id}/settings` | Saves them: the five `*_voice_id` (a voice channel ID or `null` for automatic), `create_lobby`, `server_region`, `use_draft_tool` (default `true`) and `draft_timer_seconds`. A channel from another server or an unlisted timer is a 400. |

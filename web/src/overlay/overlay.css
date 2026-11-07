@@ -1,0 +1,436 @@
+/* OBS browser sources: a transparent page, so only the panels show over the scene. */
+
+:root {
+  --hk: #f2b04a;
+  --am: #9db4ff;
+  --jade: #34d3a6;
+  --s: #cdb8ff;
+  --muted: #9db5b0;
+  --wait: #7f9893;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'IBM Plex Sans', system-ui, sans-serif;
+  color: #e9f5f2;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1 {
+  margin: 0;
+}
+
+.ov {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 10px;
+}
+
+.ov-panel {
+  padding: 20px 22px 18px;
+  background: rgba(6, 17, 16, 0.88);
+  border: 1px solid rgba(140, 245, 210, 0.16);
+  border-radius: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  animation: ov-in 0.45s ease both;
+  transition:
+    opacity 0.6s ease,
+    transform 0.6s ease;
+}
+
+.ov-leaving {
+  opacity: 0;
+  transform: translateY(-8px);
+}
+
+.ov-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.ov-top h1 {
+  margin-top: 2px;
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.ov-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ov-jade {
+  color: var(--jade);
+}
+
+.ov-hiddenking {
+  color: var(--hk);
+}
+
+.ov-archmother {
+  color: var(--am);
+}
+
+.ov-muted {
+  color: var(--muted);
+}
+
+.ov-pill {
+  flex: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(52, 211, 166, 0.14);
+  color: var(--jade);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.ov-cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.ov-team-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+
+.ov-team-head .ov-label {
+  font-size: 14px;
+}
+
+.ov-pips {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.ov-pips i {
+  height: 9px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  transition:
+    background 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+.ov-pips-hiddenking i.on {
+  background: var(--hk);
+  box-shadow: 0 0 8px rgba(242, 176, 74, 0.6);
+}
+
+.ov-pips-archmother i.on {
+  background: var(--am);
+  box-shadow: 0 0 8px rgba(157, 180, 255, 0.6);
+}
+
+.ov-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-height: 35px;
+  padding: 4px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.ov-new {
+  background: linear-gradient(90deg, rgba(52, 211, 166, 0.12), transparent);
+}
+
+.ov-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ov-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-avatar {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 50%;
+  background: #24403c;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.ov-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ov-crown {
+  font-size: 14px;
+}
+
+.ov-s {
+  flex: none;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #2a2245;
+  color: var(--s);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 16px;
+}
+
+.ov-role {
+  flex: none;
+  font-size: 13px;
+}
+
+.ov-ok {
+  flex: none;
+  color: var(--jade);
+  font-size: 13px;
+  font-weight: 700;
+  animation: ov-pop 0.35s ease;
+}
+
+.ov-wait {
+  flex: none;
+  color: var(--wait);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ov-wait::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: var(--wait);
+  vertical-align: 1px;
+  animation: ov-pulse 1.6s ease-in-out infinite;
+}
+
+.ov-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 14px;
+}
+
+/* Ranking */
+
+.ov-rank {
+  padding: 18px 18px 14px;
+}
+
+.ov-rank-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.ov-rank-head h1 {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.ov-rank-head .ov-muted {
+  font-size: 14px;
+}
+
+.ov-rank-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ov-rank-row {
+  display: grid;
+  grid-template-columns: 30px 34px 1fr 32px 48px;
+  align-items: center;
+  gap: 8px;
+  height: 54px;
+  padding: 0 4px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  animation: ov-in 0.45s ease both;
+}
+
+.ov-rank-first {
+  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(245, 208, 107, 0.12), transparent);
+}
+
+.ov-place {
+  font-size: 20px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.ov-place-1 {
+  color: #f5d06b;
+}
+
+.ov-place-2 {
+  color: #d4dde0;
+}
+
+.ov-place-3 {
+  color: #e0a272;
+}
+
+.ov-rank-who {
+  min-width: 0;
+}
+
+.ov-rank-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.ov-rank-sub {
+  margin-top: 1px;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.ov-mvp,
+.ov-plus {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 17px;
+}
+
+.ov-mvp {
+  background: rgba(245, 208, 107, 0.14);
+  color: #f5d06b;
+}
+
+.ov-plus {
+  background: rgba(52, 211, 166, 0.16);
+  color: var(--jade);
+  animation: ov-pop 0.35s ease;
+}
+
+.ov-move {
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.ov-up {
+  color: var(--jade);
+}
+
+.ov-down {
+  color: #ff9f92;
+}
+
+.ov-same {
+  color: #5f7a75;
+}
+
+.ov-pts {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.05;
+  text-align: right;
+}
+
+.ov-pts small {
+  display: block;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+}
+
+.ov-rank-foot {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.ov-empty {
+  margin: 4px 0 2px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+@keyframes ov-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+@keyframes ov-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+}
+
+@keyframes ov-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ov-panel,
+  .ov-ok,
+  .ov-wait::before,
+  .ov-rank-row,
+  .ov-plus {
+    animation: none;
+  }
+}
