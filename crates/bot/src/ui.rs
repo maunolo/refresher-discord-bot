@@ -283,7 +283,7 @@ pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
     let total = open.players.len();
     let mut desc = if open.row.status == "voting" {
         if open.row.draft_url.is_some() {
-            format!("Draft iniciado — os capitães ({CAPTAIN_TAG}) receberam por DM o link do draft. Um admin pode iniciar a partida.")
+            format!("Draft iniciado — os capitães ({CAPTAIN_TAG}) entram no draft pelo botão **{CAPTAIN_LINK_LABEL}** abaixo. Um admin pode iniciar a partida.")
         } else if open.row.draft_manual {
             format!("Draft iniciado — os capitães ({CAPTAIN_TAG}) recebem o link do draft de um admin. Depois, um admin inicia a partida.")
         } else if open.row.refreshed_by_admin {

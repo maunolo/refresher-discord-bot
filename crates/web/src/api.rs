@@ -13,11 +13,11 @@ use refresher_core::db::{
     self, CampRow, CampState, CampSummary, MatchPlayerRow, MatchRow, PlayerRow, PlayerStats, RecentMatch,
     RefreshVote,
 };
-use refresher_core::draft;
+use refresher_core::draft::{self, DraftView};
 use refresher_core::link::{CampAction, Channel, Profile};
 use refresher_core::queue::{self, CampSize, Role};
 use refresher_core::ranking::{rank_with_movement, LatestResult, Standing};
-use refresher_core::settings::{GuildSettings, DRAFT_TIMERS};
+use refresher_core::settings::{GuildSettings, DRAFT_RESERVES, DRAFT_TIMERS, MAX_DRAFT_BANS};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::error::RecvError;
 
@@ -88,6 +88,8 @@ pub struct CampDto {
     discord_url: String,
     /// The server creates drafts on the draft tool; off, admins share a draft link themselves.
     draft_tool: bool,
+    /// Captains get the draft's invite link by DM; either way it's on their match message button.
+    dm_captains: bool,
 }
 
 #[derive(Serialize)]
@@ -314,7 +316,7 @@ fn camp_dto(
     stats: &HashMap<i64, PlayerStats>,
     profiles: &HashMap<u64, Profile>,
     queue_voice: Vec<u64>,
-    draft_tool: bool,
+    settings: &GuildSettings,
 ) -> CampDto {
     CampDto {
         id: state.camp.id.clone(),
@@ -369,7 +371,8 @@ fn camp_dto(
             .collect(),
         queue_voice: queue_voice.iter().map(u64::to_string).collect(),
         discord_url: discord_url(state.camp.guild_id, state.camp.channel_id, state.camp.board_message_id),
-        draft_tool,
+        draft_tool: settings.use_draft_tool,
+        dm_captains: settings.dm_captains,
     }
 }
 
@@ -469,7 +472,7 @@ async fn camp_response(state: &AppState, camp: CampState) -> Result<Json<CampDto
         Vec::new()
     };
     let (settings, _) = db::guild_settings(&state.db, camp.camp.guild_id, &state.default_settings).await?;
-    Ok(Json(camp_dto(&camp, &recent, &stats, &profiles, queue_voice, settings.use_draft_tool)))
+    Ok(Json(camp_dto(&camp, &recent, &stats, &profiles, queue_voice, &settings)))
 }
 
 /// A server the admin manages and the bot is in, or 404.
@@ -1039,10 +1042,17 @@ pub struct SettingsDto {
     server_region: Option<String>,
     use_draft_tool: bool,
     draft_timer_seconds: u32,
+    draft_reserve_seconds: u32,
+    draft_bans_per_team: u32,
+    /// `cinematic` or `competitive`.
+    draft_view: &'static str,
+    dm_captains: bool,
     /// False until an admin saves this server's settings: until then it runs on the `.env` values.
     saved: bool,
     voice_channels: Vec<ChannelDto>,
     draft_timers: Vec<u32>,
+    draft_reserves: Vec<u32>,
+    max_draft_bans: u32,
 }
 
 /// The body of `PUT /api/guilds/{id}/settings`. A voice channel left out is found by its name.
@@ -1059,10 +1069,27 @@ pub struct SettingsRequest {
     #[serde(default = "yes")]
     use_draft_tool: bool,
     draft_timer_seconds: u32,
+    /// The options below are missing in pages from before they existed: the defaults stay.
+    #[serde(default = "default_reserve")]
+    draft_reserve_seconds: u32,
+    #[serde(default = "default_bans")]
+    draft_bans_per_team: u32,
+    #[serde(default)]
+    draft_view: Option<String>,
+    #[serde(default = "yes")]
+    dm_captains: bool,
 }
 
 fn yes() -> bool {
     true
+}
+
+fn default_reserve() -> u32 {
+    90
+}
+
+fn default_bans() -> u32 {
+    2
 }
 
 const MAX_REGION_LEN: usize = 40;
@@ -1079,6 +1106,10 @@ fn settings_dto(settings: GuildSettings, saved: bool, voice: Vec<Channel>) -> Se
         server_region: settings.server_region,
         use_draft_tool: settings.use_draft_tool,
         draft_timer_seconds: settings.draft_timer_seconds,
+        draft_reserve_seconds: settings.draft_reserve_seconds,
+        draft_bans_per_team: settings.draft_bans_per_team,
+        draft_view: settings.draft_view.as_str(),
+        dm_captains: settings.dm_captains,
         saved,
         voice_channels: voice
             .into_iter()
@@ -1088,6 +1119,8 @@ fn settings_dto(settings: GuildSettings, saved: bool, voice: Vec<Channel>) -> Se
             })
             .collect(),
         draft_timers: DRAFT_TIMERS.to_vec(),
+        draft_reserves: DRAFT_RESERVES.to_vec(),
+        max_draft_bans: MAX_DRAFT_BANS,
     }
 }
 
@@ -1107,6 +1140,19 @@ fn parse_settings(request: SettingsRequest, voice: &[Channel]) -> Result<GuildSe
     if !DRAFT_TIMERS.contains(&request.draft_timer_seconds) {
         return Err(ApiError::BadRequest("tempo de draft inválido".to_string()));
     }
+    if !DRAFT_RESERVES.contains(&request.draft_reserve_seconds) {
+        return Err(ApiError::BadRequest("tempo de reserva do draft inválido".to_string()));
+    }
+    if request.draft_bans_per_team > MAX_DRAFT_BANS {
+        return Err(ApiError::BadRequest(format!(
+            "o DeadChaps permite no máximo {MAX_DRAFT_BANS} bans por time"
+        )));
+    }
+    let draft_view = match request.draft_view.as_deref() {
+        None => DraftView::Cinematic,
+        Some(name) => DraftView::parse(name)
+            .ok_or_else(|| ApiError::BadRequest(format!("visualização de draft inválida: {name}")))?,
+    };
     let server_region = request
         .server_region
         .map(|r| r.trim().to_string())
@@ -1124,6 +1170,10 @@ fn parse_settings(request: SettingsRequest, voice: &[Channel]) -> Result<GuildSe
         server_region,
         use_draft_tool: request.use_draft_tool,
         draft_timer_seconds: request.draft_timer_seconds,
+        draft_reserve_seconds: request.draft_reserve_seconds,
+        draft_bans_per_team: request.draft_bans_per_team,
+        draft_view,
+        dm_captains: request.dm_captains,
     })
 }
 

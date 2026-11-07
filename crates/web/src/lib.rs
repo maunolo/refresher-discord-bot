@@ -271,6 +271,10 @@ mod tests {
                 server_region: Some("SouthAmerica".to_string()),
                 use_draft_tool: true,
                 draft_timer_seconds: 30,
+                draft_reserve_seconds: 90,
+                draft_bans_per_team: 2,
+                draft_view: refresher_core::draft::DraftView::Cinematic,
+                dm_captains: true,
             },
         }
     }
@@ -940,6 +944,31 @@ data: 111
         assert_eq!(body["server_region"], "Europe");
         assert_eq!(body["draft_timer_seconds"], 45);
         assert_eq!(body["use_draft_tool"], true, "left out of the form: stays on");
+        assert_eq!(
+            (&body["draft_reserve_seconds"], &body["draft_bans_per_team"], &body["draft_view"], &body["dm_captains"]),
+            (&serde_json::json!(90), &serde_json::json!(2), &serde_json::json!("cinematic"), &serde_json::json!(true)),
+            "the draft options left out keep their defaults"
+        );
+        assert_eq!(body["draft_reserves"], serde_json::json!([0, 30, 60, 90, 120, 180, 300, 600]));
+        assert_eq!(body["max_draft_bans"], 3);
+
+        let options = form.replace(
+            "\"draft_timer_seconds\": 45",
+            "\"draft_timer_seconds\": 45, \"draft_reserve_seconds\": 180, \"draft_bans_per_team\": 0, \"draft_view\": \"competitive\", \"dm_captains\": false",
+        );
+        assert_eq!(put(&state, "/api/guilds/111/settings", Some(&token), &options).await.0, StatusCode::OK);
+        let (_, body) = get(&state, "/api/guilds/111/settings", Some(&token)).await;
+        assert_eq!(
+            (&body["draft_reserve_seconds"], &body["draft_bans_per_team"], &body["draft_view"], &body["dm_captains"]),
+            (&serde_json::json!(180), &serde_json::json!(0), &serde_json::json!("competitive"), &serde_json::json!(false))
+        );
+        for bad in [
+            options.replace("\"draft_reserve_seconds\": 180", "\"draft_reserve_seconds\": 100"),
+            options.replace("\"draft_bans_per_team\": 0", "\"draft_bans_per_team\": 4"),
+            options.replace("\"competitive\"", "\"wide\""),
+        ] {
+            assert_eq!(put(&state, "/api/guilds/111/settings", Some(&token), &bad).await.0, StatusCode::BAD_REQUEST, "{bad}");
+        }
 
         let manual = form.replace("\"create_lobby\": false", "\"create_lobby\": false, \"use_draft_tool\": false");
         assert_eq!(put(&state, "/api/guilds/111/settings", Some(&token), &manual).await.0, StatusCode::OK);

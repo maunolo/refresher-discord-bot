@@ -49,6 +49,8 @@ export interface Camp {
   discord_url: string;
   /** The server creates drafts on the draft tool; off, admins share a draft link themselves. */
   draft_tool: boolean;
+  /** Captains get the draft's invite link by DM; either way it's on their match message button. */
+  dm_captains: boolean;
 }
 
 export interface Channel {
@@ -185,13 +187,25 @@ export interface SettingsForm {
   /** Off: no drafts on the draft tool; admins share a draft link themselves. */
   use_draft_tool: boolean;
   draft_timer_seconds: number;
+  /** Extra seconds per side once a turn runs out. */
+  draft_reserve_seconds: number;
+  /** 0 turns bans off. */
+  draft_bans_per_team: number;
+  /** DeadChaps' draft page layout. */
+  draft_view: DraftView;
+  /** DM each captain the invite link. */
+  dm_captains: boolean;
 }
+
+export type DraftView = 'cinematic' | 'competitive';
 
 export interface Settings extends SettingsForm {
   /** False until an admin saves: the server runs on the bot's .env values. */
   saved: boolean;
   voice_channels: Channel[];
   draft_timers: number[];
+  draft_reserves: number[];
+  max_draft_bans: number;
 }
 
 /** A server's OBS overlay links. Anyone with one sees the overlay, no login needed. */

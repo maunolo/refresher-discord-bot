@@ -1,6 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
-import { api, type OverlayLinks, type Settings, type SettingsForm } from '../api';
+import { api, type DraftView, type OverlayLinks, type Settings, type SettingsForm } from '../api';
 import { CopyButton } from './common';
 
 type VoiceKey =
@@ -30,12 +30,36 @@ function formOf(settings: Settings): SettingsForm {
     server_region: settings.server_region,
     use_draft_tool: settings.use_draft_tool,
     draft_timer_seconds: settings.draft_timer_seconds,
+    draft_reserve_seconds: settings.draft_reserve_seconds,
+    draft_bans_per_team: settings.draft_bans_per_team,
+    draft_view: settings.draft_view,
+    dm_captains: settings.dm_captains,
   };
 }
 
 function timerLabel(seconds: number): string {
   return seconds === 0 ? 'Sem tempo (5 minutos, o máximo do DeadChaps)' : `${seconds} segundos`;
 }
+
+function reserveLabel(seconds: number): string {
+  if (seconds === 0) return 'Sem reserva';
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  const label =
+    minutes === 0 ? `${rest} segundos` : rest === 0 ? `${minutes} ${minutes === 1 ? 'minuto' : 'minutos'}` : `${minutes} min ${rest} s`;
+  return seconds === 90 ? `${label} (padrão do DeadChaps)` : label;
+}
+
+function bansLabel(bans: number): string {
+  if (bans === 0) return 'Sem bans';
+  const label = bans === 1 ? '1 ban' : `${bans} bans`;
+  return bans === 2 ? `${label} (padrão)` : label;
+}
+
+const DRAFT_VIEWS: { value: DraftView; label: string }[] = [
+  { value: 'cinematic', label: 'Cinemática (padrão do DeadChaps)' },
+  { value: 'competitive', label: 'Competitiva' },
+];
 
 /** A link without its secret, for showing on a page that may be on stream. */
 function masked(url: string): string {
@@ -294,26 +318,103 @@ export function SettingsView({ guildId, guildName }: { guildId: string; guildNam
               <strong>Criar o draft no DeadChaps</strong>
               <span className="muted small">
                 {form.use_draft_tool
-                  ? ' O bot cria o draft e manda aos capitães, por DM, o link para entrar no draft.'
+                  ? ' O bot cria um draft privado no DeadChaps com as regras abaixo, e só os capitães recebem o link para entrar.'
                   : ' Desligado: o bot só move os jogadores e avisa no canal. Você cria o draft e manda o link para os capitães, como o código da partida.'}
               </span>
             </span>
           </div>
-          <div className="field">
-            <label htmlFor="draft-timer">Tempo por escolha e banimento</label>
-            <select
-              id="draft-timer"
-              className="input"
-              value={form.draft_timer_seconds}
+          <div className="settings-pairs">
+            <div className="field">
+              <label htmlFor="draft-timer">Tempo por escolha e banimento</label>
+              <select
+                id="draft-timer"
+                className="input"
+                value={form.draft_timer_seconds}
+                disabled={!form.use_draft_tool}
+                onChange={(e) => update({ draft_timer_seconds: Number(e.target.value) })}
+              >
+                {settings.draft_timers.map((t) => (
+                  <option key={t} value={t}>
+                    {timerLabel(t)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="draft-reserve">Tempo de reserva por time</label>
+              <select
+                id="draft-reserve"
+                className="input"
+                value={form.draft_reserve_seconds}
+                disabled={!form.use_draft_tool || form.draft_timer_seconds === 0}
+                onChange={(e) => update({ draft_reserve_seconds: Number(e.target.value) })}
+              >
+                {settings.draft_reserves.map((r) => (
+                  <option key={r} value={r}>
+                    {reserveLabel(r)}
+                  </option>
+                ))}
+              </select>
+              <span className="muted small">
+                {form.draft_timer_seconds === 0
+                  ? 'Sem tempo por escolha, a reserva é a máxima: 10 minutos.'
+                  : 'Usado quando o tempo de uma escolha acaba.'}
+              </span>
+            </div>
+            <div className="field">
+              <label htmlFor="draft-bans">Bans por time</label>
+              <select
+                id="draft-bans"
+                className="input"
+                value={form.draft_bans_per_team}
+                disabled={!form.use_draft_tool}
+                onChange={(e) => update({ draft_bans_per_team: Number(e.target.value) })}
+              >
+                {Array.from({ length: settings.max_draft_bans + 1 }, (_, bans) => (
+                  <option key={bans} value={bans}>
+                    {bansLabel(bans)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="draft-view">Visualização do draft</label>
+              <select
+                id="draft-view"
+                className="input"
+                value={form.draft_view}
+                disabled={!form.use_draft_tool}
+                onChange={(e) => update({ draft_view: e.target.value as DraftView })}
+              >
+                {DRAFT_VIEWS.map((view) => (
+                  <option key={view.value} value={view.value}>
+                    {view.label}
+                  </option>
+                ))}
+              </select>
+              <span className="muted small">O layout da página do draft no DeadChaps.</span>
+            </div>
+          </div>
+          <div className="settings-switch">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={form.dm_captains}
+              aria-labelledby="dm-captains-label"
+              className={form.dm_captains ? 'switch switch-on' : 'switch'}
               disabled={!form.use_draft_tool}
-              onChange={(e) => update({ draft_timer_seconds: Number(e.target.value) })}
+              onClick={() => update({ dm_captains: !form.dm_captains })}
             >
-              {settings.draft_timers.map((t) => (
-                <option key={t} value={t}>
-                  {timerLabel(t)}
-                </option>
-              ))}
-            </select>
+              <span className="switch-knob" />
+            </button>
+            <span id="dm-captains-label">
+              <strong>Mandar o link do draft por DM aos capitães</strong>
+              <span className="muted small">
+                {form.dm_captains
+                  ? ' Cada capitão recebe por DM o link para entrar no draft e o lado que ocupa. O botão Link do capitão, na mensagem da partida, também mostra o link.'
+                  : ' Desligado: ninguém recebe DM. Os capitães pegam o link no botão Link do capitão, na mensagem da partida, que só eles conseguem abrir.'}
+              </span>
+            </span>
           </div>
         </fieldset>
 
@@ -343,7 +444,7 @@ export function SettingsView({ guildId, guildName }: { guildId: string; guildNam
             Quando vale
           </h2>
           <p className="muted small">
-            Na próxima ação do bot. Uma partida com draft já criado mantém o tempo dele; o lobby é decidido ao iniciar a
+            Na próxima ação do bot. Uma partida com draft já criado mantém as regras dele; o lobby é decidido ao iniciar a
             partida.
           </p>
           <p className="muted small">Vale para todos os camps deste servidor, e só para ele.</p>
