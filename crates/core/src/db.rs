@@ -63,9 +63,8 @@ pub struct MatchRow {
     pub is_final: bool,
     /// Public spectator link. Set once the draft starts.
     pub draft_url: Option<String>,
-    pub draft_hiddenking_url: Option<String>,
-    pub draft_archmother_url: Option<String>,
-    pub draft_admin_url: Option<String>,
+    /// The captains' invite link: whoever opens it can take a slot on either side.
+    pub draft_join_url: Option<String>,
     /// An admin ended the refresh vote early and kept the teams.
     pub vote_closed_by_admin: bool,
     /// The draft started without the draft tool: the admin shares the draft link themselves.
@@ -78,22 +77,13 @@ pub struct MatchRow {
 
 /// The columns a `MatchRow` reads, for `SELECT {MATCH_COLUMNS} FROM camp_matches m`.
 const MATCH_COLUMNS: &str = "m.id, m.slot, m.status, m.refresh_used, m.message_id, m.party_id, m.party_code,
-     m.winner_side, m.is_final, m.draft_url, m.draft_hiddenking_url, m.draft_archmother_url,
-     m.draft_admin_url, m.vote_closed_by_admin, m.draft_manual, m.refreshed_by_admin, m.mvp_user_id";
+     m.winner_side, m.is_final, m.draft_url, m.draft_join_url, m.vote_closed_by_admin,
+     m.draft_manual, m.refreshed_by_admin, m.mvp_user_id";
 
 impl MatchRow {
     /// The draft step happened, on the draft tool or by hand.
     pub fn draft_started(&self) -> bool {
         self.draft_url.is_some() || self.draft_manual
-    }
-
-    /// The private draft link for one side.
-    pub fn team_draft_url(&self, side: &str) -> Option<&str> {
-        match side {
-            "hiddenking" => self.draft_hiddenking_url.as_deref(),
-            "archmother" => self.draft_archmother_url.as_deref(),
-            _ => None,
-        }
     }
 }
 
@@ -253,13 +243,11 @@ pub async fn set_match_message_id(pool: &SqlitePool, match_id: &str, message_id:
 pub async fn set_draft(pool: &SqlitePool, match_id: &str, draft: &CreatedDraft) -> Result<()> {
     let updated = sqlx::query(
         "UPDATE camp_matches
-         SET draft_url = ?, draft_hiddenking_url = ?, draft_archmother_url = ?, draft_admin_url = ?
+         SET draft_url = ?, draft_join_url = ?
          WHERE id = ? AND status = 'voting' AND refresh_used != 0 AND draft_url IS NULL AND draft_manual = 0",
     )
     .bind(&draft.spectator_url)
-    .bind(&draft.hiddenking_url)
-    .bind(&draft.archmother_url)
-    .bind(&draft.admin_url)
+    .bind(&draft.join_url)
     .bind(match_id)
     .execute(pool)
     .await?
@@ -2269,9 +2257,7 @@ mod tests {
         assert!(close_voting(&pool, &camp_id, &match_id).await.is_err());
         let draft = CreatedDraft {
             spectator_url: "https://draft.example/x".to_string(),
-            hiddenking_url: "https://draft.example/x/a".to_string(),
-            archmother_url: "https://draft.example/x/b".to_string(),
-            admin_url: "https://draft.example/links/x".to_string(),
+            join_url: "https://draft.example/x?key=k".to_string(),
         };
         set_draft(&pool, &match_id, &draft).await.unwrap();
     }
@@ -2363,7 +2349,7 @@ mod tests {
             database_url: String::new(),
             deadlock_server_region: Some("SouthAmerica".to_string()),
             enable_custom_match_create: true,
-            draft_base_url: String::new(),
+            deadchaps_api_key: None,
             queue_voice_channel_id: Some(5),
             match1_hiddenking_voice_id: None,
             match1_archmother_voice_id: None,
@@ -2435,9 +2421,7 @@ mod tests {
         assert!(set_manual_draft(&pool, &match_id).await.is_err());
         let draft = CreatedDraft {
             spectator_url: "https://draft.example/x".to_string(),
-            hiddenking_url: "https://draft.example/x/a".to_string(),
-            archmother_url: "https://draft.example/x/b".to_string(),
-            admin_url: "https://draft.example/links/x".to_string(),
+            join_url: "https://draft.example/x?key=k".to_string(),
         };
         assert!(set_draft(&pool, &match_id, &draft).await.is_err(), "already drafted by hand");
 

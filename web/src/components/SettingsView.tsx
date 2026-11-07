@@ -33,7 +33,7 @@ function formOf(settings: Settings): SettingsForm {
 }
 
 function timerLabel(seconds: number): string {
-  return seconds === 0 ? 'Sem tempo' : `${seconds} segundos`;
+  return seconds === 0 ? 'Sem tempo (5 minutos, o máximo do DeadChaps)' : `${seconds} segundos`;
 }
 
 /** How this server's camps run: voice channels, the Deadlock lobby and the draft timer. */
@@ -181,10 +181,10 @@ export function SettingsView({ guildId, guildName }: { guildId: string; guildNam
               <span className="switch-knob" />
             </button>
             <span id="draft-tool-label">
-              <strong>Criar o draft no draft.deadlock.pro.br</strong>
+              <strong>Criar o draft no DeadChaps</strong>
               <span className="muted small">
                 {form.use_draft_tool
-                  ? ' O bot cria o draft e manda a cada capitão, por DM, o link do time.'
+                  ? ' O bot cria o draft e manda aos capitães, por DM, o link para entrar no draft.'
                   : ' Desligado: o bot só move os jogadores e avisa no canal. Você cria o draft e manda o link para os capitães, como o código da partida.'}
               </span>
             </span>

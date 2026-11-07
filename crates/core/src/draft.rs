@@ -1,75 +1,101 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use reqwest::Client;
 use serde::Deserialize;
 
-pub const DEFAULT_BASE_URL: &str = "https://draft.deadlock.pro.br";
+/// DeadChaps' draft API (https://www.deadchaps.gg/api). Needs a key with the `drafts.write` scope.
+const CREATE_URL: &str = "https://www.deadchaps.gg/api/v1/drafts";
 
-/// Links for one draft. Team links are private: whoever opens one picks and bans for that team.
+/// Where DeadChaps draft pages live: a draft's watch link is this plus its code.
+const DRAFT_PAGE: &str = "https://www.deadchaps.gg/draft/";
+
+/// The draft's OBS overlay: its watch link with `/obs`. `None` for drafts made before DeadChaps.
+pub fn obs_url(spectator_url: &str) -> Option<String> {
+    spectator_url
+        .starts_with(DRAFT_PAGE)
+        .then(|| format!("{}/obs", spectator_url.trim_end_matches('/')))
+}
+
+/// Links for one draft. The join link is private: whoever opens it can take a slot on either
+/// side, so only captains get it.
 #[derive(Clone, Debug)]
 pub struct CreatedDraft {
+    /// Watch link, open to anyone.
     pub spectator_url: String,
-    pub hiddenking_url: String,
-    pub archmother_url: String,
-    pub admin_url: String,
+    pub join_url: String,
 }
 
 #[derive(Debug, Deserialize)]
-struct CreateDraftResponse {
-    data: DraftCodes,
+struct DraftCreated {
+    url: String,
+    join_url: String,
 }
 
 #[derive(Debug, Deserialize)]
-struct DraftCodes {
-    code_url: String,
-    code_a: String,
-    code_b: String,
-    code_admin: String,
+struct ErrorBody {
+    detail: ErrorDetail,
 }
 
-/// Pick/ban order for the draft tool: `a#` is one Team A ban, `b2` is two Team B picks in a row.
-/// Every size gives each team one pick per player.
-fn draft_order(match_size: usize) -> &'static str {
-    match match_size {
-        2 => "a#-b#-a1-b1",
-        4 => "a#-b#-a1-b2-a1",
-        _ => "a#-b#-a1-b2-a2-b1-b#-a#-b1-a2-b2-a1",
+#[derive(Debug, Deserialize)]
+struct ErrorDetail {
+    code: String,
+    message: String,
+}
+
+/// The draft request. Hiddenking is DeadChaps' `team0`, with 2 bans per team and one pick per
+/// player. DeadChaps has no 1v1 lobby, so a 1v1 test match drafts as 2v2. `timer_seconds` is
+/// per pick or ban, one of `settings::DRAFT_TIMERS`; 0 (no timer) becomes the longest
+/// DeadChaps allows.
+fn create_body(match_size: usize, timer_seconds: u32) -> serde_json::Value {
+    let per_side = (match_size / 2).clamp(2, 6);
+    let mut body = serde_json::json!({
+        "team0": { "name": "Hiddenking" },
+        "team1": { "name": "Archmother" },
+        "lobby_size": format!("{per_side}v{per_side}"),
+        "bans_per_team": 2,
+    });
+    if timer_seconds == 0 {
+        body["time_per_pick"] = 300.into();
+        body["reserve_time"] = 600.into();
+    } else {
+        body["time_per_pick"] = timer_seconds.into();
     }
+    body
 }
 
-/// Creates a draft on draft.deadlock.pro.br (or a self-hosted copy). Team A is Hiddenking.
-/// `timer_seconds` is per pick or ban, one of `settings::DRAFT_TIMERS`.
+/// Creates a private draft on DeadChaps.
 pub async fn create_draft(
     http: &Client,
-    base_url: &str,
+    api_key: Option<&str>,
     match_size: usize,
     timer_seconds: u32,
 ) -> Result<CreatedDraft> {
-    let base = base_url.trim_end_matches('/');
-    let body = serde_json::json!({
-        "name_a": "Hiddenking",
-        "name_b": "Archmother",
-        "sort": draft_order(match_size),
-        "timer_seconds": timer_seconds
-    });
+    let Some(api_key) = api_key else {
+        bail!("DEADCHAPS_API_KEY não está configurada. Configure a chave ou desligue o draft automático em Configurações.");
+    };
     let response = http
-        .post(format!("{base}/api/draft"))
-        .json(&body)
+        .post(CREATE_URL)
+        .header("X-API-Key", api_key)
+        .json(&create_body(match_size, timer_seconds))
         .send()
         .await
-        .context("falha ao chamar a API de draft")?;
+        .context("falha ao chamar a API de draft do DeadChaps")?;
     let status = response.status();
     let text = response.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(anyhow!("A API de draft recusou a criação ({status}): {text}"));
+        return Err(match serde_json::from_str::<ErrorBody>(&text) {
+            Ok(error) => anyhow!(
+                "O DeadChaps recusou o draft ({status}, {}): {}",
+                error.detail.code,
+                error.detail.message
+            ),
+            Err(_) => anyhow!("O DeadChaps recusou o draft ({status}): {text}"),
+        });
     }
-    let parsed: CreateDraftResponse = serde_json::from_str(&text)
-        .with_context(|| format!("resposta inesperada da API de draft: {text}"))?;
-    let codes = parsed.data;
+    let created: DraftCreated = serde_json::from_str(&text)
+        .with_context(|| format!("resposta inesperada da API de draft do DeadChaps: {text}"))?;
     Ok(CreatedDraft {
-        spectator_url: format!("{base}/{}", codes.code_url),
-        hiddenking_url: format!("{base}/{}/{}", codes.code_url, codes.code_a),
-        archmother_url: format!("{base}/{}/{}", codes.code_url, codes.code_b),
-        admin_url: format!("{base}/links/{}", codes.code_admin),
+        spectator_url: created.url,
+        join_url: created.join_url,
     })
 }
 
@@ -78,20 +104,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn draft_order_gives_one_pick_per_player() {
-        for match_size in [2_usize, 4, 12] {
-            let order = draft_order(match_size);
-            let mut picks = [0_usize; 2];
-            for block in order.split('-') {
-                let (team, count) = block.split_at(1);
-                assert!(team == "a" || team == "b", "bad team in {order}");
-                if count != "#" {
-                    let n: usize = count.parse().expect("pick count");
-                    assert!((1..=9).contains(&n));
-                    picks[usize::from(team == "b")] += n;
-                }
-            }
-            assert_eq!(picks, [match_size / 2, match_size / 2], "{order}");
+    fn lobby_size_follows_the_match_and_starts_at_2v2() {
+        for (match_size, lobby) in [(2_usize, "2v2"), (4, "2v2"), (12, "6v6")] {
+            assert_eq!(create_body(match_size, 30)["lobby_size"], lobby, "{match_size}");
         }
+    }
+
+    #[test]
+    fn obs_overlay_only_for_deadchaps_drafts() {
+        assert_eq!(
+            obs_url("https://www.deadchaps.gg/draft/3GQCZG98").as_deref(),
+            Some("https://www.deadchaps.gg/draft/3GQCZG98/obs")
+        );
+        assert_eq!(obs_url("https://draft.deadlock.pro.br/abc"), None);
+    }
+
+    #[test]
+    fn no_timer_becomes_the_longest_deadchaps_allows() {
+        let body = create_body(12, 0);
+        assert_eq!(body["time_per_pick"], 300);
+        assert_eq!(body["reserve_time"], 600);
+        let body = create_body(12, 45);
+        assert_eq!(body["time_per_pick"], 45);
+        assert!(body.get("reserve_time").is_none(), "keeps DeadChaps' default reserve");
     }
 }

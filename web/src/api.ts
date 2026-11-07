@@ -108,9 +108,10 @@ export interface Match {
 
 export interface Draft {
   spectator_url: string;
-  hiddenking_url: string | null;
-  archmother_url: string | null;
-  admin_url: string | null;
+  /** The captains' invite link: whoever opens it can take a slot on either side. */
+  join_url: string | null;
+  /** The draft as an OBS overlay, for streaming it. */
+  obs_url: string | null;
 }
 
 export interface MatchPlayer {

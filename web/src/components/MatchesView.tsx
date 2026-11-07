@@ -331,7 +331,7 @@ function NextStep({ camp, match }: { camp: Camp; match: Match }) {
             </button>
             <span className="muted small">
               {camp.draft_tool
-                ? 'Cria o draft, manda a cada capitão o link do time por DM e move todos para os canais de voz dos times.'
+                ? 'Cria o draft no DeadChaps, manda o link aos capitães por DM e move todos para os canais de voz dos times.'
                 : 'A ferramenta de draft está desligada: o bot move todos para os canais de voz dos times e avisa no canal. Você manda o link do draft para os capitães.'}
             </span>
           </>
@@ -351,7 +351,7 @@ function NextStep({ camp, match }: { camp: Camp; match: Match }) {
         </button>
         <span id="draft-help" className="muted small">
           {camp.draft_tool
-            ? 'Libera quando a votação fechar. O draft cria os links dos capitães e move todos para os canais de voz dos times.'
+            ? 'Libera quando a votação fechar. O draft é criado no DeadChaps, os capitães recebem o link e todos vão para os canais de voz dos times.'
             : 'Libera quando a votação fechar. O draft é manual: o bot move todos para os canais dos times e você manda o link.'}
         </span>
         <button

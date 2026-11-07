@@ -10,6 +10,7 @@ use refresher_core::db::{
     self, CampRow, CampState, CampSummary, MatchPlayerRow, MatchRow, PlayerRow, PlayerStats, RecentMatch,
     RefreshVote,
 };
+use refresher_core::draft;
 use refresher_core::link::{CampAction, Channel, Profile};
 use refresher_core::queue::{self, CampSize};
 use refresher_core::settings::{GuildSettings, DRAFT_TIMERS};
@@ -169,13 +170,14 @@ pub struct MatchDto {
     discord_url: String,
 }
 
-/// Admins see every link, team links included, so they can help a captain whose DM failed.
+/// Admins see the captains' invite link too, so they can help a captain whose DM failed.
 #[derive(Serialize)]
 struct DraftDto {
     spectator_url: String,
-    hiddenking_url: Option<String>,
-    archmother_url: Option<String>,
-    admin_url: Option<String>,
+    /// Missing on drafts made before DeadChaps, which had one link per team.
+    join_url: Option<String>,
+    /// The draft as an OBS overlay, for streaming it. Missing on drafts made before DeadChaps.
+    obs_url: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -232,10 +234,9 @@ fn match_dto(camp: &CampRow, row: &MatchRow, players: &[MatchPlayerRow], votes: 
         mvp_user_id: row.mvp_user_id.map(|id| id.to_string()),
         party_code: row.party_code.clone(),
         draft: row.draft_url.clone().map(|spectator_url| DraftDto {
+            obs_url: draft::obs_url(&spectator_url),
             spectator_url,
-            hiddenking_url: row.draft_hiddenking_url.clone(),
-            archmother_url: row.draft_archmother_url.clone(),
-            admin_url: row.draft_admin_url.clone(),
+            join_url: row.draft_join_url.clone(),
         }),
         players: players.iter().map(match_player_dto).collect(),
         votes: votes
