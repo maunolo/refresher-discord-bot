@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
-import { api, type Settings, type SettingsForm } from '../api';
+import { api, type OverlayLinks, type Settings, type SettingsForm } from '../api';
+import { CopyButton } from './common';
 
 type VoiceKey =
   | 'queue_voice_id'
@@ -34,6 +35,115 @@ function formOf(settings: Settings): SettingsForm {
 
 function timerLabel(seconds: number): string {
   return seconds === 0 ? 'Sem tempo (5 minutos, o máximo do DeadChaps)' : `${seconds} segundos`;
+}
+
+/** A link without its secret, for showing on a page that may be on stream. */
+function masked(url: string): string {
+  return url.replace(/^https?:\/\//, '').replace(/\/overlay\/[0-9a-f]+\//, '/overlay/•••/');
+}
+
+/** The server's OBS overlay links, to paste into a browser source; a new link cuts the old one off. */
+function OverlayCard({ guildId }: { guildId: string }) {
+  const [links, setLinks] = useState<OverlayLinks | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLinks(null);
+    setError(null);
+    setConfirming(false);
+    api
+      .overlays(guildId)
+      .then((loaded) => !cancelled && setLinks(loaded))
+      .catch((err: Error) => !cancelled && setError(err.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [guildId]);
+
+  const reset = () => {
+    setBusy(true);
+    setError(null);
+    api
+      .resetOverlays(guildId)
+      .then((fresh) => {
+        setLinks(fresh);
+        setConfirming(false);
+      })
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <section className="card" aria-labelledby="overlays-title">
+      <h2 id="overlays-title" className="small-title">
+        Overlays do OBS
+      </h2>
+      <p className="muted small">
+        Adicione como fonte de navegador. O fundo é transparente e o overlay se atualiza sozinho, sem login.
+      </p>
+      {error && (
+        <p className="error small" role="alert">
+          {error}
+        </p>
+      )}
+      {links ? (
+        <>
+          <div className="link-row">
+            <span className="small">
+              <strong>Votação</strong>
+            </span>
+            <a href={links.vote_url} target="_blank" rel="noreferrer" className="mono small ellipsis">
+              {masked(links.vote_url)}
+            </a>
+            <CopyButton text={links.vote_url} label="Copiar o link do overlay da votação" />
+          </div>
+          <p className="muted small">
+            Aparece quando uma partida abre a votação de refresh e mostra quem já votou, não o voto. Quando a votação acaba,
+            mostra o resultado por 10 segundos e some. Tamanho sugerido: 700 × 480, ou 700 × 960 para as duas partidas. Para
+            uma partida só, termine o link com <span className="mono">?partida=1</span> ou{' '}
+            <span className="mono">?partida=2</span>.
+          </p>
+          <div className="link-row">
+            <span className="small">
+              <strong>Ranking</strong>
+            </span>
+            <a href={links.ranking_url} target="_blank" rel="noreferrer" className="mono small ellipsis">
+              {masked(links.ranking_url)}
+            </a>
+            <CopyButton text={links.ranking_url} label="Copiar o link do overlay do ranking" />
+          </div>
+          <p className="muted small">
+            O top 10 por pontos e MVPs, com vitórias e jogos, quem pontuou na última partida (+1) e quem subiu ou desceu
+            com ela. Quando o camp acaba, mostra o ranking final até o próximo começar. Tamanho sugerido: 440 × 700; para
+            mostrar mais jogadores, termine o link com <span className="mono">?top=15</span>.
+          </p>
+          {confirming ? (
+            <div className="form-actions">
+              <p className="small">O link atual para de funcionar; atualize a fonte no OBS com o novo.</p>
+              <button type="button" className="button button-small" disabled={busy} onClick={reset}>
+                {busy ? 'Gerando…' : 'Gerar link novo'}
+              </button>
+              <button type="button" className="button button-small button-ghost" disabled={busy} onClick={() => setConfirming(false)}>
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <div className="form-actions">
+              <button type="button" className="button button-small button-ghost" onClick={() => setConfirming(true)}>
+                Gerar link novo
+              </button>
+              <span className="muted small">se o link vazar</span>
+            </div>
+          )}
+        </>
+      ) : (
+        !error && <p className="muted small">Carregando…</p>
+      )}
+    </section>
+  );
 }
 
 /** How this server's camps run: voice channels, the Deadlock lobby and the draft timer. */
@@ -227,6 +337,7 @@ export function SettingsView({ guildId, guildName }: { guildId: string; guildNam
         </div>
       </div>
       <aside className="split-aside">
+        <OverlayCard guildId={guildId} />
         <section className="card" aria-labelledby="settings-when-title">
           <h2 id="settings-when-title" className="small-title">
             Quando vale

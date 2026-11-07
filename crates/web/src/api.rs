@@ -16,6 +16,7 @@ use refresher_core::db::{
 use refresher_core::draft;
 use refresher_core::link::{CampAction, Channel, Profile};
 use refresher_core::queue::{self, CampSize, Role};
+use refresher_core::ranking::{rank_with_movement, LatestResult, Standing};
 use refresher_core::settings::{GuildSettings, DRAFT_TIMERS};
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast::error::RecvError;
@@ -488,6 +489,11 @@ pub async fn guild_events(
     Path(guild_id): Path<u64>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
     managed_guild(&state, &session, guild_id)?;
+    Ok(change_stream(&state, guild_id))
+}
+
+/// A `change` event each time the server's camp changes.
+fn change_stream(state: &AppState, guild_id: u64) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let changes = state.link.changes().subscribe();
     let events = stream::unfold(changes, move |mut changes| async move {
         loop {
@@ -503,7 +509,307 @@ pub async fn guild_events(
         }
     });
     // Comments every 15 seconds keep proxies from closing an idle stream.
-    Ok(Sse::new(events).keep_alive(KeepAlive::default()))
+    Sse::new(events).keep_alive(KeepAlive::default())
+}
+
+#[derive(Serialize)]
+pub struct OverlayLinksDto {
+    /// The refresh vote overlay, for an OBS browser source.
+    vote_url: String,
+    /// The ranking overlay.
+    ranking_url: String,
+}
+
+fn overlay_links(state: &AppState, token: &str) -> OverlayLinksDto {
+    let base = state.config.public_url.trim_end_matches('/');
+    OverlayLinksDto {
+        vote_url: format!("{base}/overlay/{token}/votacao"),
+        ranking_url: format!("{base}/overlay/{token}/ranking"),
+    }
+}
+
+/// The server's OBS overlay links, made on first use.
+pub async fn guild_overlays(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+) -> Result<Json<OverlayLinksDto>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    let token = db::overlay_token(&state.db, guild_id as i64).await?;
+    Ok(Json(overlay_links(&state, &token)))
+}
+
+/// New overlay links for the server; the old ones stop working.
+pub async fn reset_guild_overlays(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+) -> Result<Json<OverlayLinksDto>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    let token = db::reset_overlay_token(&state.db, guild_id as i64).await?;
+    Ok(Json(overlay_links(&state, &token)))
+}
+
+/// The server behind an overlay link, or 404.
+async fn overlay_guild(state: &AppState, token: &str) -> Result<u64, ApiError> {
+    match db::overlay_guild(&state.db, token).await? {
+        Some(guild_id) => Ok(guild_id as u64),
+        None => Err(ApiError::NotFound),
+    }
+}
+
+#[derive(Serialize)]
+pub struct OverlayVotesDto {
+    votes: Vec<OverlayVoteDto>,
+}
+
+/// A match's refresh vote, from its creation until the draft starts.
+#[derive(Serialize)]
+struct OverlayVoteDto {
+    match_id: String,
+    slot: i64,
+    is_final: bool,
+    /// `open` while players vote, then `refreshed` (new teams) or `kept`.
+    state: &'static str,
+    /// Refresh votes one side needs for new teams.
+    needed: usize,
+    /// Votes to keep the teams.
+    keep: usize,
+    voted: usize,
+    total: usize,
+    /// Hiddenking, then Archmother.
+    teams: Vec<OverlayTeamDto>,
+}
+
+#[derive(Serialize)]
+struct OverlayTeamDto {
+    side: &'static str,
+    /// The side's Refresh votes.
+    refresh: usize,
+    /// Captains first, then by role.
+    players: Vec<OverlayPlayerDto>,
+}
+
+/// What the stream sees of a player: whether they voted, never how.
+#[derive(Serialize)]
+struct OverlayPlayerDto {
+    user_id: String,
+    name: String,
+    avatar_url: Option<String>,
+    captain: bool,
+    s_rank: bool,
+    role: Option<&'static str>,
+    voted: bool,
+}
+
+fn overlay_vote_dto(camp: &CampState, open: &db::OpenMatch, profiles: &HashMap<u64, Profile>) -> OverlayVoteDto {
+    let row = &open.row;
+    let state = if !row.refresh_used {
+        "open"
+    } else if row.refreshed_by_admin || (open.votes.is_empty() && !row.vote_closed_by_admin) {
+        // A refresh clears the votes; teams kept by the vote keep them.
+        "refreshed"
+    } else {
+        "kept"
+    };
+    let teams = ["hiddenking", "archmother"]
+        .into_iter()
+        .map(|side| {
+            let mut players: Vec<(&MatchPlayerRow, Option<&PlayerRow>)> = open
+                .players
+                .iter()
+                .filter(|p| p.side == side)
+                .map(|p| (p, camp.players.iter().find(|c| c.user_id == p.user_id)))
+                .collect();
+            let role_order = |player: Option<&PlayerRow>| {
+                player
+                    .and_then(|p| p.role)
+                    .and_then(|role| Role::ALL.iter().position(|r| *r == role))
+                    .unwrap_or(Role::ALL.len())
+            };
+            players.sort_by_key(|(p, camp_player)| (!p.is_captain, role_order(*camp_player), p.user_id));
+            OverlayTeamDto {
+                side,
+                refresh: open
+                    .votes
+                    .iter()
+                    .filter(|v| v.refresh && open.players.iter().any(|p| p.user_id == v.user_id && p.side == side))
+                    .count(),
+                players: players
+                    .into_iter()
+                    .map(|(p, camp_player)| {
+                        let profile = profiles.get(&(p.user_id as u64));
+                        OverlayPlayerDto {
+                            user_id: p.user_id.to_string(),
+                            name: profile.map_or_else(|| p.user_id.to_string(), |profile| profile.name.clone()),
+                            avatar_url: profile.map(|profile| profile.avatar_url.clone()).filter(|url| !url.is_empty()),
+                            captain: p.is_captain,
+                            s_rank: camp_player.is_some_and(|c| c.s_rank),
+                            role: camp_player.and_then(|c| c.role).map(Role::as_str),
+                            voted: open.votes.iter().any(|v| v.user_id == p.user_id),
+                        }
+                    })
+                    .collect(),
+            }
+        })
+        .collect();
+    OverlayVoteDto {
+        match_id: row.id.clone(),
+        slot: row.slot,
+        is_final: row.is_final,
+        state,
+        needed: camp.camp.layout().refresh_votes,
+        keep: open.votes.iter().filter(|v| !v.refresh).count(),
+        voted: open.votes.len(),
+        total: open.players.len(),
+        teams,
+    }
+}
+
+/// The refresh votes of the server's camp, for the vote overlay. Public: the link's secret is
+/// the only key. Matches drop out once their draft starts.
+pub async fn overlay_votes(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> Result<Json<OverlayVotesDto>, ApiError> {
+    let guild_id = overlay_guild(&state, &token).await?;
+    let Some(camp) = db::load_active_for_guild(&state.db, guild_id as i64).await? else {
+        return Ok(Json(OverlayVotesDto { votes: Vec::new() }));
+    };
+    let voting: Vec<&db::OpenMatch> = camp
+        .open_matches
+        .iter()
+        .filter(|m| m.row.status == "voting" && !m.row.draft_started())
+        .collect();
+    let user_ids: Vec<u64> = voting
+        .iter()
+        .flat_map(|m| m.players.iter().map(|p| p.user_id as u64))
+        .collect();
+    let profiles = if user_ids.is_empty() {
+        HashMap::new()
+    } else {
+        state.link.profiles(guild_id, &user_ids).await
+    };
+    Ok(Json(OverlayVotesDto {
+        votes: voting.into_iter().map(|m| overlay_vote_dto(&camp, m, &profiles)).collect(),
+    }))
+}
+
+#[derive(Serialize)]
+pub struct OverlayRankingDto {
+    camp_id: Option<String>,
+    /// Finished matches.
+    match_count: i64,
+    /// The camp ended: this is its final ranking.
+    ended: bool,
+    /// Best first.
+    players: Vec<OverlayRankDto>,
+}
+
+#[derive(Serialize)]
+struct OverlayRankDto {
+    user_id: String,
+    name: String,
+    avatar_url: Option<String>,
+    /// 1 is gold. Points first, then MVPs; equal on both shares the place.
+    place: usize,
+    points: i64,
+    mvps: i64,
+    wins: i64,
+    played: i64,
+    /// Places moved with the latest result, up positive. `null` until there's a result before
+    /// it to compare with.
+    moved: Option<i64>,
+    /// On the winning side of the latest result.
+    scored_last: bool,
+}
+
+/// The camp whose ranking the overlay shows: the active one, else the latest that got going.
+async fn ranking_camp(state: &AppState, guild_id: u64) -> Result<Option<CampState>, ApiError> {
+    if let Some(camp) = db::load_active_for_guild(&state.db, guild_id as i64).await? {
+        return Ok(Some(camp));
+    }
+    let latest = db::list_camps_for_guild(&state.db, guild_id as i64)
+        .await?
+        .into_iter()
+        .find(|c| c.status != "cancelled_signup");
+    match latest {
+        Some(summary) => Ok(db::load_camp(&state.db, &summary.id).await?),
+        None => Ok(None),
+    }
+}
+
+/// The ranking of the server's camp, for the ranking overlay. Public: the link's secret is the
+/// only key. After a camp ends, its final ranking, until another starts.
+pub async fn overlay_ranking(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> Result<Json<OverlayRankingDto>, ApiError> {
+    let guild_id = overlay_guild(&state, &token).await?;
+    let Some(camp) = ranking_camp(&state, guild_id).await? else {
+        return Ok(Json(OverlayRankingDto {
+            camp_id: None,
+            match_count: 0,
+            ended: false,
+            players: Vec::new(),
+        }));
+    };
+    let stats = db::player_stats(&state.db, &camp.camp.id).await?;
+    let recent = db::recent_matches(&state.db, &camp.camp.id, 2).await?;
+    let standings: Vec<Standing> = camp
+        .players
+        .iter()
+        .map(|p| Standing {
+            user_id: p.user_id,
+            points: p.points,
+            mvps: stats.get(&p.user_id).map_or(0, |s| s.mvps),
+        })
+        .collect();
+    let winners: Vec<i64> = recent
+        .first()
+        .map(|m| m.players.iter().filter(|p| p.side == m.winner_side).map(|p| p.user_id).collect())
+        .unwrap_or_default();
+    let latest = LatestResult {
+        winners: &winners,
+        mvp: recent.first().and_then(|m| m.mvp_user_id),
+    };
+    let user_ids: Vec<u64> = camp.players.iter().map(|p| p.user_id as u64).collect();
+    let profiles = state.link.profiles(guild_id, &user_ids).await;
+    let players = rank_with_movement(&standings, &latest)
+        .into_iter()
+        .map(|(standing, place, moved)| {
+            let id = standing.user_id;
+            let profile = profiles.get(&(id as u64));
+            let player_stats = stats.get(&id).copied().unwrap_or_default();
+            OverlayRankDto {
+                user_id: id.to_string(),
+                name: profile.map_or_else(|| id.to_string(), |p| p.name.clone()),
+                avatar_url: profile.map(|p| p.avatar_url.clone()).filter(|url| !url.is_empty()),
+                place,
+                points: standing.points,
+                mvps: standing.mvps,
+                wins: player_stats.wins,
+                played: player_stats.played,
+                moved: (recent.len() >= 2).then_some(moved),
+                scored_last: winners.contains(&id),
+            }
+        })
+        .collect();
+    Ok(Json(OverlayRankingDto {
+        camp_id: Some(camp.camp.id.clone()),
+        match_count: camp.camp.match_count,
+        ended: camp.camp.status == "ended",
+        players,
+    }))
+}
+
+/// Live updates for overlays: the same `change` events as the admin page, keyed by the link.
+pub async fn overlay_events(
+    State(state): State<AppState>,
+    Path(token): Path<String>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    let guild_id = overlay_guild(&state, &token).await?;
+    Ok(change_stream(&state, guild_id))
 }
 
 pub async fn guild_channels(

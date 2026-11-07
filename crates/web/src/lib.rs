@@ -40,6 +40,10 @@ pub fn router(state: AppState) -> Router {
         .route("/guilds/{guild_id}/members", get(api::guild_members))
         .route("/guilds/{guild_id}/settings", get(api::guild_settings).put(api::save_guild_settings))
         .route("/guilds/{guild_id}/events", get(api::guild_events))
+        .route("/guilds/{guild_id}/overlays", get(api::guild_overlays).post(api::reset_guild_overlays))
+        .route("/overlay/{token}/votes", get(api::overlay_votes))
+        .route("/overlay/{token}/ranking", get(api::overlay_ranking))
+        .route("/overlay/{token}/events", get(api::overlay_events))
         .route("/camps/{camp_id}", get(api::camp))
         .route("/camps/{camp_id}/matches", get(api::camp_matches))
         .route("/camps/{camp_id}/actions", post(api::act))
@@ -52,10 +56,12 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/logout", post(auth::logout))
         .with_state(state);
     if static_dir.join("index.html").is_file() {
-        // Paths the server doesn't know get index.html, so the page can have its own routes.
-        app.fallback_service(
-            ServeDir::new(&static_dir).fallback(ServeFile::new(static_dir.join("index.html"))),
-        )
+        // OBS overlays are their own page; the secret and the overlay are read from the path.
+        // Other paths the server doesn't know get index.html, so the page can have its own routes.
+        app.route_service("/overlay/{*rest}", ServeFile::new(static_dir.join("overlay.html")))
+            .fallback_service(
+                ServeDir::new(&static_dir).fallback(ServeFile::new(static_dir.join("index.html"))),
+            )
     } else {
         app.route("/", get(placeholder_page))
     }
@@ -371,6 +377,169 @@ mod tests {
 data: 111
 
 ", "the other server's change isn't sent");
+    }
+
+    #[tokio::test]
+    async fn overlay_links_come_from_admins_and_can_be_replaced() {
+        let state = test_state(FakeLink {
+            guilds: vec![111, 222],
+            ..FakeLink::default()
+        })
+        .await;
+        let token = sign_in(&state, &[111]).await;
+        assert_eq!(get(&state, "/api/guilds/111/overlays", None).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(get(&state, "/api/guilds/222/overlays", Some(&token)).await.0, StatusCode::NOT_FOUND);
+
+        let (status, body) = get(&state, "/api/guilds/111/overlays", Some(&token)).await;
+        assert_eq!(status, StatusCode::OK);
+        let url = body["vote_url"].as_str().unwrap().to_string();
+        let secret = url
+            .strip_prefix("http://localhost:8080/overlay/")
+            .and_then(|rest| rest.strip_suffix("/votacao"))
+            .unwrap()
+            .to_string();
+        assert_eq!(get(&state, "/api/guilds/111/overlays", Some(&token)).await.1["vote_url"], url);
+        let (status, body) = get(&state, &format!("/api/overlay/{secret}/votes"), None).await;
+        assert_eq!(status, StatusCode::OK, "no login needed");
+        assert_eq!(body["votes"], serde_json::json!([]), "no camp yet");
+        let events = |secret: &str| Request::get(format!("/api/overlay/{secret}/events")).body(Body::empty()).unwrap();
+        let response = router(state.clone()).oneshot(events(&secret)).await.unwrap();
+        assert_eq!(response.headers()["content-type"], "text/event-stream");
+
+        let (status, body) = post(&state, "/api/guilds/111/overlays", Some(&token), "").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_ne!(body["vote_url"], url);
+        assert_eq!(
+            get(&state, &format!("/api/overlay/{secret}/votes"), None).await.0,
+            StatusCode::NOT_FOUND,
+            "the old link stops working"
+        );
+        let response = router(state.clone()).oneshot(events(&secret)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn vote_overlay_shows_who_voted_but_not_how() {
+        use refresher_core::db;
+        let state = test_state(FakeLink {
+            guilds: vec![111],
+            names: HashMap::from([(1, "kaze".to_string()), (2, "kami".to_string())]),
+            ..FakeLink::default()
+        })
+        .await;
+        let pool = &state.db;
+        let camp = db::create_camp(pool, 111, 900, 4, 4).await.unwrap();
+        db::add_players(pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
+        db::set_s_rank(pool, &camp.id, &[1]).await.unwrap();
+        db::set_player_role(pool, &camp.id, 1, Some(Role::Tank)).await.unwrap();
+        db::start_queue(pool, &camp.id).await.unwrap();
+        let (_, match_id) = db::create_match(pool, &camp.id, 111).await.unwrap();
+        db::vote_refresh_choice(pool, &match_id, 1, true).await.unwrap();
+        let path = format!("/api/overlay/{}/votes", db::overlay_token(pool, 111).await.unwrap());
+
+        let (status, body) = get(&state, &path, None).await;
+        assert_eq!(status, StatusCode::OK);
+        let vote = &body["votes"][0];
+        assert_eq!(vote["match_id"], match_id);
+        assert_eq!(vote["state"], "open");
+        assert_eq!((vote["needed"].as_u64(), vote["voted"].as_u64(), vote["total"].as_u64()), (Some(2), Some(1), Some(4)));
+        let teams = vote["teams"].as_array().unwrap();
+        assert_eq!((teams[0]["side"].as_str(), teams[1]["side"].as_str()), (Some("hiddenking"), Some("archmother")));
+        let players: Vec<&serde_json::Value> = teams.iter().flat_map(|t| t["players"].as_array().unwrap()).collect();
+        assert_eq!(players.len(), 4);
+        let kaze = players.iter().find(|p| p["user_id"] == "1").unwrap();
+        assert_eq!((kaze["name"].as_str(), kaze["voted"].as_bool()), (Some("kaze"), Some(true)));
+        assert_eq!((kaze["s_rank"].as_bool(), kaze["role"].as_str(), kaze["captain"].as_bool()), (Some(true), Some("tank"), Some(true)));
+        assert_eq!(players.iter().filter(|p| p["voted"] == true).count(), 1);
+        let kazes_team = teams.iter().find(|t| t["players"].as_array().unwrap().iter().any(|p| p["user_id"] == "1")).unwrap();
+        assert_eq!(kazes_team["refresh"], 1, "the side's Refresh votes count");
+        for player in &players {
+            let mut keys: Vec<&String> = player.as_object().unwrap().keys().collect();
+            keys.sort();
+            assert_eq!(keys, ["avatar_url", "captain", "name", "role", "s_rank", "user_id", "voted"], "no vote choice");
+        }
+        let unnamed = players.iter().find(|p| p["user_id"] == "3").unwrap();
+        assert_eq!(unnamed["name"], "3", "Discord couldn't find them");
+
+        db::close_voting(pool, &camp.id, &match_id).await.unwrap();
+        assert_eq!(get(&state, &path, None).await.1["votes"][0]["state"], "kept");
+        db::set_manual_draft(pool, &match_id).await.unwrap();
+        assert_eq!(get(&state, &path, None).await.1["votes"], serde_json::json!([]), "gone once the draft starts");
+    }
+
+    /// Plays the next match of a 1v1 test camp, Hiddenking winning. Returns (match, winner, loser).
+    async fn play_1v1(pool: &SqlitePool, camp_id: &str, winner_mvp: bool) -> (String, i64, i64) {
+        use refresher_core::db;
+        let (_, match_id) = db::create_match(pool, camp_id, 111).await.unwrap();
+        db::close_voting(pool, camp_id, &match_id).await.unwrap();
+        db::start_live_match(pool, &match_id, None, None).await.unwrap();
+        let info = db::load_match_info(pool, &match_id, 111).await.unwrap();
+        let side = |side: &str| info.players.iter().find(|p| p.side == side).unwrap().user_id;
+        let (winner, loser) = (side("hiddenking"), side("archmother"));
+        db::report_winner(pool, camp_id, &match_id, "hiddenking", winner_mvp.then_some(winner))
+            .await
+            .unwrap();
+        (match_id, winner, loser)
+    }
+
+    #[tokio::test]
+    async fn ranking_overlay_ranks_and_tracks_the_latest_result() {
+        use refresher_core::db;
+        let state = test_state(FakeLink {
+            guilds: vec![111],
+            ..FakeLink::default()
+        })
+        .await;
+        let pool = &state.db;
+        let path = format!("/api/overlay/{}/ranking", db::overlay_token(pool, 111).await.unwrap());
+        let (status, body) = get(&state, &path, None).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!((body["camp_id"].is_null(), body["players"].as_array().unwrap().len()), (true, 0));
+
+        // A 1v1 test camp: two matches, so all four play once.
+        let camp = db::create_camp(pool, 111, 900, 4, 2).await.unwrap();
+        db::add_players(pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
+        db::start_queue(pool, &camp.id).await.unwrap();
+        let (first, w1, l1) = play_1v1(pool, &camp.id, false).await;
+        let row = |body: &serde_json::Value, id: i64| {
+            body["players"].as_array().unwrap().iter().find(|p| p["user_id"] == id.to_string()).unwrap().clone()
+        };
+
+        let (_, body) = get(&state, &path, None).await;
+        assert_eq!(body["match_count"], 1);
+        let leader = row(&body, w1);
+        assert_eq!((leader["place"].as_u64(), leader["points"].as_i64()), (Some(1), Some(1)));
+        assert_eq!((leader["wins"].as_i64(), leader["played"].as_i64()), (Some(1), Some(1)));
+        assert_eq!(leader["scored_last"], true);
+        assert!(body["players"].as_array().unwrap().iter().all(|p| p["moved"].is_null()), "nothing to compare yet");
+        assert_eq!(row(&body, l1)["place"], 2);
+
+        // Results are timed to the second: move the first back so the order is unambiguous.
+        sqlx::query("UPDATE camp_matches SET completed_at = completed_at - 60 WHERE id = ?")
+            .bind(&first)
+            .execute(pool)
+            .await
+            .unwrap();
+        let (_, w2, l2) = play_1v1(pool, &camp.id, true).await;
+        assert!(![w1, l1].contains(&w2), "the two who waited play the second match");
+
+        let (_, body) = get(&state, &path, None).await;
+        let places: Vec<(i64, u64, i64, bool)> = [w2, w1, l1, l2]
+            .iter()
+            .map(|id| {
+                let p = row(&body, *id);
+                (*id, p["place"].as_u64().unwrap(), p["moved"].as_i64().unwrap(), p["scored_last"].as_bool().unwrap())
+            })
+            .collect();
+        // The MVP breaks the tie at one point; the first winner drops to second, the losers to third.
+        assert_eq!(places, [(w2, 1, 1, true), (w1, 2, -1, false), (l1, 3, -1, false), (l2, 3, -1, false)]);
+        assert_eq!(body["players"][0]["user_id"], w2.to_string(), "best first");
+        assert_eq!(row(&body, w2)["mvps"], 1);
+
+        db::end_camp(pool, &camp.id).await.unwrap();
+        let (_, body) = get(&state, &path, None).await;
+        assert_eq!((body["ended"].as_bool(), body["camp_id"].as_str()), (Some(true), Some(camp.id.as_str())));
+        assert_eq!(body["players"].as_array().unwrap().len(), 4, "the final ranking stays up");
     }
 
     #[tokio::test]
