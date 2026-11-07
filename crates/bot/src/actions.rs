@@ -383,7 +383,7 @@ async fn start_draft(
         &data.http,
         data.config.deadchaps_api_key.as_deref(),
         before.camp.layout().match_size,
-        settings.draft_timer_seconds,
+        &settings.draft_options(),
     )
     .await?;
     db::set_draft(&data.db, match_id, &draft).await?;
@@ -393,11 +393,19 @@ async fn start_draft(
     sync::redraw_all(discord, &data.db, &state).await?;
     if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
         sync::apply_moves(discord, guild_id, &settings, channel, &sync::match_voice_moves(open)).await;
+        let link = if settings.dm_captains {
+            "receberam por DM o link para entrar no draft".to_string()
+        } else {
+            format!(
+                "entram no draft pelo botão **{}** na mensagem da partida",
+                ui::CAPTAIN_LINK_LABEL
+            )
+        };
         let _ = channel
             .say(
                 &discord.http,
                 format!(
-                    "Draft criado no DeadChaps. Os capitães ({}) receberam por DM o link para entrar no draft.\nHiddenking: {}\nArchmother: {}\nAssistir ao draft: {}",
+                    "Draft criado no DeadChaps. Os capitães ({}) {link}.\nHiddenking: {}\nArchmother: {}\nAssistir ao draft: {}",
                     ui::CAPTAIN_TAG,
                     sync::side_mentions(&open.players, "hiddenking"),
                     sync::side_mentions(&open.players, "archmother"),
@@ -405,7 +413,9 @@ async fn start_draft(
                 ),
             )
             .await;
-        sync::send_draft_to_captains(discord, channel, &state.camp.id, open).await;
+        if settings.dm_captains {
+            sync::send_draft_to_captains(discord, channel, &state.camp.id, open).await;
+        }
     }
     Ok(())
 }

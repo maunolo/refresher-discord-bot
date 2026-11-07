@@ -212,6 +212,10 @@ fn demo_settings() -> GuildSettings {
         server_region: None,
         use_draft_tool: true,
         draft_timer_seconds: 30,
+        draft_reserve_seconds: 90,
+        draft_bans_per_team: 2,
+        draft_view: refresher_core::draft::DraftView::Cinematic,
+        dm_captains: true,
     }
 }
 

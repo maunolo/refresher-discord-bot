@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use std::collections::HashMap;
 
-use crate::draft::CreatedDraft;
+use crate::draft::{CreatedDraft, DraftView};
 use crate::queue::{self, CampLayout, Candidate, QueuePlayer, Role, Seat, TeamSplit};
 use crate::settings::GuildSettings;
 
@@ -628,13 +628,29 @@ pub async fn guild_settings(
     guild_id: i64,
     defaults: &GuildSettings,
 ) -> Result<(GuildSettings, bool)> {
+    #[allow(clippy::type_complexity)]
     let row = sqlx::query_as::<
         _,
-        (Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>, i64, Option<String>, i64, i64),
+        (
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            Option<i64>,
+            i64,
+            Option<String>,
+            i64,
+            i64,
+            i64,
+            i64,
+            String,
+            i64,
+        ),
     >(
         "SELECT queue_voice_id, match1_hiddenking_voice_id, match1_archmother_voice_id,
                 match2_hiddenking_voice_id, match2_archmother_voice_id, create_lobby, server_region,
-                draft_timer_seconds, use_draft_tool
+                draft_timer_seconds, use_draft_tool, draft_reserve_seconds, draft_bans_per_team,
+                draft_view, dm_captains
          FROM guild_settings WHERE guild_id = ?",
     )
     .bind(guild_id)
@@ -655,6 +671,10 @@ pub async fn guild_settings(
             server_region: r.6,
             use_draft_tool: r.8 != 0,
             draft_timer_seconds: r.7 as u32,
+            draft_reserve_seconds: r.9 as u32,
+            draft_bans_per_team: r.10 as u32,
+            draft_view: DraftView::parse(&r.11).unwrap_or(DraftView::Cinematic),
+            dm_captains: r.12 != 0,
         },
         true,
     ))
@@ -665,8 +685,9 @@ pub async fn save_guild_settings(pool: &SqlitePool, guild_id: i64, settings: &Gu
     sqlx::query(
         "INSERT INTO guild_settings (guild_id, queue_voice_id, match1_hiddenking_voice_id,
              match1_archmother_voice_id, match2_hiddenking_voice_id, match2_archmother_voice_id,
-             create_lobby, server_region, draft_timer_seconds, use_draft_tool, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             create_lobby, server_region, draft_timer_seconds, use_draft_tool, draft_reserve_seconds,
+             draft_bans_per_team, draft_view, dm_captains, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(guild_id) DO UPDATE SET
              queue_voice_id = excluded.queue_voice_id,
              match1_hiddenking_voice_id = excluded.match1_hiddenking_voice_id,
@@ -677,6 +698,10 @@ pub async fn save_guild_settings(pool: &SqlitePool, guild_id: i64, settings: &Gu
              server_region = excluded.server_region,
              draft_timer_seconds = excluded.draft_timer_seconds,
              use_draft_tool = excluded.use_draft_tool,
+             draft_reserve_seconds = excluded.draft_reserve_seconds,
+             draft_bans_per_team = excluded.draft_bans_per_team,
+             draft_view = excluded.draft_view,
+             dm_captains = excluded.dm_captains,
              updated_at = excluded.updated_at",
     )
     .bind(guild_id)
@@ -689,6 +714,10 @@ pub async fn save_guild_settings(pool: &SqlitePool, guild_id: i64, settings: &Gu
     .bind(&settings.server_region)
     .bind(settings.draft_timer_seconds as i64)
     .bind(settings.use_draft_tool)
+    .bind(settings.draft_reserve_seconds as i64)
+    .bind(settings.draft_bans_per_team as i64)
+    .bind(settings.draft_view.as_str())
+    .bind(settings.dm_captains)
     .bind(now())
     .execute(pool)
     .await?;
@@ -2544,6 +2573,10 @@ mod tests {
             server_region: None,
             use_draft_tool: false,
             draft_timer_seconds: 60,
+            draft_reserve_seconds: 180,
+            draft_bans_per_team: 0,
+            draft_view: DraftView::Competitive,
+            dm_captains: false,
             ..defaults.clone()
         };
         save_guild_settings(&pool, 1, &mine).await.unwrap();
