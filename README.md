@@ -63,13 +63,25 @@ There are no slash commands. On startup the bot clears the old `/camp` command f
 ## Match flow
 
 1. Admin fills the roster to exactly 24, 30, or 4 (test), then **Iniciar fila**. The roster is shuffled into the camp's teams, with S rank players split evenly over them (see below), and posted; nobody is placed into a match yet.
-2. **Criar partida** pulls the next group from the queue (12, 4 in a 2v2 test, or 2 in a 1v1 test) and sorts Hiddenking / Archmother. It takes the first players in the queue, S rank or not. A second concurrent match can be created while a slot is free. With 30 players, leftover players stay in queue until the next match.
-3. Players in a match each vote once in Discord: **Refresh** or **Manter times**. If at least 4 players from either side vote refresh (2 in a 2v2 test, 1 in a 1v1 test), teams are re-sorted, still splitting S rank players evenly. When everyone has voted, or a refresh can no longer pass, voting ends. An admin can also end it early (for when someone can't vote): **Manter times** keeps the teams as they are, **Sortear de novo** re-sorts them as if the refresh had passed (S rank split evenly, new captains, votes dropped). Each match only votes once.
-4. **Iniciar draft** creates a private pick/ban draft on [DeadChaps](https://www.deadchaps.gg/draft) (needs `DEADCHAPS_API_KEY`), DMs the captains its invite link, posts the spectator link and moves the players into the team voice channels. With the draft tool turned off on **Configurações**, it becomes **Iniciar draft manual**: the bot moves the players and announces the draft, and the admin sends the captains a draft link themselves, like the party code without the automatic lobby.
+2. **Criar partida** pulls the next group from the queue (12, 4 in a 2v2 test, or 2 in a 1v1 test) and sorts Hiddenking / Archmother. It takes the first players in the queue, S rank or not, and moves them into their team voice channels so each team can talk over the refresh vote. A second concurrent match can be created while a slot is free. With 30 players, leftover players stay in queue until the next match.
+3. Players in a match each vote once in Discord: **Refresh** or **Manter times**. If at least 4 players from either side vote refresh (2 in a 2v2 test, 1 in a 1v1 test), teams are re-sorted, still splitting S rank players evenly, and the refresh can bring players in from the queue (see [Refresh](#refresh)). When everyone has voted, or a refresh can no longer pass, voting ends. An admin can also end it early (for when someone can't vote): **Manter times** keeps the teams as they are, **Sortear de novo** re-sorts them as if the refresh had passed (same queue rule, S rank split evenly, new captains, votes dropped). Each match only votes once.
+4. **Iniciar draft** creates a private pick/ban draft on [DeadChaps](https://www.deadchaps.gg/draft) (needs `DEADCHAPS_API_KEY`), DMs the captains its invite link, posts the spectator link and puts anyone out of place back in the team voice channels. With the draft tool turned off on **Configurações**, it becomes **Iniciar draft manual**: the bot gathers the players the same way and announces the draft, and the admin sends the captains a draft link themselves, like the party code without the automatic lobby.
 5. **Iniciar partida** marks the match live. If the server has the lobby turned on (**Configurações**, default `ENABLE_CUSTOM_MATCH_CREATE`), it also creates a Deadlock custom lobby and posts the party code.
 6. Admin reports the winner and picks the match's MVP, any one of its players. Winners get +1 point; the MVP is posted with the result and breaks ties in the final ranking. Players re-enter the queue by consecutive-match count (winners before losers in the same count; blocks with more than two players are shuffled). Anyone who sat out has their consecutive count reset to 0. The latest result can be corrected (**Trocar vencedor**) or reopened while its players are still in the queue; reopening also clears its MVP. Its MVP can be changed (**Trocar MVP**) for as long as it is the latest result and the camp runs, since it moves no points or queue places.
 7. When no match is open and at least one has been scored, **Partida final** seats the highest-point players (same count as a normal match; ties for the last seats are shuffled) and balances the teams by points. S rank players are not guaranteed a final seat; any who make it are split evenly and captain their teams. After a final is created, no other match can be.
 8. **Encerrar camp**, on Ao vivo once no match is open or on the Camps screen, posts the final ranking: gold / silver / bronze for the top three places, by points and then MVPs (players equal on both share a medal). A camp with a match still open can't be ended.
+
+### Refresh
+
+A refresh draws new teams, and in a normal match it can swap players with the queue:
+
+- The match's players with the fewest consecutive matches keep their seats: they had been waiting. Precisely, everyone below the match's highest consecutive count stays.
+- The other seats are drawn at random among the match's players at that highest count and every queued player with no more than it. Nobody who has played more matches in a row than the match's players comes in.
+- Whoever loses their seat goes back to the front of the queue, in the Queue voice channel; whoever comes in goes to their team's channel. The announcement lists both.
+- With nobody eligible in the queue (often in a 24-player camp, where both matches empty it), the refresh re-sorts the same players.
+- The final match only re-sorts its finalists, so it stays the highest-point players.
+
+Example, 30 players: match 3 has the 6 who sat out match 1 (0 in a row) and 6 from match 1 (1 in a row); the other 6 from match 1 wait in the queue. A refresh keeps the 6 who sat out and draws the other 6 seats among the 12 from match 1.
 
 ### S rank players and captains
 
@@ -101,7 +113,7 @@ When the test matches are done, **Partida final** seats the two (1v1) or four (2
 
 Pick each server's voice channels on **Configurações** (the `*_VOICE_CHANNEL_ID` values in `.env` are the defaults for servers that never saved). They are used to move players who are already in voice. Left on *Automático*, or if the picked channel was deleted, the bot looks up (or creates) channels named `Queue`, `Match 1 Hiddenking`, `Match 1 Archmother`, `Match 2 Hiddenking` and `Match 2 Archmother`.
 
-Players are moved into their team channels when the draft starts; anyone who joins voice later (Queue is fine) is moved automatically. After a winner they return to Queue. Creating a match and refreshing teams move no one.
+Players are moved into their team channels when their match is created, so each team can talk over the refresh vote. A refresh moves the new teams, sends whoever lost their seat back to Queue, and brings whoever came in from the queue to their team. Starting the draft puts anyone out of place back in their team channel. While the match is open, a player who joins voice or switches channels is moved to their team automatically. After a winner they return to Queue.
 
 ## Persistence
 

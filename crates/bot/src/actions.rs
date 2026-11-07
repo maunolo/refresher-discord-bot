@@ -29,7 +29,9 @@ pub async fn run(
         CampAction::CreateMatch => create_match(discord, data, guild_id, camp_id).await,
         CampAction::CreateFinal => create_final(discord, data, guild_id, camp_id).await,
         CampAction::CloseVote { match_id } => close_vote(discord, data, camp_id, &normalize(match_id)).await,
-        CampAction::RefreshTeams { match_id } => refresh_teams(discord, data, camp_id, &normalize(match_id)).await,
+        CampAction::RefreshTeams { match_id } => {
+            refresh_teams(discord, data, guild_id, camp_id, &normalize(match_id)).await
+        }
         CampAction::StartDraft { match_id } => {
             start_draft(discord, data, guild_id, camp_id, &normalize(match_id)).await
         }
@@ -203,17 +205,11 @@ async fn create_match(discord: &Discord, data: &Data, guild_id: GuildId, camp_id
     let state = load(data, &camp_id).await?;
     sync::redraw_all(discord, &data.db, &state).await?;
     if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
-        let _ = channel(&state)
-            .say(
-                &discord.http,
-                format!(
-                    "Partida {} criada. Votem para atualizar os times; depois um admin inicia o draft.\nHiddenking: {}\nArchmother: {}",
-                    open.row.slot,
-                    sync::side_mentions(&open.players, "hiddenking"),
-                    sync::side_mentions(&open.players, "archmother")
-                ),
-            )
-            .await;
+        let headline = format!(
+            "Partida {} criada. Cada time vai para o seu canal de voz: conversem e votem **Refresh** ou **Manter times**. Depois um admin inicia o draft.",
+            open.row.slot
+        );
+        announce_new_match(discord, data, guild_id, &state, open, &headline).await?;
     }
     Ok(())
 }
@@ -223,17 +219,35 @@ async fn create_final(discord: &Discord, data: &Data, guild_id: GuildId, camp_id
     let state = load(data, &camp_id).await?;
     sync::redraw_all(discord, &data.db, &state).await?;
     if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
-        let _ = channel(&state)
-            .say(
-                &discord.http,
-                format!(
-                    "Partida final criada com os jogadores de maior pontuação. Votem para atualizar os times; depois um admin inicia o draft.\nHiddenking: {}\nArchmother: {}",
-                    sync::side_mentions(&open.players, "hiddenking"),
-                    sync::side_mentions(&open.players, "archmother")
-                ),
-            )
-            .await;
+        let headline = "Partida final criada com os jogadores de maior pontuação. Cada time vai para o seu canal de voz: conversem e votem **Refresh** ou **Manter times**. Depois um admin inicia o draft.";
+        announce_new_match(discord, data, guild_id, &state, open, headline).await?;
     }
+    Ok(())
+}
+
+/// Posts a new match's teams and moves its players to their team channels, where they talk over
+/// the refresh vote.
+async fn announce_new_match(
+    discord: &Discord,
+    data: &Data,
+    guild_id: GuildId,
+    state: &CampState,
+    open: &db::OpenMatch,
+    headline: &str,
+) -> Result<()> {
+    let channel = channel(state);
+    let _ = channel
+        .say(
+            &discord.http,
+            format!(
+                "{headline}\nHiddenking: {}\nArchmother: {}",
+                sync::side_mentions(&open.players, "hiddenking"),
+                sync::side_mentions(&open.players, "archmother")
+            ),
+        )
+        .await;
+    let settings = data.settings(guild_id.get()).await?;
+    sync::apply_moves(discord, guild_id, &settings, channel, &sync::match_voice_moves(open)).await;
     Ok(())
 }
 
@@ -315,8 +329,14 @@ async fn remind_voters(discord: &Discord, data: &Data, camp_id: &str, match_id: 
     Ok(())
 }
 
-async fn refresh_teams(discord: &Discord, data: &Data, camp_id: &str, match_id: &str) -> Result<()> {
-    db::refresh_by_admin(&data.db, camp_id, match_id).await?;
+async fn refresh_teams(
+    discord: &Discord,
+    data: &Data,
+    guild_id: GuildId,
+    camp_id: &str,
+    match_id: &str,
+) -> Result<()> {
+    let change = db::refresh_by_admin(&data.db, camp_id, match_id).await?;
     let state = load(data, camp_id).await?;
     sync::redraw_all(discord, &data.db, &state).await?;
     if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
@@ -325,16 +345,9 @@ async fn refresh_teams(discord: &Discord, data: &Data, camp_id: &str, match_id: 
         } else {
             format!("da partida {}", open.row.slot)
         };
-        let _ = channel(&state)
-            .say(
-                &discord.http,
-                format!(
-                    "Um admin encerrou a votação {name} e sorteou os times de novo. O draft vem a seguir.\nHiddenking: {}\nArchmother: {}",
-                    sync::side_mentions(&open.players, "hiddenking"),
-                    sync::side_mentions(&open.players, "archmother")
-                ),
-            )
-            .await;
+        let headline =
+            format!("Um admin encerrou a votação {name} e sorteou os times de novo. O draft vem a seguir.");
+        sync::announce_refresh(discord, data, guild_id, &state, open, &change, &headline).await?;
     }
     Ok(())
 }

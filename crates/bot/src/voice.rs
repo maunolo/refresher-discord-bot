@@ -103,7 +103,8 @@ async fn resolve_channel(
     Ok(created.id)
 }
 
-/// Move players who are already in a voice channel. Returns user IDs that could not be moved.
+/// Move players who are already in a voice channel, unless they're in the right one. Returns user
+/// IDs that could not be moved.
 pub async fn move_players(
     discord: &Discord,
     guild_id: GuildId,
@@ -112,19 +113,21 @@ pub async fn move_players(
 ) -> Vec<UserId> {
     let mut skipped = Vec::new();
     for (user_id, dest) in moves {
-        let in_voice = discord
+        let current = discord
             .cache
             .guild(guild_id)
-            .map(|g| g.voice_states.contains_key(user_id))
-            .unwrap_or(false);
-        if !in_voice {
+            .and_then(|g| g.voice_states.get(user_id).and_then(|v| v.channel_id));
+        let Some(current) = current else {
             skipped.push(*user_id);
             continue;
-        }
+        };
         let Ok(channel_id) = resolve_channel(discord, guild_id, *dest, settings).await else {
             skipped.push(*user_id);
             continue;
         };
+        if channel_id == current {
+            continue;
+        }
         if let Err(err) = guild_id.move_member(&discord.http, *user_id, channel_id).await {
             tracing::warn!(%user_id, error = %err, "failed to move member");
             skipped.push(*user_id);

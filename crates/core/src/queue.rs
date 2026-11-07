@@ -157,6 +157,33 @@ pub fn pick_match_seats(queued: &[Seat], match_size: usize) -> Vec<Seat> {
     queued.iter().take(match_size).copied().collect()
 }
 
+/// A player a refresh can seat: one of the match's or one waiting in the queue.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Candidate {
+    pub seat: Seat,
+    pub consecutive_matches: i64,
+}
+
+/// Who plays a match after its refresh, as many as `playing`. Match players with fewer
+/// consecutive matches than the match's highest keep their seat: they were waiting. The other
+/// seats are drawn at random among the match players at that highest count and the queued players
+/// with no more than it, so a refresh never brings in someone who played more in a row.
+pub fn refresh_roster(playing: &[Candidate], queued: &[Candidate], rng: &mut impl Rng) -> Vec<Seat> {
+    let Some(highest) = playing.iter().map(|c| c.consecutive_matches).max() else {
+        return Vec::new();
+    };
+    let (kept, drawn): (Vec<&Candidate>, Vec<&Candidate>) =
+        playing.iter().partition(|c| c.consecutive_matches < highest);
+    let pool: Vec<Seat> = drawn
+        .into_iter()
+        .chain(queued.iter().filter(|c| c.consecutive_matches <= highest))
+        .map(|c| c.seat)
+        .collect();
+    let mut roster: Vec<Seat> = kept.into_iter().map(|c| c.seat).collect();
+    roster.extend(pool.choose_multiple(rng, playing.len() - roster.len()).copied());
+    roster
+}
+
 /// Highest points first. Equal scores are shuffled.
 fn rank_by_points(seats: Vec<Seat>, rng: &mut impl Rng) -> Vec<Seat> {
     let mut by_points: std::collections::BTreeMap<i64, Vec<Seat>> =
@@ -432,6 +459,44 @@ mod tests {
             };
             assert_eq!(captains, &[*team.iter().max().unwrap()]);
         }
+    }
+
+    fn candidate(user_id: i64, consecutive_matches: i64) -> Candidate {
+        Candidate {
+            seat: seat(user_id, 0, false),
+            consecutive_matches,
+        }
+    }
+
+    #[test]
+    fn refresh_keeps_waiters_and_draws_the_rest_from_match_and_queue() {
+        // Match: 0-5 waited (0 in a row), 6-11 just played (1). Queue: 12-17 just played (1),
+        // 18-19 played two in a row (2).
+        let playing: Vec<Candidate> = (0..12).map(|i| candidate(i, i64::from(i >= 6))).collect();
+        let queued: Vec<Candidate> = (12..20).map(|i| candidate(i, if i < 18 { 1 } else { 2 })).collect();
+        let mut drawn_in = std::collections::HashSet::new();
+        for seed in 0..100 {
+            let roster = refresh_roster(&playing, &queued, &mut StdRng::seed_from_u64(seed));
+            let mut ids = ids(&roster);
+            ids.sort();
+            assert_eq!(ids.len(), 12);
+            ids.dedup();
+            assert_eq!(ids.len(), 12, "nobody twice");
+            assert!((0..6).all(|id| ids.contains(&id)), "waiters keep their seat");
+            assert!(ids.iter().all(|id| *id < 18), "nobody with more in a row than the match");
+            drawn_in.extend(ids.into_iter().filter(|id| *id >= 6));
+        }
+        assert_eq!(drawn_in.len(), 12, "every player at the match's count can be drawn");
+    }
+
+    #[test]
+    fn refresh_without_eligible_queue_reshuffles_the_same_players() {
+        let playing: Vec<Candidate> = (0..4).map(|i| candidate(i, 1)).collect();
+        let queued = [candidate(4, 2), candidate(5, 3)];
+        let mut roster = ids(&refresh_roster(&playing, &queued, &mut StdRng::seed_from_u64(3)));
+        roster.sort();
+        assert_eq!(roster, [0, 1, 2, 3]);
+        assert!(refresh_roster(&playing, &[], &mut StdRng::seed_from_u64(3)).len() == 4);
     }
 
     #[test]

@@ -150,24 +150,16 @@ async fn vote_choice(
                 .await;
             Ok(())
         }
-        RefreshOutcome::Refreshed => {
+        RefreshOutcome::Refreshed(change) => {
             ack(ctx, interaction).await?;
+            let guild_id = interaction.guild_id.ok_or_else(|| anyhow!("Use isso em um servidor."))?;
             let state = db::load_camp(&data.db, camp_id)
                 .await?
                 .ok_or_else(|| anyhow!("camp não encontrado"))?;
-            let channel = ChannelId::new(state.camp.channel_id as u64);
             sync::redraw_all(&discord, &data.db, &state).await?;
             if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
-                let _ = channel
-                    .say(
-                        &ctx.http,
-                        format!(
-                            "Times atualizados nesta partida.\nHiddenking: {}\nArchmother: {}",
-                            sync::side_mentions(&open.players, "hiddenking"),
-                            sync::side_mentions(&open.players, "archmother")
-                        ),
-                    )
-                    .await;
+                let headline = "Refresh aprovado: times atualizados nesta partida.";
+                sync::announce_refresh(&discord, data, guild_id, &state, open, &change, headline).await?;
             }
             Ok(())
         }
