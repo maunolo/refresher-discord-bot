@@ -1412,3 +1412,63 @@ input {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Action status as a toast: it floats over the page instead of pushing it down. */
+.status-area {
+  position: fixed;
+  left: 16px;
+  right: 16px;
+  bottom: 24px;
+  z-index: 30;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.status-area .working {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 18px;
+  border: 1px solid #2f4c48;
+  border-radius: 999px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+.spinner {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 2.4s;
+  }
+}
+
+/* Live updates */
+.live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.live-status .dot {
+  background: var(--faint);
+}
+.live-status-on {
+  color: var(--text-2);
+}
+.live-status-on .dot {
+  background: var(--jade);
+  box-shadow: 0 0 0 3px rgba(52, 211, 166, 0.18);
+}

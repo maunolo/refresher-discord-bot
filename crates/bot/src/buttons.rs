@@ -53,10 +53,13 @@ pub async fn handle(ctx: &Context, data: &Data, interaction: &ComponentInteracti
     let Some(guild_id) = interaction.guild_id else {
         return ephemeral(ctx, interaction, "Use isso em um servidor.").await;
     };
-    with_guild_lock(data, guild_id.get(), || async {
+    let result = with_guild_lock(data, guild_id.get(), || async {
         handle_locked(ctx, data, interaction).await
     })
-    .await
+    .await;
+    // A vote and the like: open admin pages reload the camp.
+    data.changes.notify(guild_id.get());
+    result
 }
 
 async fn handle_locked(ctx: &Context, data: &Data, interaction: &ComponentInteraction) -> Result<()> {

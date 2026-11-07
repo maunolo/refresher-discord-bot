@@ -2,9 +2,39 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
+use tokio::sync::broadcast;
+
 use crate::queue::CampSize;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+
+/// Servers whose camp just changed, so open admin pages reload it right away instead of polling.
+#[derive(Clone)]
+pub struct Changes(broadcast::Sender<u64>);
+
+impl Changes {
+    pub fn new() -> Self {
+        Self(broadcast::channel(64).0)
+    }
+
+    /// Something on this server's camp changed: an admin action, a Discord button, the Queue
+    /// voice channel. Nobody listening is fine.
+    pub fn notify(&self, guild_id: u64) {
+        let _ = self.0.send(guild_id);
+    }
+
+    /// Server IDs as their camps change. A listener that falls behind gets `Lagged`: it missed
+    /// some, so it should reload anyway.
+    pub fn subscribe(&self) -> broadcast::Receiver<u64> {
+        self.0.subscribe()
+    }
+}
+
+impl Default for Changes {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// A channel of a server, by ID and name.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -63,6 +93,9 @@ pub enum CampAction {
 pub trait BotLink: Send + Sync {
     /// Whether the bot is in this server.
     fn in_guild(&self, guild_id: u64) -> bool;
+
+    /// Told whenever a server's camp changes, wherever the change came from.
+    fn changes(&self) -> &Changes;
 
     /// Profiles of these users in a server. Users Discord can't find are left out.
     fn profiles<'a>(

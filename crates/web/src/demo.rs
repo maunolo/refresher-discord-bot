@@ -7,12 +7,12 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use axum::response::Redirect;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum_extra::extract::cookie::CookieJar;
 use refresher_core::config::WebConfig;
 use refresher_core::db::{self, RefreshOutcome};
 use refresher_core::draft::CreatedDraft;
-use refresher_core::link::{BotLink, BoxFuture, CampAction, Channel, Profile};
+use refresher_core::link::{BotLink, BoxFuture, CampAction, Changes, Channel, Profile};
 use refresher_core::queue::CampSize;
 use refresher_core::settings::GuildSettings;
 use sqlx::sqlite::SqlitePoolOptions;
@@ -42,91 +42,101 @@ fn demo_profile(user_id: u64) -> Option<Profile> {
 /// Runs actions on the in-memory database only; nothing goes to Discord.
 struct DemoLink {
     db: SqlitePool,
+    changes: Changes,
+}
+
+impl DemoLink {
+    /// The database side of an admin action.
+    async fn apply(&self, camp_id: &str, action: CampAction) -> Result<()> {
+        let pool = &self.db;
+        let guild = GUILD as i64;
+        match action {
+            CampAction::CreateMatch => {
+                db::create_match(pool, camp_id, guild).await?;
+            }
+            CampAction::CreateFinal => {
+                db::create_final_match(pool, camp_id, guild).await?;
+            }
+            CampAction::CloseVote { match_id } => {
+                db::close_voting(pool, camp_id, &match_id).await?;
+            }
+            CampAction::RefreshTeams { match_id } => {
+                db::refresh_by_admin(pool, camp_id, &match_id).await?;
+            }
+            CampAction::StartDraft { match_id } => {
+                let (settings, _) = db::guild_settings(pool, guild, &demo_settings()).await?;
+                if settings.use_draft_tool {
+                    db::set_draft(pool, &match_id, &fake_draft(&match_id)).await?;
+                } else {
+                    db::set_manual_draft(pool, &match_id).await?;
+                }
+            }
+            CampAction::StartMatch { match_id } => {
+                db::start_live_match(pool, &match_id, None, None).await?;
+            }
+            CampAction::ReportWinner { match_id, side, mvp_user_id } => {
+                db::report_winner(pool, camp_id, &match_id, &side, mvp_user_id.map(|id| id as i64)).await?;
+            }
+            CampAction::ChangeMvp { match_id, user_id } => {
+                db::change_mvp(pool, camp_id, &match_id, user_id as i64).await?;
+            }
+            CampAction::CorrectWinner { match_id } => {
+                db::correct_winner(pool, camp_id, &match_id).await?;
+            }
+            CampAction::ReopenMatch { match_id } => {
+                db::reopen_match(pool, camp_id, &match_id).await?;
+            }
+            CampAction::AddPlayers { user_ids } => {
+                let ids: Vec<i64> = user_ids.iter().map(|id| *id as i64).collect();
+                db::add_players(pool, camp_id, &ids).await?;
+            }
+            CampAction::RemovePlayer { user_id } => {
+                db::remove_player(pool, camp_id, user_id as i64).await?;
+            }
+            CampAction::SetSRank { user_id, s_rank } => {
+                db::set_player_s_rank(pool, camp_id, user_id as i64, s_rank).await?;
+            }
+            CampAction::AdjustPoints { user_id, delta } => {
+                db::adjust_points(pool, camp_id, user_id as i64, delta).await?;
+            }
+            CampAction::StartQueue => {
+                db::start_queue(pool, camp_id).await?;
+            }
+            CampAction::ReorderQueue { user_ids } => {
+                let ids: Vec<i64> = user_ids.iter().map(|id| *id as i64).collect();
+                db::reorder_queue(pool, camp_id, &ids).await?;
+            }
+            CampAction::RemindVoters { match_id } => {
+                // The bot would mention them in the camp's channel; here it only checks.
+                let state = db::load_camp(pool, camp_id).await?.ok_or_else(|| anyhow::anyhow!("camp não encontrado"))?;
+                let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) else {
+                    anyhow::bail!("Partida não encontrada.");
+                };
+                if open.row.status != "voting" || open.row.refresh_used {
+                    anyhow::bail!("A votação desta partida já terminou.");
+                }
+                if open.players.len() == open.votes.len() {
+                    anyhow::bail!("Todos já votaram.");
+                }
+            }
+            CampAction::CancelCamp => db::cancel_camp(pool, camp_id).await?,
+            CampAction::ResumeCamp => {
+                db::resume_camp(pool, camp_id, guild).await?;
+            }
+            CampAction::EndCamp => {
+                db::end_camp(pool, camp_id).await?;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl BotLink for DemoLink {
     fn act<'a>(&'a self, _guild_id: u64, camp_id: &'a str, action: CampAction) -> BoxFuture<'a, Result<()>> {
         Box::pin(async move {
-            let pool = &self.db;
-            let guild = GUILD as i64;
-            match action {
-                CampAction::CreateMatch => {
-                    db::create_match(pool, camp_id, guild).await?;
-                }
-                CampAction::CreateFinal => {
-                    db::create_final_match(pool, camp_id, guild).await?;
-                }
-                CampAction::CloseVote { match_id } => {
-                    db::close_voting(pool, camp_id, &match_id).await?;
-                }
-                CampAction::RefreshTeams { match_id } => {
-                    db::refresh_by_admin(pool, camp_id, &match_id).await?;
-                }
-                CampAction::StartDraft { match_id } => {
-                    let (settings, _) = db::guild_settings(pool, guild, &demo_settings()).await?;
-                    if settings.use_draft_tool {
-                        db::set_draft(pool, &match_id, &fake_draft(&match_id)).await?;
-                    } else {
-                        db::set_manual_draft(pool, &match_id).await?;
-                    }
-                }
-                CampAction::StartMatch { match_id } => {
-                    db::start_live_match(pool, &match_id, None, None).await?;
-                }
-                CampAction::ReportWinner { match_id, side, mvp_user_id } => {
-                    db::report_winner(pool, camp_id, &match_id, &side, mvp_user_id.map(|id| id as i64)).await?;
-                }
-                CampAction::ChangeMvp { match_id, user_id } => {
-                    db::change_mvp(pool, camp_id, &match_id, user_id as i64).await?;
-                }
-                CampAction::CorrectWinner { match_id } => {
-                    db::correct_winner(pool, camp_id, &match_id).await?;
-                }
-                CampAction::ReopenMatch { match_id } => {
-                    db::reopen_match(pool, camp_id, &match_id).await?;
-                }
-                CampAction::AddPlayers { user_ids } => {
-                    let ids: Vec<i64> = user_ids.iter().map(|id| *id as i64).collect();
-                    db::add_players(pool, camp_id, &ids).await?;
-                }
-                CampAction::RemovePlayer { user_id } => {
-                    db::remove_player(pool, camp_id, user_id as i64).await?;
-                }
-                CampAction::SetSRank { user_id, s_rank } => {
-                    db::set_player_s_rank(pool, camp_id, user_id as i64, s_rank).await?;
-                }
-                CampAction::AdjustPoints { user_id, delta } => {
-                    db::adjust_points(pool, camp_id, user_id as i64, delta).await?;
-                }
-                CampAction::StartQueue => {
-                    db::start_queue(pool, camp_id).await?;
-                }
-                CampAction::ReorderQueue { user_ids } => {
-                    let ids: Vec<i64> = user_ids.iter().map(|id| *id as i64).collect();
-                    db::reorder_queue(pool, camp_id, &ids).await?;
-                }
-                CampAction::RemindVoters { match_id } => {
-                    // The bot would mention them in the camp's channel; here it only checks.
-                    let state = db::load_camp(pool, camp_id).await?.ok_or_else(|| anyhow::anyhow!("camp não encontrado"))?;
-                    let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) else {
-                        anyhow::bail!("Partida não encontrada.");
-                    };
-                    if open.row.status != "voting" || open.row.refresh_used {
-                        anyhow::bail!("A votação desta partida já terminou.");
-                    }
-                    if open.players.len() == open.votes.len() {
-                        anyhow::bail!("Todos já votaram.");
-                    }
-                }
-                CampAction::CancelCamp => db::cancel_camp(pool, camp_id).await?,
-                CampAction::ResumeCamp => {
-                    db::resume_camp(pool, camp_id, guild).await?;
-                }
-                CampAction::EndCamp => {
-                    db::end_camp(pool, camp_id).await?;
-                }
-            }
-            Ok(())
+            let result = self.apply(camp_id, action).await;
+            self.changes.notify(GUILD);
+            result
         })
     }
 
@@ -164,12 +174,17 @@ impl BotLink for DemoLink {
                 anyhow::bail!("Este servidor já tem um camp ativo. Cancele ou encerre o atual primeiro.");
             }
             let camp = db::create_camp(&self.db, GUILD as i64, channel_id as i64, size.target_size(), size.match_size()).await?;
+            self.changes.notify(GUILD);
             Ok(camp.id)
         })
     }
 
     fn in_guild(&self, guild_id: u64) -> bool {
         guild_id == GUILD
+    }
+
+    fn changes(&self) -> &Changes {
+        &self.changes
     }
 
     fn profiles<'a>(&'a self, _guild_id: u64, user_ids: &'a [u64]) -> BoxFuture<'a, HashMap<u64, Profile>> {
@@ -278,6 +293,24 @@ async fn demo_login(state: AppState, jar: CookieJar) -> Result<(CookieJar, Redir
     Ok((jar.add(auth::session_cookie(&state, token)), Redirect::to("/")))
 }
 
+/// Casts one missing refresh vote (Manter), as a player clicking in Discord would: a change the
+/// page didn't make, for trying its live updates.
+async fn discord_vote(state: AppState) -> Result<String, crate::error::ApiError> {
+    let Some(camp) = db::load_active_for_guild(&state.db, GUILD as i64).await? else {
+        return Ok("Nenhum camp ativo.".to_string());
+    };
+    let Some(open) = camp.open_matches.iter().find(|m| m.row.status == "voting" && !m.row.refresh_used) else {
+        return Ok("Nenhuma votação aberta.".to_string());
+    };
+    let Some(player) = open.players.iter().find(|p| open.votes.iter().all(|v| v.user_id != p.user_id)) else {
+        return Ok("Todos já votaram.".to_string());
+    };
+    db::vote_refresh_choice(&state.db, &open.row.id, player.user_id, false).await?;
+    state.link.changes().notify(GUILD);
+    let name = demo_profile(player.user_id as u64).map_or_else(|| player.user_id.to_string(), |p| p.name);
+    Ok(format!("{name} votou Manter na partida {}.", open.row.slot))
+}
+
 pub async fn run(bind: &str, static_dir: &str) -> Result<()> {
     // The camp lives only as long as this one connection: never let the pool close it.
     let db = SqlitePoolOptions::new()
@@ -289,7 +322,10 @@ pub async fn run(bind: &str, static_dir: &str) -> Result<()> {
         .await?;
     db::migrate(&db).await?;
     seed(&db).await?;
-    let link = Arc::new(DemoLink { db: db.clone() });
+    let link = Arc::new(DemoLink {
+        db: db.clone(),
+        changes: Changes::new(),
+    });
     let state = AppState {
         db,
         config: Arc::new(WebConfig {
@@ -304,10 +340,13 @@ pub async fn run(bind: &str, static_dir: &str) -> Result<()> {
         default_settings: demo_settings(),
     };
     let login_state = state.clone();
-    let app = router(state).route(
-        "/demo/login",
-        get(move |jar: CookieJar| demo_login(login_state.clone(), jar)),
-    );
+    let vote_state = state.clone();
+    let app = router(state)
+        .route(
+            "/demo/login",
+            get(move |jar: CookieJar| demo_login(login_state.clone(), jar)),
+        )
+        .route("/demo/discord-vote", post(move || discord_vote(vote_state.clone())));
     let listener = tokio::net::TcpListener::bind(bind).await?;
     println!("demo admin ready: open http://{bind}/demo/login");
     axum::serve(listener, app).await?;

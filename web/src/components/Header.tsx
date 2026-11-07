@@ -10,6 +10,23 @@ interface HeaderProps {
   campId: string | null;
   onCamp: (id: string) => void;
   camp: Camp | null;
+  /** Live updates are connected. */
+  live: boolean;
+}
+
+/** Whether changes show up as they happen, or only on the next reload while the live updates reconnect. */
+function LiveStatus({ live }: { live: boolean }) {
+  return live ? (
+    <span className="live-status live-status-on" title="A página se atualiza sozinha quando algo muda no camp, aqui ou no Discord.">
+      <span className="dot" />
+      Tempo real
+    </span>
+  ) : (
+    <span className="live-status" title="Sem conexão em tempo real: a página recarrega a cada 4 segundos enquanto reconecta.">
+      <span className="dot" />
+      Reconectando…
+    </span>
+  );
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -78,7 +95,7 @@ function CampButtons({ camp }: { camp: Camp }) {
   );
 }
 
-export function Header({ me, guildId, onGuild, camps, campId, onCamp, camp }: HeaderProps) {
+export function Header({ me, guildId, onGuild, camps, campId, onCamp, camp, live }: HeaderProps) {
   const sRank = camp?.players.filter((p) => p.s_rank).length ?? 0;
   return (
     <header className="header">
@@ -110,6 +127,7 @@ export function Header({ me, guildId, onGuild, camps, campId, onCamp, camp }: He
         )}
       </div>
       <div className="header-group">
+        {camp && <LiveStatus live={live} />}
         {camp?.status === 'running' && <CampButtons camp={camp} />}
         <div className="account">
           {me.user.avatar_url && <img src={me.user.avatar_url} alt="" width={32} height={32} className="avatar" />}

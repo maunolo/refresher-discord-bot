@@ -39,6 +39,7 @@ pub fn router(state: AppState) -> Router {
         .route("/guilds/{guild_id}/channels", get(api::guild_channels))
         .route("/guilds/{guild_id}/members", get(api::guild_members))
         .route("/guilds/{guild_id}/settings", get(api::guild_settings).put(api::save_guild_settings))
+        .route("/guilds/{guild_id}/events", get(api::guild_events))
         .route("/camps/{camp_id}", get(api::camp))
         .route("/camps/{camp_id}/matches", get(api::camp_matches))
         .route("/camps/{camp_id}/actions", post(api::act))
@@ -114,7 +115,8 @@ mod tests {
 
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
-    use refresher_core::link::{BoxFuture, CampAction, Channel, Profile};
+    use futures_util::StreamExt;
+    use refresher_core::link::{BoxFuture, CampAction, Changes, Channel, Profile};
     use refresher_core::queue::CampSize;
     use sqlx::sqlite::SqlitePoolOptions;
     use tower::ServiceExt;
@@ -130,6 +132,7 @@ mod tests {
         actions: Mutex<Vec<(u64, String, CampAction)>>,
         /// When set, `act` fails with this message, like the bot refusing an action.
         refuse: Option<String>,
+        changes: Changes,
         /// The test database, so `create_camp` can create one for real.
         db: OnceLock<SqlitePool>,
     }
@@ -144,6 +147,10 @@ mod tests {
     impl BotLink for FakeLink {
         fn in_guild(&self, guild_id: u64) -> bool {
             self.guilds.contains(&guild_id)
+        }
+
+        fn changes(&self) -> &Changes {
+            &self.changes
         }
 
         fn profiles<'a>(
@@ -329,6 +336,41 @@ mod tests {
         let state = test_state(FakeLink::default()).await;
         assert_eq!(get(&state, "/api/me", None).await.0, StatusCode::UNAUTHORIZED);
         assert_eq!(get(&state, "/api/me", Some("not-a-token")).await.0, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn events_stream_changes_of_the_admins_server_only() {
+        let link = Arc::new(FakeLink {
+            guilds: vec![111, 222],
+            ..FakeLink::default()
+        });
+        let state = test_state_with(link.clone()).await;
+        let token = sign_in(&state, &[111]).await;
+        let events = |guild_id: u64| {
+            Request::get(format!("/api/guilds/{guild_id}/events"))
+                .header("cookie", format!("{}={token}", session::COOKIE_NAME))
+                .body(Body::empty())
+                .unwrap()
+        };
+        let not_mine = router(state.clone()).oneshot(events(222)).await.unwrap();
+        assert_eq!(not_mine.status(), StatusCode::NOT_FOUND);
+
+        let response = router(state.clone()).oneshot(events(111)).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["content-type"], "text/event-stream");
+        let mut body = response.into_body().into_data_stream();
+        link.changes.notify(222);
+        link.changes.notify(111);
+        let chunk = tokio::time::timeout(Duration::from_secs(5), body.next())
+            .await
+            .expect("a change event")
+            .expect("an open stream")
+            .unwrap();
+        let text = String::from_utf8(chunk.to_vec()).unwrap();
+        assert_eq!(text, "event: change
+data: 111
+
+", "the other server's change isn't sent");
     }
 
     #[tokio::test]

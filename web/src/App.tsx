@@ -14,6 +14,7 @@ import { PlayersView } from './components/PlayersView';
 import { QueueView } from './components/QueueView';
 import { RankingView } from './components/RankingView';
 import { SettingsView } from './components/SettingsView';
+import { LiveContext, pollEvery, useLiveUpdates } from './live';
 import { routeHref, useRoute } from './route';
 import { remember, remembered, usePolling } from './usePolling';
 
@@ -51,7 +52,8 @@ function Admin({ me }: { me: Me }) {
   const [place, go] = useRoute();
   const route = place.route;
   const [guildId, setGuildId] = useState(() => pick(me.guilds, remembered('guild'), (g) => g[0])?.id ?? null);
-  const camps = usePolling<CampSummary[]>(guildId, api.camps, 30_000);
+  const live = useLiveUpdates(guildId);
+  const camps = usePolling<CampSummary[]>(guildId, api.camps, 30_000, live.version);
   const [campId, setCampId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -62,7 +64,7 @@ function Admin({ me }: { me: Me }) {
     });
   }, [camps.data]);
 
-  const camp = usePolling<Camp>(campId, api.camp, 4_000);
+  const camp = usePolling<Camp>(campId, api.camp, pollEvery(live, 4_000), live.version);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
@@ -160,6 +162,7 @@ function Admin({ me }: { me: Me }) {
 
   return (
     <ActionsContext.Provider value={actions}>
+      <LiveContext.Provider value={live}>
       <div className="app">
         <Header
           me={me}
@@ -169,6 +172,7 @@ function Admin({ me }: { me: Me }) {
           campId={campId}
           onCamp={chooseCamp}
           camp={camp.data}
+          live={live.connected}
         />
         {camp.data && camp.error && (
           <p className="banner" role="status">
@@ -176,7 +180,12 @@ function Admin({ me }: { me: Me }) {
           </p>
         )}
         <div className="status-area" role="status">
-          {busy && <p className="working">Enviando ao bot… o Discord é atualizado junto.</p>}
+          {busy && (
+            <p className="working">
+              <span className="spinner" aria-hidden="true" />
+              Enviando ao bot… o Discord é atualizado junto.
+            </p>
+          )}
           {!busy && done && <p className="working">{done}</p>}
         </div>
         {notice && (
@@ -199,6 +208,7 @@ function Admin({ me }: { me: Me }) {
           }}
         />
       </div>
+      </LiveContext.Provider>
     </ActionsContext.Provider>
   );
 }

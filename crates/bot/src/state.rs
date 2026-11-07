@@ -4,6 +4,8 @@ use std::sync::Arc;
 use sqlx::SqlitePool;
 use tokio::sync::Mutex;
 
+use refresher_core::link::Changes;
+
 use crate::config::Config;
 use crate::db;
 use crate::settings::GuildSettings;
@@ -14,6 +16,8 @@ pub struct Data {
     pub db: SqlitePool,
     pub http: reqwest::Client,
     pub locks: Arc<Mutex<HashMap<u64, Arc<Mutex<()>>>>>,
+    /// Tells open admin pages when a server's camp changed.
+    pub changes: Changes,
 }
 
 impl Data {

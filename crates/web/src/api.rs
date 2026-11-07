@@ -2,10 +2,13 @@
 //! JavaScript number.
 
 use std::collections::HashMap;
+use std::convert::Infallible;
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::Json;
+use futures_util::stream::{self, Stream};
 use refresher_core::db::{
     self, CampRow, CampState, CampSummary, MatchPlayerRow, MatchRow, PlayerRow, PlayerStats, RecentMatch,
     RefreshVote,
@@ -15,6 +18,7 @@ use refresher_core::link::{CampAction, Channel, Profile};
 use refresher_core::queue::{self, CampSize};
 use refresher_core::settings::{GuildSettings, DRAFT_TIMERS};
 use serde::{Deserialize, Serialize};
+use tokio::sync::broadcast::error::RecvError;
 
 use crate::session::Session;
 
@@ -473,6 +477,32 @@ fn managed_guild(state: &AppState, session: &Session, guild_id: u64) -> Result<(
     }
 }
 
+/// Live updates, as server-sent events: a `change` each time this server's camp changes, from
+/// the page, a Discord button or the Queue voice channel, so open pages reload it right away.
+pub async fn guild_events(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    let changes = state.link.changes().subscribe();
+    let events = stream::unfold(changes, move |mut changes| async move {
+        loop {
+            match changes.recv().await {
+                Ok(id) if id != guild_id => continue,
+                // Lagged: some changes went by unseen, so reload all the same.
+                Ok(_) | Err(RecvError::Lagged(_)) => {
+                    let change = Event::default().event("change").data(guild_id.to_string());
+                    return Some((Ok(change), changes));
+                }
+                Err(RecvError::Closed) => return None,
+            }
+        }
+    });
+    // Comments every 15 seconds keep proxies from closing an idle stream.
+    Ok(Sse::new(events).keep_alive(KeepAlive::default()))
+}
+
 pub async fn guild_channels(
     State(state): State<AppState>,
     Admin(session): Admin,
@@ -802,5 +832,7 @@ pub async fn save_guild_settings(
     let settings = parse_settings(request, &voice)?;
     tracing::info!(user_id = session.user_id, guild_id, ?settings, "server settings saved from the web");
     db::save_guild_settings(&state.db, guild_id as i64, &settings).await?;
+    // The camp shows whether drafts use the draft tool.
+    state.link.changes().notify(guild_id);
     Ok(Json(settings_dto(settings, true, voice)))
 }

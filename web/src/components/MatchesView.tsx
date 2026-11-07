@@ -14,6 +14,7 @@ import {
   voteCount,
   voteSummary,
 } from '../camp';
+import { pollEvery, useLive } from '../live';
 import { matchHref, routeHref } from '../route';
 import { usePolling } from '../usePolling';
 import { Captain, CopyButton, DiscordLink, MvpTag, SRankChip } from './common';
@@ -45,7 +46,8 @@ function detailName(match: Match): string {
 
 /** The camp's matches, or one of them when the URL names it. */
 export function MatchesView({ camp, matchId }: { camp: Camp; matchId: string | null }) {
-  const matches = usePolling<Match[]>(camp.id, loadMatches, 15_000);
+  const live = useLive();
+  const matches = usePolling<Match[]>(camp.id, loadMatches, pollEvery(live, 15_000), live.version);
   const refresh = matches.refresh;
   // The camp reloads every few seconds and after each action; the list follows it.
   useEffect(() => refresh(), [camp, refresh]);

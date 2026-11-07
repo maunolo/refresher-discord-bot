@@ -227,6 +227,28 @@ pub async fn send_draft_to_captains(
     }
 }
 
+/// Whether someone joined or left the server's Queue voice channel, which the admin page lists
+/// during signup.
+pub async fn touches_queue_voice(
+    discord: &Discord,
+    data: &Data,
+    old: Option<&VoiceState>,
+    new: &VoiceState,
+) -> bool {
+    let Some(guild_id) = new.guild_id else {
+        return false;
+    };
+    let before = old.and_then(|state| state.channel_id);
+    if before == new.channel_id {
+        return false;
+    }
+    let Ok(settings) = data.settings(guild_id.get()).await else {
+        return false;
+    };
+    let queue = voice::find_channel(discord, guild_id, VoiceDest::Queue, &settings);
+    queue.is_some() && (before == queue || new.channel_id == queue)
+}
+
 /// If a player joins voice after the draft or the live match started, move them to their team channel.
 pub async fn place_late_voice_join(
     discord: &Discord,

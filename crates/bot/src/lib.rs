@@ -20,7 +20,7 @@ use refresher_core::{config, db, deadlock, draft, queue, ranking, settings};
 
 use config::Config;
 use discord::Discord;
-use refresher_core::link::BotLink;
+use refresher_core::link::{BotLink, Changes};
 pub use state::Data;
 
 pub type Error = anyhow::Error;
@@ -50,6 +50,11 @@ async fn event_handler(
             if let Err(err) = sync::place_late_voice_join(&discord, data, old.as_ref(), new).await {
                 tracing::warn!(error = %err, "late voice placement failed");
             }
+            if let Some(guild_id) = new.guild_id {
+                if sync::touches_queue_voice(&discord, data, old.as_ref(), new).await {
+                    data.changes.notify(guild_id.get());
+                }
+            }
         }
         FullEvent::InteractionCreate { interaction } => {
             if let serenity::Interaction::Component(component) = interaction {
@@ -77,6 +82,7 @@ impl Bot {
             db,
             http: reqwest::Client::new(),
             locks: Arc::new(Mutex::new(HashMap::new())),
+            changes: Changes::new(),
         };
         Ok(Self {
             client: build_client(config, data.clone()).await?,

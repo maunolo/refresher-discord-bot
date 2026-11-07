@@ -3,7 +3,7 @@ use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use poise::serenity_prelude as serenity;
-use refresher_core::link::{BotLink, BoxFuture, CampAction, Channel, Profile};
+use refresher_core::link::{BotLink, BoxFuture, CampAction, Changes, Channel, Profile};
 use refresher_core::queue::CampSize;
 use serenity::all::{ChannelType, GuildId, Member, UserId};
 use serenity::http::StatusCode;
@@ -86,6 +86,10 @@ fn member_profile(member: &Member) -> Profile {
 impl BotLink for SerenityLink {
     fn in_guild(&self, guild_id: u64) -> bool {
         self.discord.cache.guild(GuildId::new(guild_id)).is_some()
+    }
+
+    fn changes(&self) -> &Changes {
+        &self.data.changes
     }
 
     fn profiles<'a>(
@@ -193,10 +197,12 @@ impl BotLink for SerenityLink {
         size: CampSize,
     ) -> BoxFuture<'a, anyhow::Result<String>> {
         Box::pin(async move {
-            with_guild_lock(&self.data, guild_id, || {
+            let created = with_guild_lock(&self.data, guild_id, || {
                 actions::create_camp(&self.discord, &self.data, GuildId::new(guild_id), channel_id, size)
             })
-            .await
+            .await;
+            self.data.changes.notify(guild_id);
+            created
         })
     }
 
@@ -208,10 +214,13 @@ impl BotLink for SerenityLink {
     ) -> BoxFuture<'a, anyhow::Result<()>> {
         Box::pin(async move {
             // The same lock the Discord buttons take, so a web click and a button can't interleave.
-            with_guild_lock(&self.data, guild_id, || {
+            let result = with_guild_lock(&self.data, guild_id, || {
                 actions::run(&self.discord, &self.data, GuildId::new(guild_id), camp_id, &action)
             })
-            .await
+            .await;
+            // Also on errors: a failed Discord step can follow a database change.
+            self.data.changes.notify(guild_id);
+            result
         })
     }
 }
