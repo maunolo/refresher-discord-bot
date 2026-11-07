@@ -4,7 +4,7 @@ use std::pin::Pin;
 
 use tokio::sync::broadcast;
 
-use crate::queue::CampSize;
+use crate::queue::{CampSize, Role};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -75,6 +75,8 @@ pub enum CampAction {
     RemovePlayer { user_id: u64 },
     /// Signup or running; matches created afterwards use it.
     SetSRank { user_id: u64, s_rank: bool },
+    /// Signup or running. The role is kept per server, for later camps too; `None` clears it.
+    SetRole { user_id: u64, role: Option<Role> },
     /// Running only. Adds `delta` points by hand (negative takes them); never below zero.
     AdjustPoints { user_id: u64, delta: i64 },
     StartQueue,

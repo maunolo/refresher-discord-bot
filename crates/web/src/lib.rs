@@ -117,7 +117,7 @@ mod tests {
     use axum::http::{Request, StatusCode};
     use futures_util::StreamExt;
     use refresher_core::link::{BoxFuture, CampAction, Changes, Channel, Profile};
-    use refresher_core::queue::CampSize;
+    use refresher_core::queue::{CampSize, Role};
     use sqlx::sqlite::SqlitePoolOptions;
     use tower::ServiceExt;
 
@@ -616,6 +616,12 @@ data: 111
         assert_eq!(post(&state, &path, Some(&token), add).await.0, StatusCode::OK);
         let s_rank = r#"{"type": "set_s_rank", "user_id": "5", "s_rank": true}"#;
         assert_eq!(post(&state, &path, Some(&token), s_rank).await.0, StatusCode::OK);
+        let role = r#"{"type": "set_role", "user_id": "5", "role": "support"}"#;
+        assert_eq!(post(&state, &path, Some(&token), role).await.0, StatusCode::OK);
+        let no_role = r#"{"type": "set_role", "user_id": "5", "role": null}"#;
+        assert_eq!(post(&state, &path, Some(&token), no_role).await.0, StatusCode::OK);
+        let bad_role = r#"{"type": "set_role", "user_id": "5", "role": "jungle"}"#;
+        assert_eq!(post(&state, &path, Some(&token), bad_role).await.0, StatusCode::BAD_REQUEST);
         let bad = r#"{"type": "remove_player", "user_id": "not-an-id"}"#;
         assert_eq!(post(&state, &path, Some(&token), bad).await.0, StatusCode::BAD_REQUEST);
 
@@ -627,6 +633,8 @@ data: 111
                     user_ids: vec![307688453406064641, 5]
                 },
                 CampAction::SetSRank { user_id: 5, s_rank: true },
+                CampAction::SetRole { user_id: 5, role: Some(Role::Support) },
+                CampAction::SetRole { user_id: 5, role: None },
             ]
         );
     }

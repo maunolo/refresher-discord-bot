@@ -17,7 +17,7 @@ import {
 import { pollEvery, useLive } from '../live';
 import { matchHref, routeHref } from '../route';
 import { usePolling } from '../usePolling';
-import { Captain, CopyButton, DiscordLink, MvpTag, SRankChip } from './common';
+import { Captain, CopyButton, DiscordLink, MvpTag, RoleChip, SRankChip } from './common';
 import { DraftLinks, ManualDraftNote, StagePill, Stepper } from './MatchCard';
 import { Corrections } from './Panels';
 import { WinnerDialog } from './ResultDialogs';
@@ -227,6 +227,7 @@ function TeamVotes({ camp, match, side }: { camp: Camp; match: Match; side: Side
             <li key={p.user_id} className="row row-tall">
               <span className="ellipsis">{playerName(camp, p.user_id)}</span>
               {player?.s_rank && <SRankChip />}
+              <RoleChip role={player?.role ?? null} />
               {p.is_captain && <Captain />}
               {match.mvp_user_id === p.user_id && <MvpTag />}
               <span className="row-end">

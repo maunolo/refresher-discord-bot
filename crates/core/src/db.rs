@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
 
 use crate::draft::CreatedDraft;
-use crate::queue::{self, CampLayout, Candidate, QueuePlayer, Seat, TeamSplit};
+use crate::queue::{self, CampLayout, Candidate, QueuePlayer, Role, Seat, TeamSplit};
 use crate::settings::GuildSettings;
 
 #[derive(Clone, Debug)]
@@ -37,6 +37,8 @@ pub struct PlayerRow {
     pub queue_position: Option<i64>,
     pub consecutive_matches: i64,
     pub s_rank: bool,
+    /// Set per server, so it carries over from earlier camps.
+    pub role: Option<Role>,
 }
 
 impl PlayerRow {
@@ -45,6 +47,7 @@ impl PlayerRow {
             user_id: self.user_id,
             points: self.points,
             s_rank: self.s_rank,
+            role: self.role,
         }
     }
 }
@@ -74,6 +77,11 @@ pub struct MatchRow {
     /// Picked by the admin with the result; breaks ties in points in the final ranking.
     pub mvp_user_id: Option<i64>,
 }
+
+/// `FROM` a camp's players (`p`) with their server roles (`r.role`, `NULL` when unset).
+const PLAYERS_WITH_ROLES: &str = "FROM camp_players p
+     JOIN camps c ON c.id = p.camp_id
+     LEFT JOIN guild_player_roles r ON r.guild_id = c.guild_id AND r.user_id = p.user_id";
 
 /// The columns a `MatchRow` reads, for `SELECT {MATCH_COLUMNS} FROM camp_matches m`.
 const MATCH_COLUMNS: &str = "m.id, m.slot, m.status, m.refresh_used, m.message_id, m.party_id, m.party_code,
@@ -785,11 +793,14 @@ async fn assemble_state(
         status: c.6,
         match_count: c.7,
     };
-    let player_rows = sqlx::query_as::<_, (i64, i64, String, Option<i64>, i64, i64)>(
-        "SELECT user_id, points, location, queue_position, consecutive_matches, is_s_rank
-         FROM camp_players WHERE camp_id = ?
-         ORDER BY queue_position IS NULL, queue_position, joined_at, user_id",
+    let player_rows = sqlx::query_as::<_, (i64, i64, String, Option<i64>, i64, i64, Option<String>)>(
+        "SELECT p.user_id, p.points, p.location, p.queue_position, p.consecutive_matches, p.is_s_rank, r.role
+         FROM camp_players p
+         LEFT JOIN guild_player_roles r ON r.guild_id = ? AND r.user_id = p.user_id
+         WHERE p.camp_id = ?
+         ORDER BY p.queue_position IS NULL, p.queue_position, p.joined_at, p.user_id",
     )
+    .bind(camp.guild_id)
     .bind(&camp.id)
     .fetch_all(pool)
     .await?;
@@ -802,6 +813,7 @@ async fn assemble_state(
             queue_position: p.3,
             consecutive_matches: p.4,
             s_rank: p.5 != 0,
+            role: p.6.as_deref().and_then(Role::parse),
         })
         .collect();
 
@@ -1011,6 +1023,43 @@ pub async fn set_player_s_rank(pool: &SqlitePool, camp_id: &str, user_id: i64, s
     Ok(())
 }
 
+/// Sets a roster player's main role, or clears it with `None`. The role belongs to the camp's
+/// server, so the player keeps it in later camps there. Matches split afterwards use it.
+pub async fn set_player_role(pool: &SqlitePool, camp_id: &str, user_id: i64, role: Option<Role>) -> Result<()> {
+    let guild_id: Option<i64> = sqlx::query_scalar(
+        "SELECT c.guild_id FROM camps c JOIN camp_players p ON p.camp_id = c.id
+         WHERE c.id = ? AND p.user_id = ? AND c.status IN ('signup', 'running')",
+    )
+    .bind(camp_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    let Some(guild_id) = guild_id else {
+        return Err(anyhow!("esse jogador não está no elenco de um camp ativo"));
+    };
+    match role {
+        Some(role) => {
+            sqlx::query(
+                "INSERT INTO guild_player_roles (guild_id, user_id, role) VALUES (?, ?, ?)
+                 ON CONFLICT (guild_id, user_id) DO UPDATE SET role = excluded.role",
+            )
+            .bind(guild_id)
+            .bind(user_id)
+            .bind(role.as_str())
+            .execute(pool)
+            .await?;
+        }
+        None => {
+            sqlx::query("DELETE FROM guild_player_roles WHERE guild_id = ? AND user_id = ?")
+                .bind(guild_id)
+                .bind(user_id)
+                .execute(pool)
+                .await?;
+        }
+    }
+    Ok(())
+}
+
 async fn reindex_signup_queue(tx: &mut Transaction<'_, Sqlite>, camp_id: &str) -> Result<()> {
     let ids: Vec<i64> = sqlx::query_scalar(
         "SELECT user_id FROM camp_players WHERE camp_id = ? ORDER BY joined_at, user_id",
@@ -1117,19 +1166,20 @@ async fn pull_match_in_tx(
         None => return Ok(None),
     };
     let layout = camp_layout_in_tx(tx, camp_id).await?;
-    let queued: Vec<Seat> = sqlx::query_as::<_, (i64, i64, i64)>(
-        "SELECT user_id, points, is_s_rank FROM camp_players
-         WHERE camp_id = ? AND location = 'queued'
-         ORDER BY queue_position",
-    )
+    let queued: Vec<Seat> = sqlx::query_as::<_, (i64, i64, i64, Option<String>)>(&format!(
+        "SELECT p.user_id, p.points, p.is_s_rank, r.role {PLAYERS_WITH_ROLES}
+         WHERE p.camp_id = ? AND p.location = 'queued'
+         ORDER BY p.queue_position"
+    ))
     .bind(camp_id)
     .fetch_all(&mut **tx)
     .await?
     .into_iter()
-    .map(|(user_id, points, s_rank)| Seat {
+    .map(|(user_id, points, s_rank, role)| Seat {
         user_id,
         points,
         s_rank: s_rank != 0,
+        role: role.as_deref().and_then(Role::parse),
     })
     .collect();
     if queued.len() < layout.match_size {
@@ -1194,16 +1244,22 @@ pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<Vec<i64>> {
     }
 
     let mut tx = pool.begin().await?;
-    let roster: Vec<(i64, bool)> = sqlx::query_as::<_, (i64, i64)>(
-        "SELECT user_id, is_s_rank FROM camp_players WHERE camp_id = ? ORDER BY joined_at, user_id",
-    )
+    let roster: Vec<Seat> = sqlx::query_as::<_, (i64, i64, i64, Option<String>)>(&format!(
+        "SELECT p.user_id, p.points, p.is_s_rank, r.role {PLAYERS_WITH_ROLES}
+         WHERE p.camp_id = ? ORDER BY p.joined_at, p.user_id"
+    ))
     .bind(camp_id)
     .fetch_all(&mut *tx)
     .await?
     .into_iter()
-    .map(|(user_id, s_rank)| (user_id, s_rank != 0))
+    .map(|(user_id, points, s_rank, role)| Seat {
+        user_id,
+        points,
+        s_rank: s_rank != 0,
+        role: role.as_deref().and_then(Role::parse),
+    })
     .collect();
-    let original: Vec<i64> = roster.iter().map(|p| p.0).collect();
+    let original: Vec<i64> = roster.iter().map(|p| p.user_id).collect();
     let team_size = state.camp.layout().match_size / 2;
     let mut rng = StdRng::from_entropy();
     let mut ids = queue::starting_queue(&roster, team_size, &mut rng);
@@ -1527,21 +1583,21 @@ async fn resort_teams(
         .bind(match_id)
         .fetch_all(&mut **tx)
         .await?;
-    let players: Vec<(i64, i64, i64, i64, String)> = sqlx::query_as(
-        "SELECT user_id, points, is_s_rank, consecutive_matches, location FROM camp_players
-         WHERE camp_id = ? ORDER BY queue_position",
-    )
+    let players: Vec<(i64, i64, i64, i64, String, Option<String>)> = sqlx::query_as(&format!(
+        "SELECT p.user_id, p.points, p.is_s_rank, p.consecutive_matches, p.location, r.role
+         {PLAYERS_WITH_ROLES} WHERE p.camp_id = ? ORDER BY p.queue_position"
+    ))
     .bind(camp_id)
     .fetch_all(&mut **tx)
     .await?;
     let candidate = |user_id: i64| {
-        let (points, s_rank, consecutive_matches) = players
+        let (points, s_rank, consecutive_matches, role) = players
             .iter()
             .find(|p| p.0 == user_id)
-            .map(|p| (p.1, p.2 != 0, p.3))
-            .unwrap_or((0, false, 0));
+            .map(|p| (p.1, p.2 != 0, p.3, p.5.as_deref().and_then(Role::parse)))
+            .unwrap_or((0, false, 0, None));
         Candidate {
-            seat: Seat { user_id, points, s_rank },
+            seat: Seat { user_id, points, s_rank, role },
             consecutive_matches,
         }
     };
@@ -2474,6 +2530,53 @@ mod tests {
         let signup = create_camp(&pool, 2, 20, 4, 4).await.unwrap();
         add_players(&pool, &signup.id, &[5]).await.unwrap();
         assert!(adjust_points(&pool, &signup.id, 5, 1).await.is_err(), "only while running");
+    }
+
+    #[tokio::test]
+    async fn roles_belong_to_the_server_and_carry_over_to_its_next_camp() {
+        let pool = memory_db().await;
+        let role_of = |state: &CampState, id: i64| state.players.iter().find(|p| p.user_id == id).unwrap().role;
+        let first = create_camp(&pool, 1, 10, 4, 4).await.unwrap();
+        add_players(&pool, &first.id, &[1, 2]).await.unwrap();
+        set_player_role(&pool, &first.id, 1, Some(Role::Tank)).await.unwrap();
+        set_player_role(&pool, &first.id, 2, Some(Role::Carry)).await.unwrap();
+        set_player_role(&pool, &first.id, 2, None).await.unwrap();
+        assert!(set_player_role(&pool, &first.id, 3, Some(Role::Carry)).await.is_err(), "not on the roster");
+        let state = load_camp(&pool, &first.id).await.unwrap().unwrap();
+        assert_eq!((role_of(&state, 1), role_of(&state, 2)), (Some(Role::Tank), None));
+        cancel_camp(&pool, &first.id).await.unwrap();
+        assert!(set_player_role(&pool, &first.id, 1, None).await.is_err(), "not an active camp");
+
+        let next = create_camp(&pool, 1, 10, 4, 4).await.unwrap();
+        add_players(&pool, &next.id, &[1]).await.unwrap();
+        let other_server = create_camp(&pool, 2, 20, 4, 4).await.unwrap();
+        add_players(&pool, &other_server.id, &[1]).await.unwrap();
+        assert_eq!(role_of(&load_camp(&pool, &next.id).await.unwrap().unwrap(), 1), Some(Role::Tank));
+        assert_eq!(role_of(&load_camp(&pool, &other_server.id).await.unwrap().unwrap(), 1), None);
+    }
+
+    #[tokio::test]
+    async fn starting_the_queue_spreads_the_saved_roles() {
+        let pool = memory_db().await;
+        let camp = create_camp(&pool, 1, 10, 24, 12).await.unwrap();
+        let roster: Vec<i64> = (1..=24).collect();
+        add_players(&pool, &camp.id, &roster).await.unwrap();
+        // Four of each role for four teams of 6; the other twelve have none.
+        for (i, role) in Role::ALL.into_iter().enumerate() {
+            for user_id in (1..=4).map(|n| n + 4 * i as i64) {
+                set_player_role(&pool, &camp.id, user_id, Some(role)).await.unwrap();
+            }
+        }
+
+        let order = start_queue(&pool, &camp.id).await.unwrap();
+
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        let role_of = |id: &i64| state.players.iter().find(|p| p.user_id == *id).unwrap().role;
+        for team in order.chunks(6) {
+            for role in Role::ALL {
+                assert!(team.iter().any(|id| role_of(id) == Some(role)), "{role:?} in {team:?}");
+            }
+        }
     }
 
     #[tokio::test]

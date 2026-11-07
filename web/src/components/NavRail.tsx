@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { routeHref, type Route } from '../route';
-import { CampsIcon, LiveIcon, MatchesIcon, PlayersIcon, QueueIcon, SettingsIcon, TrophyIcon } from './Icons';
+import { BookIcon, CampsIcon, LiveIcon, MatchesIcon, PlayersIcon, QueueIcon, SettingsIcon, TrophyIcon } from './Icons';
 
 const SECTIONS: { label: string; icon: ReactNode; route: Route }[] = [
   { label: 'Ao vivo', icon: <LiveIcon />, route: 'live' },
@@ -11,6 +11,7 @@ const SECTIONS: { label: string; icon: ReactNode; route: Route }[] = [
   { label: 'Ranking', icon: <TrophyIcon />, route: 'ranking' },
   { label: 'Camps', icon: <CampsIcon />, route: 'camps' },
   { label: 'Configurações', icon: <SettingsIcon />, route: 'settings' },
+  { label: 'Regras', icon: <BookIcon />, route: 'rules' },
 ];
 
 export function NavRail({ route }: { route: Route }) {

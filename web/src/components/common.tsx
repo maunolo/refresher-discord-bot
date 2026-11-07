@@ -1,11 +1,23 @@
 import { useState, type ReactNode } from 'react';
 
+import type { Role } from '../api';
+import { ROLE_LABEL, roleShort } from '../camp';
 import { ArrowRightIcon, CheckIcon, CopyIcon, CrownIcon, ExternalIcon, StarIcon } from './Icons';
 
 export function SRankChip() {
   return (
     <span className="chip chip-s" title="S rank">
       S
+    </span>
+  );
+}
+
+/** A player's main role, short, with the full name on hover. Nothing without a role. */
+export function RoleChip({ role }: { role: Role | null }) {
+  if (role === null) return null;
+  return (
+    <span className="chip chip-role" title={ROLE_LABEL[role]}>
+      {roleShort(role)}
     </span>
   );
 }

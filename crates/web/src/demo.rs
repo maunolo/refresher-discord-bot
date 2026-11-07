@@ -13,7 +13,7 @@ use refresher_core::config::WebConfig;
 use refresher_core::db::{self, RefreshOutcome};
 use refresher_core::draft::CreatedDraft;
 use refresher_core::link::{BotLink, BoxFuture, CampAction, Changes, Channel, Profile};
-use refresher_core::queue::CampSize;
+use refresher_core::queue::{CampSize, Role};
 use refresher_core::settings::GuildSettings;
 use sqlx::sqlite::SqlitePoolOptions;
 use sqlx::SqlitePool;
@@ -95,6 +95,9 @@ impl DemoLink {
             }
             CampAction::SetSRank { user_id, s_rank } => {
                 db::set_player_s_rank(pool, camp_id, user_id as i64, s_rank).await?;
+            }
+            CampAction::SetRole { user_id, role } => {
+                db::set_player_role(pool, camp_id, user_id as i64, role).await?;
             }
             CampAction::AdjustPoints { user_id, delta } => {
                 db::adjust_points(pool, camp_id, user_id as i64, delta).await?;
@@ -240,6 +243,10 @@ async fn seed(pool: &SqlitePool) -> Result<()> {
     let ids: Vec<i64> = (0..30).map(|i| (FIRST_USER + i) as i64).collect();
     db::add_players(pool, &camp.id, &ids).await?;
     db::set_s_rank(pool, &camp.id, &ids[..5]).await?;
+    // Main roles for all but the last four, who show what "no role" looks like.
+    for (i, user_id) in ids.iter().take(26).enumerate() {
+        db::set_player_role(pool, &camp.id, *user_id, Some(Role::ALL[i % Role::ALL.len()])).await?;
+    }
     db::start_queue(pool, &camp.id).await?;
 
     // Six finished matches, for points and history.

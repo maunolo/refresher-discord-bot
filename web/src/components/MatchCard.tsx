@@ -14,7 +14,7 @@ import {
   voteSummary,
   type Stage,
 } from '../camp';
-import { CardLink, Captain, CopyButton, DiscordLink, SRankChip } from './common';
+import { CardLink, Captain, CopyButton, DiscordLink, RoleChip, SRankChip } from './common';
 import { WinnerDialog } from './ResultDialogs';
 import { OBS_OVERLAY_CSS } from '../obs';
 import { matchHref } from '../route';
@@ -75,6 +75,7 @@ function Team({ camp, match, side }: { camp: Camp; match: Match; side: Side }) {
             <li key={p.user_id} className="row">
               <span className="ellipsis">{playerName(camp, p.user_id)}</span>
               {player?.s_rank && <SRankChip />}
+              <RoleChip role={player?.role ?? null} />
               {p.is_captain && <Captain />}
               <span className="row-end mono muted small">{points(player?.points ?? 0)}</span>
             </li>
