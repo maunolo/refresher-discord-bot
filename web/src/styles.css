@@ -386,6 +386,11 @@ input {
   margin-left: auto;
 }
 
+/* The draft's labels share one column, so its links line up. */
+.draft-links .link-row > :first-child {
+  min-width: 76px;
+}
+
 /* Pills, chips, tags */
 
 .pill {

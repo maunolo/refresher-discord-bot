@@ -171,7 +171,7 @@ async fn vote_choice(
     }
 }
 
-/// Shows a captain their team's private draft link, in case the DM didn't arrive.
+/// Shows a captain the draft's invite link, in case the DM didn't arrive.
 async fn captain_link(
     ctx: &Context,
     data: &Data,
@@ -202,14 +202,14 @@ async fn captain_link(
         )
         .await;
     };
-    let Some(url) = open.row.team_draft_url(&captain.side) else {
-        return ephemeral(ctx, interaction, "Não há link de draft do seu time nesta partida.").await;
+    let Some(url) = &open.row.draft_join_url else {
+        return ephemeral(ctx, interaction, "Não há link de draft nesta partida.").await;
     };
     ephemeral(
         ctx,
         interaction,
         format!(
-            "Seu link do draft (**{}**). Não compartilhe — quem abrir escolhe e bane pelo seu time:\n{url}",
+            "Abra o link do draft e entre no lado **{}**. Não compartilhe: quem tiver o link pode ocupar uma vaga no draft.\n{url}",
             crate::ui::winner_label(&captain.side)
         ),
     )

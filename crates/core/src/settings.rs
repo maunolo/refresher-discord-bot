@@ -2,7 +2,7 @@
 
 use crate::config::Config;
 
-/// Seconds per pick or ban the draft tool accepts; 0 means no timer.
+/// Seconds per pick or ban; 0 means no timer, which DeadChaps caps at its 5-minute maximum.
 pub const DRAFT_TIMERS: [u32; 6] = [0, 15, 30, 45, 60, 90];
 
 /// How a server's camps run. A voice channel left empty is found by its name instead
@@ -17,7 +17,7 @@ pub struct GuildSettings {
     /// Create a Deadlock custom lobby (and post its party code) when a match starts.
     pub create_lobby: bool,
     pub server_region: Option<String>,
-    /// Create drafts on the draft tool and DM captains their links. Off: the admin shares a
+    /// Create drafts on DeadChaps and DM captains the link. Off: the admin shares a
     /// draft link themselves, and the bot only moves players and announces the draft.
     pub use_draft_tool: bool,
     pub draft_timer_seconds: u32,

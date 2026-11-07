@@ -16,6 +16,7 @@ import {
 } from '../camp';
 import { CardLink, Captain, CopyButton, DiscordLink, SRankChip } from './common';
 import { WinnerDialog } from './ResultDialogs';
+import { OBS_OVERLAY_CSS } from '../obs';
 import { matchHref } from '../route';
 
 const STEPS = ['Votação', 'Draft', 'Ao vivo', 'Resultado'];
@@ -106,10 +107,15 @@ export function ManualDraftNote({ camp, match }: { camp: Camp; match: Match }) {
   );
 }
 
+const OBS_CSS_HELP = 'Cole no CSS personalizado da fonte de navegador (1920×1080)';
+
 export function DraftLinks({ camp, match, draft }: { camp: Camp; match: Match; draft: Draft }) {
-  const teamUrl = (side: Side) => (side === 'hiddenking' ? draft.hiddenking_url : draft.archmother_url);
+  const captains = SIDES.map((side) => ({ side, names: captainNames(camp, match, side) }))
+    .filter((t) => t.names)
+    .map((t) => `${t.names} (${SIDE_LABEL[t.side]})`)
+    .join(', ');
   return (
-    <div className="inset">
+    <div className="inset draft-links">
       <span className="eyebrow">Draft</span>
       <div className="link-row">
         <span className="muted small">Espectador</span>
@@ -118,24 +124,32 @@ export function DraftLinks({ camp, match, draft }: { camp: Camp; match: Match; d
         </a>
         <CopyButton text={draft.spectator_url} label="Copiar link do espectador" />
       </div>
-      {SIDES.map((side) => {
-        const url = teamUrl(side);
-        const names = captainNames(camp, match, side);
-        if (!url) return null;
-        return (
-          <div key={side} className="link-row">
-            <span className="muted small">{SIDE_LABEL[side]}</span>
-            <span className="small ellipsis" title={names || undefined}>
-              {names ? `link de ${names}` : 'link do capitão'}
-            </span>
-            <CopyButton text={url} label={`Copiar link do capitão (${SIDE_LABEL[side]})`} />
+      {draft.obs_url && (
+        <>
+          <div className="link-row">
+            <span className="muted small">OBS</span>
+            <a href={draft.obs_url} target="_blank" rel="noreferrer" className="mono small ellipsis" title="Overlay do draft para o OBS">
+              {draft.obs_url.replace(/^https?:\/\//, '')}
+            </a>
+            <CopyButton text={draft.obs_url} label="Copiar link do overlay do OBS" />
           </div>
-        );
-      })}
-      {draft.admin_url && (
-        <a href={draft.admin_url} target="_blank" rel="noreferrer" className="small">
-          Página do organizador
-        </a>
+          <div className="link-row">
+            <span className="muted small">CSS do OBS</span>
+            <span className="small ellipsis" title={OBS_CSS_HELP}>
+              {OBS_CSS_HELP}
+            </span>
+            <CopyButton text={OBS_OVERLAY_CSS} label="Copiar CSS do OBS" />
+          </div>
+        </>
+      )}
+      {draft.join_url && (
+        <div className="link-row">
+          <span className="muted small">Capitães</span>
+          <span className="small ellipsis" title={captains || undefined}>
+            {captains ? `link de ${captains}` : 'link dos capitães'}
+          </span>
+          <CopyButton text={draft.join_url} label="Copiar link dos capitães" />
+        </div>
       )}
     </div>
   );

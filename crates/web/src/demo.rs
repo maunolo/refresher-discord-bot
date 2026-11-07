@@ -198,12 +198,10 @@ fn demo_settings() -> GuildSettings {
 }
 
 fn fake_draft(match_id: &str) -> CreatedDraft {
-    let base = format!("https://draft.deadlock.pro.br/demo{match_id}");
+    let base = format!("https://www.deadchaps.gg/draft/DEMO{match_id}");
     CreatedDraft {
         spectator_url: base.clone(),
-        hiddenking_url: format!("{base}/hk"),
-        archmother_url: format!("{base}/am"),
-        admin_url: format!("{base}/admin"),
+        join_url: format!("{base}?key=demo"),
     }
 }
 

@@ -363,7 +363,7 @@ async fn start_draft(
     }
     let draft = crate::draft::create_draft(
         &data.http,
-        &data.config.draft_base_url,
+        data.config.deadchaps_api_key.as_deref(),
         before.camp.layout().match_size,
         settings.draft_timer_seconds,
     )
@@ -379,7 +379,7 @@ async fn start_draft(
             .say(
                 &discord.http,
                 format!(
-                    "Draft criado. Cada capitão ({}) recebeu por DM o link privado do seu time.\nHiddenking: {}\nArchmother: {}\nAssistir ao draft: {}",
+                    "Draft criado no DeadChaps. Os capitães ({}) receberam por DM o link para entrar no draft.\nHiddenking: {}\nArchmother: {}\nAssistir ao draft: {}",
                     ui::CAPTAIN_TAG,
                     sync::side_mentions(&open.players, "hiddenking"),
                     sync::side_mentions(&open.players, "archmother"),
