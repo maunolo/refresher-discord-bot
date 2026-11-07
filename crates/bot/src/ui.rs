@@ -272,8 +272,13 @@ pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
         } else if open.row.refresh_used {
             "Times atualizados. Um admin pode iniciar o draft.".to_string()
         } else {
+            let refresh = if open.row.is_final {
+                "**Refresh** sorteia times novos com os mesmos jogadores."
+            } else {
+                "**Refresh** sorteia times novos e pode trazer jogadores da fila; quem estava esperando fica."
+            };
             format!(
-                "Atualizar: Hiddenking **{hk_votes}/{needed}** · Archmother **{am_votes}/{needed}**\nManter times: **{keep}** · Votos: **{voted}/{total}**"
+                "{refresh}\nAtualizar: Hiddenking **{hk_votes}/{needed}** · Archmother **{am_votes}/{needed}**\nManter times: **{keep}** · Votos: **{voted}/{total}**"
             )
         }
     } else {

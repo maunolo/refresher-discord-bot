@@ -53,9 +53,12 @@ export function confirmCloseVote(match: Match): Confirm {
 
 /** Before an admin ends a refresh vote early by re-sorting the teams. */
 export function confirmRefreshTeams(match: Match): Confirm {
+  const queue = match.is_final
+    ? ''
+    : ' Quem estava esperando fica; as outras vagas são sorteadas entre a partida e quem está na fila sem mais partidas seguidas. Quem perder a vaga volta para o começo da fila.';
   return {
     title: `Sortear os times da ${matchName(match)} de novo?`,
-    message: 'A votação acaba e os mesmos jogadores são sorteados em times novos, com os S rank divididos entre os times e capitães escolhidos de novo. O draft libera em seguida.',
+    message: `A votação acaba e os times são sorteados de novo, com os S rank divididos entre os times e capitães escolhidos de novo.${queue} O draft libera em seguida.`,
     note: 'Os votos dados até agora são descartados, e a partida não tem outro refresh.',
     action: 'Sortear de novo',
   };

@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
 
 use crate::draft::CreatedDraft;
-use crate::queue::{self, CampLayout, QueuePlayer, Seat, TeamSplit};
+use crate::queue::{self, CampLayout, Candidate, QueuePlayer, Seat, TeamSplit};
 use crate::settings::GuildSettings;
 
 #[derive(Clone, Debug)]
@@ -1049,6 +1049,15 @@ async fn write_queue_order(
     Ok(())
 }
 
+/// Where a match's players are, by its slot.
+fn slot_location(slot: i64) -> &'static str {
+    if slot == 1 {
+        "match_1"
+    } else {
+        "match_2"
+    }
+}
+
 async fn next_free_slot(tx: &mut Transaction<'_, Sqlite>, camp_id: &str) -> Result<Option<i64>> {
     let used: Vec<i64> = sqlx::query_scalar(
         "SELECT slot FROM camp_matches WHERE camp_id = ? AND status IN ('voting', 'live')",
@@ -1140,7 +1149,7 @@ async fn pull_match_in_tx(
     .await?;
     insert_match_players(tx, &match_id, &split).await?;
 
-    let location = if slot == 1 { "match_1" } else { "match_2" };
+    let location = slot_location(slot);
     for user_id in split.hiddenking.iter().chain(&split.archmother) {
         sqlx::query(
             "UPDATE camp_players SET location = ?, queue_position = NULL WHERE camp_id = ? AND user_id = ?",
@@ -1338,7 +1347,7 @@ pub async fn create_final_match(
     .await?;
     insert_match_players(&mut tx, &match_id, &split).await?;
 
-    let location = if slot == 1 { "match_1" } else { "match_2" };
+    let location = slot_location(slot);
     for user_id in split.hiddenking.iter().chain(&split.archmother) {
         sqlx::query(
             "UPDATE camp_players SET location = ?, queue_position = NULL WHERE camp_id = ? AND user_id = ?",
@@ -1381,7 +1390,7 @@ pub enum RefreshOutcome {
     AlreadyUsed,
     NotInMatch,
     AlreadyVoted,
-    Refreshed,
+    Refreshed(RefreshChange),
     Kept { voted: usize, total: usize },
 }
 
@@ -1467,9 +1476,9 @@ pub async fn vote_refresh_choice(
     let am_unvoted = am.iter().filter(|id| !voted_ids.contains(id)).count();
 
     if hk_votes >= needed || am_votes >= needed {
-        resort_teams(&mut tx, &match_row.2, match_id, match_row.3 != 0).await?;
+        let change = resort_teams(&mut tx, &match_row.2, match_id, match_row.3 != 0).await?;
         tx.commit().await?;
-        return Ok(RefreshOutcome::Refreshed);
+        return Ok(RefreshOutcome::Refreshed(change));
     }
 
     let refresh_impossible =
@@ -1494,44 +1503,108 @@ pub async fn vote_refresh_choice(
     })
 }
 
-/// The refresh itself: sorts the match's players into new teams (S rank apart, new captains),
-/// uses up the match's refresh and clears its votes.
+/// Who a refresh brought in from the queue, and who it sent back there (to the front, in this order).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RefreshChange {
+    pub joined: Vec<i64>,
+    pub left: Vec<i64>,
+}
+
+/// The refresh itself: new teams (S rank apart, new captains), the match's refresh used up and
+/// its votes cleared. A normal match also draws from the queue (`queue::refresh_roster`), and
+/// whoever loses their seat goes back to the front of the queue. The final keeps its players.
 async fn resort_teams(
     tx: &mut Transaction<'_, Sqlite>,
     camp_id: &str,
     match_id: &str,
     is_final: bool,
-) -> Result<()> {
+) -> Result<RefreshChange> {
+    let slot: i64 = sqlx::query_scalar("SELECT slot FROM camp_matches WHERE id = ?")
+        .bind(match_id)
+        .fetch_one(&mut **tx)
+        .await?;
     let roster: Vec<i64> = sqlx::query_scalar("SELECT user_id FROM camp_match_players WHERE match_id = ?")
         .bind(match_id)
         .fetch_all(&mut **tx)
         .await?;
-    let players: Vec<(i64, i64, i64)> =
-        sqlx::query_as("SELECT user_id, points, is_s_rank FROM camp_players WHERE camp_id = ?")
-            .bind(camp_id)
-            .fetch_all(&mut **tx)
-            .await?;
-    let seats: Vec<Seat> = roster
+    let players: Vec<(i64, i64, i64, i64, String)> = sqlx::query_as(
+        "SELECT user_id, points, is_s_rank, consecutive_matches, location FROM camp_players
+         WHERE camp_id = ? ORDER BY queue_position",
+    )
+    .bind(camp_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    let candidate = |user_id: i64| {
+        let (points, s_rank, consecutive_matches) = players
+            .iter()
+            .find(|p| p.0 == user_id)
+            .map(|p| (p.1, p.2 != 0, p.3))
+            .unwrap_or((0, false, 0));
+        Candidate {
+            seat: Seat { user_id, points, s_rank },
+            consecutive_matches,
+        }
+    };
+    let playing: Vec<Candidate> = roster.iter().map(|id| candidate(*id)).collect();
+    let queued: Vec<Candidate> = players
         .iter()
-        .map(|user_id| {
-            let (points, s_rank) = players
-                .iter()
-                .find(|p| p.0 == *user_id)
-                .map(|p| (p.1, p.2 != 0))
-                .unwrap_or((0, false));
-            Seat {
-                user_id: *user_id,
-                points,
-                s_rank,
-            }
-        })
+        .filter(|p| p.4 == "queued")
+        .map(|p| candidate(p.0))
         .collect();
-    let split = queue::split_match(&seats, is_final, &mut rand::thread_rng());
+    let (seats, split) = {
+        let mut rng = rand::thread_rng();
+        let seats: Vec<Seat> = if is_final {
+            playing.iter().map(|c| c.seat).collect()
+        } else {
+            queue::refresh_roster(&playing, &queued, &mut rng)
+        };
+        let split = queue::split_match(&seats, is_final, &mut rng);
+        (seats, split)
+    };
+    let change = RefreshChange {
+        joined: seats
+            .iter()
+            .map(|s| s.user_id)
+            .filter(|id| !roster.contains(id))
+            .collect(),
+        left: roster
+            .iter()
+            .copied()
+            .filter(|id| !seats.iter().any(|s| s.user_id == *id))
+            .collect(),
+    };
+
     sqlx::query("DELETE FROM camp_match_players WHERE match_id = ?")
         .bind(match_id)
         .execute(&mut **tx)
         .await?;
     insert_match_players(tx, match_id, &split).await?;
+    for user_id in &change.joined {
+        sqlx::query(
+            "UPDATE camp_players SET location = ?, queue_position = NULL WHERE camp_id = ? AND user_id = ?",
+        )
+        .bind(slot_location(slot))
+        .bind(camp_id)
+        .bind(user_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+    if !change.left.is_empty() {
+        let waiting = queued
+            .iter()
+            .map(|c| c.seat.user_id)
+            .filter(|id| !change.joined.contains(id));
+        for (i, user_id) in change.left.iter().copied().chain(waiting).enumerate() {
+            sqlx::query(
+                "UPDATE camp_players SET location = 'queued', queue_position = ? WHERE camp_id = ? AND user_id = ?",
+            )
+            .bind(i as i64)
+            .bind(camp_id)
+            .bind(user_id)
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
     sqlx::query("UPDATE camp_matches SET refresh_used = 1 WHERE id = ?")
         .bind(match_id)
         .execute(&mut **tx)
@@ -1540,12 +1613,12 @@ async fn resort_teams(
         .bind(match_id)
         .execute(&mut **tx)
         .await?;
-    Ok(())
+    Ok(change)
 }
 
 /// An admin ends a match's refresh vote early by re-sorting the teams, as if the refresh had
 /// passed. Votes cast so far are dropped; the draft can start right after.
-pub async fn refresh_by_admin(pool: &SqlitePool, camp_id: &str, match_id: &str) -> Result<()> {
+pub async fn refresh_by_admin(pool: &SqlitePool, camp_id: &str, match_id: &str) -> Result<RefreshChange> {
     let mut tx = pool.begin().await?;
     let is_final: Option<i64> = sqlx::query_scalar(
         "SELECT is_final FROM camp_matches
@@ -1558,13 +1631,13 @@ pub async fn refresh_by_admin(pool: &SqlitePool, camp_id: &str, match_id: &str) 
     let Some(is_final) = is_final else {
         return Err(anyhow!("a votação desta partida não está aberta"));
     };
-    resort_teams(&mut tx, camp_id, match_id, is_final != 0).await?;
+    let change = resort_teams(&mut tx, camp_id, match_id, is_final != 0).await?;
     sqlx::query("UPDATE camp_matches SET refreshed_by_admin = 1 WHERE id = ?")
         .bind(match_id)
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
-    Ok(())
+    Ok(change)
 }
 
 /// An admin ends a match's refresh vote early and keeps the teams, e.g. when someone can't vote.
@@ -2020,11 +2093,7 @@ pub async fn correct_winner(
 pub async fn reopen_match(pool: &SqlitePool, camp_id: &str, match_id: &str) -> Result<()> {
     let mut tx = pool.begin().await?;
     let current = require_correctable_match(&mut tx, camp_id, match_id, true).await?;
-    let location = if current.slot == 1 {
-        "match_1"
-    } else {
-        "match_2"
-    };
+    let location = slot_location(current.slot);
 
     for (user_id, side) in &current.roster {
         if side == &current.winner_side {
@@ -2460,6 +2529,52 @@ mod tests {
         ));
         let other = create_camp(&pool, 2, 20, 24, 12).await.unwrap();
         assert!(refresh_by_admin(&pool, &other.id, &match_id).await.is_err(), "another camp's match");
+    }
+
+    #[tokio::test]
+    async fn refresh_draws_from_the_queue_but_waiters_keep_their_seat() {
+        let mut outcomes = std::collections::HashSet::new();
+        for _ in 0..30 {
+            let pool = memory_db().await;
+            // A 1v1 camp of 4: two play, two wait.
+            let camp = create_camp(&pool, 1, 10, 4, 2).await.unwrap();
+            add_players(&pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
+            start_queue(&pool, &camp.id).await.unwrap();
+            let (_, match_id) = create_match(&pool, &camp.id, 1).await.unwrap();
+            let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+            let playing: Vec<i64> = state.open_matches[0].players.iter().map(|p| p.user_id).collect();
+            let waiting = queue_order(&state);
+            // In the match, one waited (0 in a row) and one played once. In the queue, one played
+            // twice in a row and one once.
+            for (user_id, consecutive) in [(playing[0], 0), (playing[1], 1), (waiting[0], 2), (waiting[1], 1)] {
+                sqlx::query("UPDATE camp_players SET consecutive_matches = ? WHERE camp_id = ? AND user_id = ?")
+                    .bind(consecutive)
+                    .bind(&camp.id)
+                    .bind(user_id)
+                    .execute(&pool)
+                    .await
+                    .unwrap();
+            }
+
+            let change = refresh_by_admin(&pool, &camp.id, &match_id).await.unwrap();
+
+            let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+            let seated: Vec<i64> = state.open_matches[0].players.iter().map(|p| p.user_id).collect();
+            assert_eq!(seated.len(), 2);
+            assert!(seated.contains(&playing[0]), "the waiter keeps the seat");
+            assert!(!seated.contains(&waiting[0]), "nobody who played more in a row than the match");
+            let location = |id: i64| state.players.iter().find(|p| p.user_id == id).unwrap().location.clone();
+            if change.joined.is_empty() {
+                assert_eq!(change, RefreshChange::default());
+                assert_eq!(queue_order(&state), waiting, "the queue is untouched");
+            } else {
+                assert_eq!(change, RefreshChange { joined: vec![waiting[1]], left: vec![playing[1]] });
+                assert_eq!(queue_order(&state), [playing[1], waiting[0]], "who lost the seat goes first");
+                assert_eq!(location(waiting[1]), "match_1");
+            }
+            outcomes.insert(change.joined.is_empty());
+        }
+        assert_eq!(outcomes.len(), 2, "the open seat goes to the match player or the queued one");
     }
 
     #[tokio::test]

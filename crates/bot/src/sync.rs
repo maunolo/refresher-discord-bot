@@ -4,7 +4,7 @@ use serenity::all::{
 };
 use sqlx::SqlitePool;
 
-use crate::db::{self, CampState, MatchPlayerRow, OpenMatch};
+use crate::db::{self, CampState, MatchPlayerRow, OpenMatch, RefreshChange};
 use crate::discord::Discord;
 use crate::settings::GuildSettings;
 use crate::state::{with_guild_lock, Data};
@@ -145,6 +145,38 @@ pub async fn apply_moves(
     }
 }
 
+/// Posts a refresh's new teams, `headline` first, and who swapped places with the queue. Then
+/// moves the match's players to their team channels and whoever lost their seat back to Queue.
+pub async fn announce_refresh(
+    discord: &Discord,
+    data: &Data,
+    guild_id: GuildId,
+    state: &CampState,
+    open: &OpenMatch,
+    change: &RefreshChange,
+    headline: &str,
+) -> Result<()> {
+    let channel = ChannelId::new(state.camp.channel_id as u64);
+    let mut text = format!(
+        "{headline}\nHiddenking: {}\nArchmother: {}",
+        side_mentions(&open.players, "hiddenking"),
+        side_mentions(&open.players, "archmother")
+    );
+    if !change.joined.is_empty() {
+        text.push_str(&format!(
+            "\nEntraram da fila: {}\nVoltaram para o começo da fila: {}",
+            mention_list(&change.joined),
+            mention_list(&change.left)
+        ));
+    }
+    let _ = channel.say(&discord.http, text).await;
+    let settings = data.settings(guild_id.get()).await?;
+    let mut moves = match_voice_moves(open);
+    moves.extend(queue_voice_moves(&change.left));
+    apply_moves(discord, guild_id, &settings, channel, &moves).await;
+    Ok(())
+}
+
 pub fn mention_list(ids: &[i64]) -> String {
     ids.iter()
         .map(|id| UserId::new(*id as u64).mention().to_string())
@@ -249,7 +281,8 @@ pub async fn touches_queue_voice(
     queue.is_some() && (before == queue || new.channel_id == queue)
 }
 
-/// If a player joins voice after the draft or the live match started, move them to their team channel.
+/// A player of an open match who joins voice, or switches channels, goes to their team channel:
+/// teams talk there from the match's creation until its result.
 pub async fn place_late_voice_join(
     discord: &Discord,
     data: &Data,
@@ -271,10 +304,11 @@ pub async fn place_late_voice_join(
             return Ok(());
         };
         let user_id = new.user_id.get() as i64;
-        let Some(open) = state.open_matches.iter().find(|m| {
-            m.players.iter().any(|p| p.user_id == user_id)
-                && (m.row.status == "live" || (m.row.status == "voting" && m.row.draft_started()))
-        }) else {
+        let Some(open) = state
+            .open_matches
+            .iter()
+            .find(|m| m.players.iter().any(|p| p.user_id == user_id))
+        else {
             return Ok(());
         };
         let Some(player) = open.players.iter().find(|p| p.user_id == user_id) else {
