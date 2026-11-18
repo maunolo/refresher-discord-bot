@@ -52,17 +52,14 @@ h1, h2, h3, .nav-logo { font-family: "Valve Oracle", system-ui, sans-serif; font
   isolation: isolate;
 }
 /* O menu fica acima do filtro geral (para não ser coberto pelo vídeo da live),
-   então recebe a mesma textura de revista antiga por conta própria. */
+   então recebe as mesmas linhas e chiado de fita VHS por conta própria. */
 .nav::before {
   content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-  background: url("assets/textura-revista-escura.webp") center top / 100vw 100vh no-repeat;
-  mix-blend-mode: screen; opacity: 0.55;
+  background: repeating-linear-gradient(to bottom, transparent 0 2px, rgba(0, 0, 0, 0.26) 2px 3px);
 }
 .nav::after {
   content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
-  background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
-    linear-gradient(rgba(193, 141, 82, 0.06), rgba(193, 141, 82, 0.06));
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   mix-blend-mode: soft-light;
   opacity: 0.7;
 }
@@ -107,8 +104,7 @@ section[id] { scroll-margin-top: 80px; } /* o menu fixo não cobre o título ao 
   padding: 80px 6vw;
 }
 
-/* Patronos fixos nas bordas da tela, inteiros, sem se mover ao rolar. O fundo ganha luz
-   laranja (Hidden King) e azul (Arch Mother) por cima do verde-noite, sem deixar de ser verde.
+/* Patronos fixos nas bordas da tela, inteiros, sem se mover ao rolar, direto sobre o verde-noite.
    O vídeo é quadrado (--h de lado). Dentro dele a figura vai de ~11% a ~93% da altura;
    na largura, o Hidden King ocupa de 33% a 72% e a Arch Mother (braços abertos) de 25% a 75%.
    Por isso cada um é empurrado para fora só o bastante para a figura encostar na borda da tela. */
@@ -120,14 +116,8 @@ section[id] { scroll-margin-top: 80px; } /* o menu fixo não cobre o título ao 
 }
 /* Patronos um pouco transparentes */
 .stage-patron { opacity: 0.6; }
-.stage-king {
-  left: calc(1vw - var(--h) * 0.33);
-  background: radial-gradient(ellipse 40% 60% at 52% 50%, rgba(196, 116, 46, 0.30), transparent 72%);
-}
-.stage-arch {
-  right: calc(1vw - var(--h) * 0.25);
-  background: radial-gradient(ellipse 40% 60% at 50% 50%, rgba(52, 118, 168, 0.32), transparent 72%);
-}
+.stage-king { left: calc(1vw - var(--h) * 0.33); }
+.stage-arch { right: calc(1vw - var(--h) * 0.25); }
 .stage-patron {
   position: absolute; top: calc(50vh - var(--h) * 0.5 + 30px); left: 0;   /* +30px: a cabeça não fica sob o menu */
   width: var(--h); height: var(--h); max-width: none;
@@ -138,6 +128,7 @@ section[id] { scroll-margin-top: 80px; } /* o menu fixo não cobre o título ao 
   .stage { opacity: 0.45; }
 }
 /* Hierarquia do topo: título (display) → subtítulo (o que é o evento) → frase de apoio */
+.hero-logo { width: clamp(180px, 30vw, 340px); height: auto; filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.45)); }
 .hero h1 { font-size: clamp(2.6rem, 7vw, 5rem); font-weight: 700; line-height: 1.05; letter-spacing: 0.01em; margin: 12px 0 6px; }
 .hero-sub { font-size: clamp(1.05rem, 2.2vw, 1.35rem); color: var(--muted); max-width: 36ch; margin-top: 6px; }
 .hero-date { margin-top: 10px; font-size: clamp(1.1rem, 2.4vw, 1.45rem); font-weight: 700; color: var(--gold-text); letter-spacing: 0.02em; }
@@ -409,7 +400,7 @@ html.has-dialog { overflow: hidden; }
 }
 .live-frame { position: relative; background: #050f0f; border: 1px solid var(--line); }
 .live-player { grid-area: 1 / 1; aspect-ratio: 16 / 9; }
-/* O vídeo da live fica por cima do filtro de revista antiga (camadas z-index 100); o chat continua com o filtro.
+/* O vídeo da live fica por cima do filtro de fita VHS (camadas z-index 100); o chat continua com o filtro.
    Para isso a seção não cria camada própria, e o menu fixo sobe acima do vídeo ao rolar a página. */
 .nav ~ .live { z-index: auto; }
 .live-player { z-index: 101; }
@@ -509,13 +500,13 @@ a:focus-visible, button:focus-visible {
 
 /* Logo */
 .nav-logo { display: flex; align-items: center; gap: 10px; }
-.nav-logo img { width: 34px; height: 34px; border-radius: 50%; }
+.nav-logo img { width: 34px; height: 34px; }
 .nav-logo .nav-name { color: var(--title); }
 .nav-logo .nav-name span { color: var(--gold-text); }
 
-/* Efeito de capa de revista antiga: poeira, arranhões, dobras e bordas gastas sobre o
-   fundo verde-noite. As camadas ficam por cima de tudo, mas não bloqueiam cliques.
-   A textura usa "screen": o preto dela não muda nada, só as marcas clareiam o fundo. */
+/* Efeito de fita VHS: linhas de varredura, bordas escurecidas de TV de tubo, uma faixa de
+   "tracking" que desce devagar e chiado que treme. As camadas ficam por cima de tudo, mas
+   não bloqueiam cliques. */
 body::before,
 body::after {
   content: "";
@@ -524,19 +515,39 @@ body::after {
   pointer-events: none;
   z-index: 100;
 }
+/* Linhas de varredura + faixa de tracking + vinheta de tela de tubo */
 body::before {
-  background: url("assets/textura-revista-escura.webp") center / cover no-repeat;
-  /* Textura clara sobre preto: com "screen" só a poeira e os arranhões clareiam o fundo escuro. */
-  mix-blend-mode: screen;
-  opacity: 0.55;
-}
-/* Granulação de impressão + leve tom ocre de papel envelhecido */
-body::after {
   background:
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
-    linear-gradient(rgba(193, 141, 82, 0.06), rgba(193, 141, 82, 0.06));
+    repeating-linear-gradient(to bottom, transparent 0 2px, rgba(0, 0, 0, 0.26) 2px 3px),
+    linear-gradient(to bottom, transparent 0%, rgba(150, 205, 176, 0.05) 40%, rgba(238, 232, 178, 0.11) 50%, rgba(150, 205, 176, 0.05) 60%, transparent 100%),
+    radial-gradient(ellipse at center, transparent 58%, rgba(0, 0, 0, 0.5) 100%);
+  background-size: 100% 3px, 100% 18vh, 100% 100%;
+  background-repeat: repeat, no-repeat, no-repeat;
+  background-position: 0 0, 0 -20vh, 0 0;
+  animation: vhs-tracking 11s linear infinite;
+}
+/* Chiado da fita, tremendo de leve */
+body::after {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   mix-blend-mode: soft-light;
-  opacity: 0.7;
+  opacity: 0.6;
+  animation: vhs-noise 0.5s steps(4) infinite;
+}
+@keyframes vhs-tracking {
+  from { background-position: 0 0, 0 -20vh, 0 0; }
+  to   { background-position: 0 0, 0 120vh, 0 0; }
+}
+@keyframes vhs-noise {
+  0%   { background-position: 0 0; }
+  25%  { background-position: -37px 52px; }
+  50%  { background-position: 61px -18px; }
+  75%  { background-position: -14px -73px; }
+  100% { background-position: 0 0; }
+}
+/* Cores "vazando" para os lados nos títulos, como na imagem de fita */
+h1, h2 { text-shadow: -1.5px 0 rgba(255, 60, 110, 0.35), 1.5px 0 rgba(60, 200, 255, 0.35); }
+@media (prefers-reduced-motion: reduce) {
+  body::before, body::after { animation: none; }
 }
 
 /* Imagens e cores com aparência de impressão envelhecida */

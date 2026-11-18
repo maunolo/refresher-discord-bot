@@ -16,28 +16,24 @@
   <meta property="og:locale:alternate" content="es_LA">
   <meta property="og:image" content="https://refresherleague.com.br/assets/og-image.jpg">
   <meta name="twitter:card" content="summary_large_image">
-  <link rel="icon" type="image/png" href="assets/favicon.png">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="assets/favicon.png?v=20261118a">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=20261118a">
   <link rel="preload" href="assets/fonts/VALVEOracle-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/VALVEOracle-Medium.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=20261118h">
+  <link rel="stylesheet" href="style.css?v=20261118j">
 </head>
 <body>
   <!-- Patronos fixos nas bordas da tela (metade de cada um aparece): Hidden King à esquerda e
        Arch Mother à direita. Cada patrono é um vídeo com fundo transparente (render do Blender/Cycles). -->
   <div class="stage stage-king" aria-hidden="true">
-    <video class="stage-patron" src="assets/patronos/hidden-king-idle.webm?v=20261117l" autoplay loop muted playsinline preload="auto"></video>
+    <video class="stage-patron" src="assets/patronos/hidden_king_idle_transparente.webm?v=20261118b" autoplay loop muted playsinline preload="auto"></video>
   </div>
   <div class="stage stage-arch" aria-hidden="true">
-    <video class="stage-patron" src="assets/patronos/archmother-idle.webm?v=20261117l" autoplay loop muted playsinline preload="auto"></video>
+    <video class="stage-patron" src="assets/patronos/archmother_idle_transparente.webm?v=20261118b" autoplay loop muted playsinline preload="auto"></video>
   </div>
 
-  <script>
-    // Quem pediu menos movimento no sistema vê os patronos parados
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) document.querySelectorAll(".stage-patron").forEach((v) => { v.autoplay = false; v.pause(); });
-  </script>
   <header class="nav">
-    <a href="#topo" class="nav-logo" aria-label="Refresher League"><img src="assets/logo-dourado-small.webp" alt="" width="34" height="34"><span class="nav-name">REFRESHER <span>LEAGUE</span></span></a>
+    <a href="#topo" class="nav-logo" aria-label="Refresher League"><img src="assets/logo-small.webp?v=20261118a" alt="" width="34" height="34"><span class="nav-name">REFRESHER <span>LEAGUE</span></span></a>
     <nav>
       <div class="lang" role="group" aria-label="Idioma" data-i18n-label="nav.lang">
         <button type="button" data-lang="pt" aria-pressed="true" lang="pt-BR" aria-label="Português">PT</button>
@@ -49,6 +45,7 @@
 
   <!-- Topo: o que é e quando (a data vem de info.js, a mesma do cartão "Data") -->
   <section id="topo" class="hero" aria-labelledby="hero-title">
+    <img class="hero-logo" src="assets/logo.webp?v=20261118a" alt="" width="1000" height="1000" fetchpriority="high">
     <h1 id="hero-title">REFRESHER <span>LEAGUE</span></h1>
     <p class="hero-sub" data-i18n="hero.sub">Campeonato de Deadlock feito pela comunidade</p>
     <p class="hero-date" data-i18n="info.dateValue" data-info="data">28 e 29 de novembro</p>
