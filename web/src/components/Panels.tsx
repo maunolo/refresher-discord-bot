@@ -1,7 +1,7 @@
 import { useActions } from '../actions';
 import type { Camp, RecentMatch } from '../api';
 import { SIDE_LABEL, playerName, points, queuedPlayers, ranking } from '../camp';
-import { routeHref } from '../route';
+import { matchHref, routeHref } from '../route';
 import { useState } from 'react';
 
 import { CardLink, DiscordLink, MvpTag, RoleChip, SRankChip } from './common';
@@ -145,7 +145,7 @@ export function HistoryPanel({ camp }: { camp: Camp }) {
                 <th scope="col">Capitães</th>
                 <th scope="col">MVP</th>
                 <th scope="col" className="align-end">
-                  Correção
+                  Ações
                 </th>
               </tr>
             </thead>
@@ -153,7 +153,7 @@ export function HistoryPanel({ camp }: { camp: Camp }) {
               {camp.recent_matches.map((m, i) => (
                 <tr key={m.id}>
                   <td>
-                    #{m.number}
+                    <a href={matchHref(m.id)}>#{m.number}</a>
                     {m.is_final && <span className="muted"> · final</span>}
                   </td>
                   <td className="mono">{m.id}</td>
@@ -163,11 +163,16 @@ export function HistoryPanel({ camp }: { camp: Camp }) {
                   <td className="muted">{m.captains.map((c) => playerName(camp, c.user_id)).join(' · ') || '—'}</td>
                   <td>{m.mvp_user_id ? playerName(camp, m.mvp_user_id) : <span className="faint">—</span>}</td>
                   <td className="align-end">
-                    {i === 0 ? (
-                      <Corrections camp={camp} match={m} />
-                    ) : (
-                      <span className="faint">—</span>
-                    )}
+                    <div className="inline-actions">
+                      {i === 0 && <Corrections camp={camp} match={m} />}
+                      <a
+                        className="button button-ghost button-small"
+                        href={matchHref(m.id)}
+                        title="Placar, ID da partida no Deadlock e jogadores"
+                      >
+                        Detalhes
+                      </a>
+                    </div>
                   </td>
                 </tr>
               ))}

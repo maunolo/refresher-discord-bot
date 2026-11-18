@@ -1877,3 +1877,12 @@ h3,
 .roster .icon-button-quiet:hover:not(:disabled) {
   color: var(--live);
 }
+
+/* Últimas partidas: a row's corrections and its Detalhes link stay on one line. */
+.history td .inline-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+.history td .inline-actions .button {
+  white-space: nowrap;
+}
