@@ -160,9 +160,9 @@ async fn placeholder_page() -> Html<&'static str> {
     Html(
         r##"<!doctype html>
 <html lang="pt-BR">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Refresher Admin</title></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Refresher League · Admin</title><link rel="icon" type="image/png" href="/favicon.png"></head>
 <body style="margin: 0; padding: 40px 24px; font-family: system-ui, sans-serif; background: #0A1615; color: #E4F2EF;">
-<h1>Refresher Admin</h1>
+<h1>Refresher League · Admin</h1>
 <p>A página ainda não foi compilada. Rode <code>npm install</code> e <code>npm run build</code> na pasta <code>web/</code>.</p>
 <p><a href="/auth/login" style="color: #8CF5D2;">Entrar com Discord</a> · <a href="/api/me" style="color: #8CF5D2;">Ver minha sessão</a></p>
 <form method="post" action="/auth/logout"><button type="submit">Sair</button></form>
