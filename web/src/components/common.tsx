@@ -82,7 +82,7 @@ export function FullPage({ title, children }: { title: string; children?: ReactN
   return (
     <div className="full-page">
       <div className="full-page-card">
-        <img src="/logo-league.webp" alt="" width={72} height={72} />
+        <img src="/logo-dragon.webp" alt="" width={72} height={72} />
         <h1>{title}</h1>
         {children}
       </div>

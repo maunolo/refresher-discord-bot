@@ -106,7 +106,7 @@ export function Header({ me, guildId, onGuild, camps, campId, onCamp, camp, live
     <header className="header">
       <div className="header-group">
         <div className="brand">
-          <img src="/logo-league.webp" alt="" width={34} height={34} />
+          <img src="/logo-dragon.webp" alt="" width={34} height={34} />
           <span className="brand-name">
             Refresher <span>League</span>
           </span>
