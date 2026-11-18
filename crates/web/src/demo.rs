@@ -353,6 +353,7 @@ pub async fn run(bind: &str, public_url: &str, static_dir: &str) -> Result<()> {
         http: reqwest::Client::new(),
         link,
         default_settings: demo_settings(),
+        site_cache: Default::default(),
     };
     let login_state = state.clone();
     let vote_state = state.clone();

@@ -6,6 +6,8 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path as FsPath, PathBuf};
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use axum::extract::{Path, Request, State};
@@ -213,7 +215,7 @@ pub fn site_url(config: &WebConfig) -> String {
 
 /// Everything the site shows.
 #[derive(Default)]
-struct SiteData {
+pub struct SiteData {
     info: Info,
     ranking: Vec<RankedPlayer>,
     matches: Matches,
@@ -373,6 +375,33 @@ async fn site_data(state: &AppState) -> Result<SiteData> {
     Ok(SiteData { info, ranking, matches })
 }
 
+/// The site's data, shared for a few seconds: one page load asks for it five times at once, and
+/// each build looks names up on Discord.
+#[derive(Default)]
+pub struct SiteCache(tokio::sync::Mutex<Option<(Instant, Arc<SiteData>)>>);
+
+const SITE_CACHE_TTL: Duration = Duration::from_secs(5);
+
+impl SiteCache {
+    /// Forgets the data, after an admin changes what the site shows.
+    async fn clear(&self) {
+        *self.0.lock().await = None;
+    }
+}
+
+/// The site's data, built once for requests arriving together.
+async fn shared_site_data(state: &AppState) -> Result<Arc<SiteData>> {
+    let mut slot = state.site_cache.0.lock().await;
+    if let Some((at, data)) = slot.as_ref() {
+        if at.elapsed() < SITE_CACHE_TTL {
+            return Ok(data.clone());
+        }
+    }
+    let data = Arc::new(site_data(state).await?);
+    *slot = Some((Instant::now(), data.clone()));
+    Ok(data)
+}
+
 // --- Dashboard API ---
 
 #[derive(Serialize)]
@@ -439,6 +468,7 @@ pub async fn save_camp_site(
     let request: SiteRequest =
         serde_json::from_value(body).map_err(|err| ApiError::BadRequest(format!("Dados inválidos: {err}")))?;
     save_info(&state.db, &camp_id, &clean_info(request.info)).await?;
+    state.site_cache.clear().await;
     tracing::info!(user_id = session.user_id, camp_id, "site info saved from the web");
     Ok(Json(site_dto(&state, &camp_id, guild_id).await?))
 }
@@ -451,6 +481,7 @@ pub async fn publish_camp_site(
 ) -> Result<Json<SiteDto>, ApiError> {
     let (camp_id, guild_id) = site_camp(&state, &session, &camp_id).await?;
     publish(&state.db, guild_id, &camp_id).await?;
+    state.site_cache.clear().await;
     tracing::info!(user_id = session.user_id, camp_id, "camp published on the site");
     Ok(Json(site_dto(&state, &camp_id, guild_id).await?))
 }
@@ -489,27 +520,27 @@ fn public_json(value: &impl Serialize) -> Response {
 }
 
 async fn info_js(State(state): State<AppState>) -> Result<Response, ApiError> {
-    data_script("INFO", &site_data(&state).await?.info)
+    data_script("INFO", &shared_site_data(&state).await?.info)
 }
 
 async fn players_js(State(state): State<AppState>) -> Result<Response, ApiError> {
-    data_script("JOGADORES", &site_data(&state).await?.ranking)
+    data_script("JOGADORES", &shared_site_data(&state).await?.ranking)
 }
 
 async fn matches_js(State(state): State<AppState>) -> Result<Response, ApiError> {
-    data_script("PARTIDAS", &site_data(&state).await?.matches)
+    data_script("PARTIDAS", &shared_site_data(&state).await?.matches)
 }
 
 async fn info_api(State(state): State<AppState>) -> Result<Response, ApiError> {
-    Ok(public_json(&site_data(&state).await?.info))
+    Ok(public_json(&shared_site_data(&state).await?.info))
 }
 
 async fn ranking_api(State(state): State<AppState>) -> Result<Response, ApiError> {
-    Ok(public_json(&site_data(&state).await?.ranking))
+    Ok(public_json(&shared_site_data(&state).await?.ranking))
 }
 
 async fn matches_api(State(state): State<AppState>) -> Result<Response, ApiError> {
-    Ok(public_json(&site_data(&state).await?.matches))
+    Ok(public_json(&shared_site_data(&state).await?.matches))
 }
 
 /// The footer's Staff link: the site is edited in the dashboard.

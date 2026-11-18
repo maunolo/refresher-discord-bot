@@ -16,6 +16,13 @@ use crate::voice::{self, VoiceDest};
 /// Names change rarely; this spares Discord thirty member lookups on every page refresh.
 const PROFILE_TTL: Duration = Duration::from_secs(10 * 60);
 
+/// With this many names to look up, one list of the whole server (a request per 1000 members)
+/// beats a request each, which Discord rate limits per route.
+const LIST_FROM: usize = 3;
+
+/// A page never waits longer than this on Discord for names; the ones still missing fall back.
+const LOOKUP_TIMEOUT: Duration = Duration::from_secs(8);
+
 /// The most members Discord returns per request.
 const MEMBER_PAGE: u64 = 1000;
 
@@ -24,6 +31,10 @@ pub struct SerenityLink {
     discord: Discord,
     data: Data,
     profiles: Mutex<HashMap<(u64, u64), (Profile, Instant)>>,
+    /// Users Discord had no account for, so they aren't asked for again on every page.
+    unknown: Mutex<HashMap<(u64, u64), Instant>>,
+    /// One lookup of missing names at a time: pages asking at once wait for it, then read the cache.
+    lookup: tokio::sync::Mutex<()>,
 }
 
 impl SerenityLink {
@@ -32,6 +43,51 @@ impl SerenityLink {
             discord,
             data,
             profiles: Mutex::new(HashMap::new()),
+            unknown: Mutex::new(HashMap::new()),
+            lookup: tokio::sync::Mutex::new(()),
+        }
+    }
+
+    /// The fresh cached profiles of `user_ids`, and the ids still to look up.
+    fn cached(&self, guild_id: u64, user_ids: &[u64]) -> (HashMap<u64, Profile>, Vec<u64>) {
+        let cached = self.profiles.lock().unwrap_or_else(PoisonError::into_inner);
+        let unknown = self.unknown.lock().unwrap_or_else(PoisonError::into_inner);
+        let mut found = HashMap::new();
+        let mut missing = Vec::new();
+        for id in user_ids {
+            match cached.get(&(guild_id, *id)) {
+                Some((profile, at)) if at.elapsed() < PROFILE_TTL => {
+                    found.insert(*id, profile.clone());
+                }
+                _ if unknown.get(&(guild_id, *id)).is_some_and(|at| at.elapsed() < PROFILE_TTL) => {}
+                _ => missing.push(*id),
+            }
+        }
+        (found, missing)
+    }
+
+    /// Looks the missing names up: the whole member list if there are several, then one by one
+    /// for those not in the server (anymore).
+    async fn look_up(&self, guild_id: u64, user_ids: &[u64]) {
+        let _turn = self.lookup.lock().await;
+        // Whoever looked up just before may have found them.
+        let (_, missing) = self.cached(guild_id, user_ids);
+        if missing.len() >= LIST_FROM {
+            if let Err(err) = self.members(guild_id).await {
+                tracing::warn!(guild_id, error = %err, "member list unavailable; looking names up one by one");
+            }
+        }
+        let (_, missing) = self.cached(guild_id, &missing);
+        for id in missing {
+            match self.fetch(guild_id, id).await {
+                Some(profile) => self.remember(guild_id, id, &profile),
+                None => {
+                    self.unknown
+                        .lock()
+                        .unwrap_or_else(PoisonError::into_inner)
+                        .insert((guild_id, id), Instant::now());
+                }
+            }
         }
     }
 
@@ -98,30 +154,14 @@ impl BotLink for SerenityLink {
         user_ids: &'a [u64],
     ) -> BoxFuture<'a, HashMap<u64, Profile>> {
         Box::pin(async move {
-            let mut found = HashMap::new();
-            let mut missing = Vec::new();
-            {
-                let cached = self.profiles.lock().unwrap_or_else(PoisonError::into_inner);
-                for id in user_ids {
-                    match cached.get(&(guild_id, *id)) {
-                        Some((profile, at)) if at.elapsed() < PROFILE_TTL => {
-                            found.insert(*id, profile.clone());
-                        }
-                        _ => missing.push(*id),
-                    }
-                }
+            let (found, missing) = self.cached(guild_id, user_ids);
+            if missing.is_empty() {
+                return found;
             }
-            let fetched = serenity::futures::future::join_all(
-                missing.iter().map(|id| self.fetch(guild_id, *id)),
-            )
-            .await;
-            for (id, profile) in missing.into_iter().zip(fetched) {
-                if let Some(profile) = profile {
-                    self.remember(guild_id, id, &profile);
-                    found.insert(id, profile);
-                }
+            if tokio::time::timeout(LOOKUP_TIMEOUT, self.look_up(guild_id, &missing)).await.is_err() {
+                tracing::warn!(guild_id, missing = missing.len(), "Discord name lookup timed out");
             }
-            found
+            self.cached(guild_id, user_ids).0
         })
     }
 
