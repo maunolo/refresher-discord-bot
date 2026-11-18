@@ -3,13 +3,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use axum::response::Html;
+use axum::extract::{Request, State};
+use axum::http::header::HOST;
+use axum::http::Uri;
+use axum::middleware::{self, Next};
+use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{get, post};
 use axum::Router;
 use refresher_core::config::WebConfig;
 use refresher_core::link::BotLink;
 use refresher_core::settings::GuildSettings;
 use sqlx::SqlitePool;
+use tower::ServiceExt;
 use tower_http::services::{ServeDir, ServeFile};
 
 mod api;
@@ -18,6 +23,7 @@ mod auth;
 pub mod demo;
 mod error;
 mod session;
+mod site;
 
 use error::ApiError;
 
@@ -33,6 +39,10 @@ pub struct AppState {
 
 pub fn router(state: AppState) -> Router {
     let static_dir = PathBuf::from(&state.config.static_dir);
+    let public_site = PublicSite {
+        router: site::router(state.clone()),
+        hosts: Arc::new(state.config.site_hosts.clone()),
+    };
     let api = Router::new()
         .route("/me", get(api::me))
         .route("/guilds/{guild_id}/camps", get(api::guild_camps).post(api::create_camp))
@@ -48,6 +58,7 @@ pub fn router(state: AppState) -> Router {
         .route("/camps/{camp_id}/matches", get(api::camp_matches))
         .route("/camps/{camp_id}/actions", post(api::act))
         .route("/matches/{match_id}", get(api::match_info))
+        .merge(site::api_routes())
         .fallback(|| async { ApiError::NotFound });
     let app = Router::new()
         .nest("/api", api)
@@ -55,7 +66,7 @@ pub fn router(state: AppState) -> Router {
         .route("/auth/callback", get(auth::callback))
         .route("/auth/logout", post(auth::logout))
         .with_state(state);
-    if static_dir.join("index.html").is_file() {
+    let app = if static_dir.join("index.html").is_file() {
         // OBS overlays are their own page; the secret and the overlay are read from the path.
         // Other paths the server doesn't know get index.html, so the page can have its own routes.
         app.route_service("/overlay/{*rest}", ServeFile::new(static_dir.join("overlay.html")))
@@ -64,6 +75,47 @@ pub fn router(state: AppState) -> Router {
             )
     } else {
         app.route("/", get(placeholder_page))
+    };
+    app.layer(middleware::from_fn_with_state(public_site, to_public_site))
+}
+
+/// The public league site, served apart from the admin page.
+#[derive(Clone)]
+struct PublicSite {
+    router: Router,
+    /// Its own domains, lowercase and without a port.
+    hosts: Arc<Vec<String>>,
+}
+
+/// The site answers everything on its own domains, and `/site/` on the admin page's, so it can be
+/// checked before its domain points here.
+async fn to_public_site(State(site): State<PublicSite>, mut request: Request, next: Next) -> Response {
+    let host = request
+        .headers()
+        .get(HOST)
+        .and_then(|h| h.to_str().ok())
+        .or_else(|| request.uri().host())
+        .map(|h| h.split(':').next().unwrap_or(h).to_ascii_lowercase());
+    if host.is_some_and(|h| site.hosts.contains(&h)) {
+        return site.router.oneshot(request).await.into_response();
+    }
+    let path = request.uri().path();
+    if path == "/site" {
+        return Redirect::permanent("/site/").into_response();
+    }
+    let Some(rest) = path.strip_prefix("/site/") else {
+        return next.run(request).await;
+    };
+    let inner = match request.uri().query() {
+        Some(query) => format!("/{rest}?{query}"),
+        None => format!("/{rest}"),
+    };
+    match inner.parse::<Uri>() {
+        Ok(uri) => {
+            *request.uri_mut() = uri;
+            site.router.oneshot(request).await.into_response()
+        }
+        Err(_) => ApiError::NotFound.into_response(),
     }
 }
 
@@ -258,6 +310,10 @@ mod tests {
                 discord_client_id: "1".to_string(),
                 discord_client_secret: "secret".to_string(),
                 static_dir: "does-not-exist".to_string(),
+                site_dir: "does-not-exist".to_string(),
+                site_hosts: vec!["refresherleague.com.br".to_string()],
+                site_guild_id: Some(111),
+                site_lock: None,
             }),
             http: reqwest::Client::new(),
             link,
@@ -1013,6 +1069,158 @@ data: 111
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    /// The status, headers and text of any response, e.g. a public site page.
+    async fn fetch(state: &AppState, request: Request<Body>) -> (StatusCode, axum::http::HeaderMap, String) {
+        let response = router(state.clone()).oneshot(request).await.unwrap();
+        let (parts, body) = response.into_parts();
+        let body = to_bytes(body, usize::MAX).await.unwrap();
+        (parts.status, parts.headers, String::from_utf8_lossy(&body).into_owned())
+    }
+
+    fn site_request(path: &str) -> axum::http::request::Builder {
+        Request::get(path).header("host", "RefresherLeague.com.br:443")
+    }
+
+    fn site_content(mvp: &str) -> String {
+        let player = |nome: &str| {
+            serde_json::json!({
+                "nome": nome, "heroi": "Paige", "img": "paige", "almas": "40k", "k": 0, "d": 6, "a": 24,
+                "dano": "19k", "obj": "979", "cura": "25k", "itens": ["knockdown"]
+            })
+        };
+        serde_json::json!({
+            "info": { "data": { "pt": "28 e 29 de novembro", "en": "", "es": "" } },
+            "players": [{ "nome": "Kaiser77", "pontos": 980 }, { "nome": " ", "pontos": 1 }],
+            "matches": {
+                "partidas": [{
+                    "mvp": mvp, "id": 139086680, "inicio": 1794919042, "duracao": 2026, "vencedor": 0,
+                    "times": [
+                        { "nome": "Hidden King", "classe": "king", "almas": "270k", "jogadores": [player("VioletaS2")] },
+                        { "nome": "Archmother", "classe": "arch", "almas": "250k", "jogadores": [player("Zibra234")] }
+                    ]
+                }],
+                "itens": { "knockdown": { "nome": "Knockdown", "tipo": "spirit", "ativo": true } }
+            }
+        })
+        .to_string()
+    }
+
+    #[tokio::test]
+    async fn site_content_is_edited_by_admins_of_the_site_server() {
+        let state = test_state(FakeLink {
+            guilds: vec![111, 222],
+            ..FakeLink::default()
+        })
+        .await;
+        let mine = refresher_core::db::create_camp(&state.db, 111, 900, 24, 12).await.unwrap();
+        let other = refresher_core::db::create_camp(&state.db, 222, 901, 24, 12).await.unwrap();
+        let token = sign_in(&state, &[111, 222]).await;
+        let path = format!("/api/camps/{}/site", mine.id);
+
+        let (_, me) = get(&state, "/api/me", Some(&token)).await;
+        assert_eq!(me["site"]["guild_id"], "111");
+        assert_eq!(me["site"]["url"], "https://refresherleague.com.br/");
+        let (_, not_site_admin) = get(&state, "/api/me", Some(&sign_in(&state, &[222]).await)).await;
+        assert!(not_site_admin["site"].is_null());
+
+        let (status, body) = get(&state, &path, Some(&token)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["published"], false);
+        assert_eq!(body["content"]["info"]["premiacao"]["pt"], "A definir");
+        assert_eq!(body["content"]["matches"]["itens"]["refresher"]["nome"], "Refresher");
+        // Only the site's server has a site.
+        let other_path = format!("/api/camps/{}/site", other.id);
+        assert_eq!(get(&state, &other_path, Some(&token)).await.0, StatusCode::NOT_FOUND);
+        assert_eq!(put(&state, &other_path, Some(&token), &site_content("x")).await.0, StatusCode::NOT_FOUND);
+
+        let (status, body) = put(&state, &path, Some(&token), r#"{"info": {}, "players": "no"}"#).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body["error"].as_str().unwrap().starts_with("Dados inválidos"));
+        let bad = site_content("VioletaS2").replace("\"king\"", "\"blue\"");
+        let (status, body) = put(&state, &path, Some(&token), &bad).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body["error"].as_str().unwrap().contains("classe"));
+
+        let (status, body) = put(&state, &path, Some(&token), &site_content("nobody")).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["content"]["info"]["data"]["pt"], "28 e 29 de novembro");
+        assert_eq!(body["content"]["info"]["data"]["en"], "TBD");
+        assert_eq!(body["content"]["players"].as_array().unwrap().len(), 1);
+        assert!(body["content"]["matches"]["partidas"][0]["mvp"].is_null());
+
+        let (status, body) = post(&state, &format!("{path}/publish"), Some(&token), "{}").await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["published"], true);
+    }
+
+    #[tokio::test]
+    async fn the_site_shows_the_published_camp_on_its_domain() {
+        let state = test_state(FakeLink {
+            guilds: vec![111],
+            ..FakeLink::default()
+        })
+        .await;
+        let camp = refresher_core::db::create_camp(&state.db, 111, 900, 24, 12).await.unwrap();
+        let token = sign_in(&state, &[111]).await;
+        let path = format!("/api/camps/{}/site", camp.id);
+
+        // Nothing published yet: every card is still to be decided.
+        let (status, headers, body) = fetch(&state, site_request("/info.js").body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(headers["content-type"], "text/javascript; charset=utf-8");
+        assert_eq!(headers["cache-control"], "no-cache, must-revalidate");
+        assert!(body.contains("window.INFO = {"));
+        assert!(body.contains("\"A definir\""));
+
+        assert_eq!(put(&state, &path, Some(&token), &site_content("VioletaS2")).await.0, StatusCode::OK);
+        let (_, _, body) = fetch(&state, site_request("/partida.js").body(Body::empty()).unwrap()).await;
+        assert!(!body.contains("VioletaS2"), "saved but not published");
+        post(&state, &format!("{path}/publish"), Some(&token), "{}").await;
+
+        let (_, _, body) = fetch(&state, site_request("/partida.js").body(Body::empty()).unwrap()).await;
+        assert!(body.starts_with("// "));
+        assert!(body.contains("window.PARTIDAS = {"));
+        assert!(body.contains("\"mvp\": \"VioletaS2\""));
+        let (_, _, body) = fetch(&state, site_request("/jogadores.js").body(Body::empty()).unwrap()).await;
+        assert!(body.contains("\"Kaiser77\""));
+
+        // The admin page's domain has the site under /site/, and none of the admin page on the site's.
+        let (status, _, body) = fetch(&state, Request::get("/site/jogadores.js").body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::OK);
+        assert!(body.contains("\"Kaiser77\""));
+        let (status, headers, _) = fetch(&state, Request::get("/site").body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::PERMANENT_REDIRECT);
+        assert_eq!(headers["location"], "/site/");
+        let (status, _, _) = fetch(&state, site_request("/api/me").body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+
+        // The old staff panel's link opens the dashboard.
+        let (status, headers, _) = fetch(&state, site_request("/staff/").body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::SEE_OTHER);
+        assert_eq!(headers["location"], "http://localhost:8080/#/site");
+    }
+
+    #[tokio::test]
+    async fn the_site_lock_asks_for_the_staff_password() {
+        let mut state = test_state(FakeLink::default()).await;
+        let mut config = (*state.config).clone();
+        config.site_lock = Some("farinhagm:gordao".to_string());
+        state.config = Arc::new(config);
+
+        let (status, headers, _) = fetch(&state, site_request("/info.js").body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(headers["www-authenticate"].to_str().unwrap().starts_with("Basic"));
+        let (status, _, _) = fetch(&state, Request::get("/site/info.js").body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        let with_password = site_request("/info.js")
+            .header("authorization", "Basic ZmFyaW5oYWdtOmdvcmRhbw==")
+            .body(Body::empty())
+            .unwrap();
+        assert_eq!(fetch(&state, with_password).await.0, StatusCode::OK);
+        // The admin page is not behind it.
+        assert_eq!(get(&state, "/api/me", None).await.0, StatusCode::UNAUTHORIZED);
     }
 
     #[test]

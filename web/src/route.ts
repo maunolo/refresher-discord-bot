@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 /** Screens of the admin page, kept in the URL hash so the server only serves index.html. */
-export type Route = 'live' | 'queue' | 'players' | 'matches' | 'ranking' | 'camps' | 'settings' | 'rules';
+export type Route = 'live' | 'queue' | 'players' | 'matches' | 'ranking' | 'camps' | 'settings' | 'site' | 'rules';
 
 const HASHES: Record<Route, string> = {
   live: '#/',
@@ -11,6 +11,7 @@ const HASHES: Record<Route, string> = {
   ranking: '#/ranking',
   camps: '#/camps',
   settings: '#/configuracoes',
+  site: '#/site',
   rules: '#/regras',
 };
 

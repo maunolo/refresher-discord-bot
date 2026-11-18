@@ -15,6 +15,7 @@ import { QueueView } from './components/QueueView';
 import { RankingView } from './components/RankingView';
 import { RulesView } from './components/RulesView';
 import { SettingsView } from './components/SettingsView';
+import { SiteView } from './components/SiteView';
 import { LiveContext, pollEvery, useLiveUpdates } from './live';
 import { routeHref, useRoute } from './route';
 import { remember, remembered, usePolling } from './usePolling';
@@ -148,6 +149,13 @@ function Admin({ me }: { me: Me }) {
     );
   } else if (route === 'settings') {
     content = <SettingsView guildId={guildId} guildName={me.guilds.find((g) => g.id === guildId)?.name ?? ''} />;
+  } else if (route === 'site' && guildId !== me.site?.guild_id) {
+    content = (
+      <section className="card empty-card">
+        <h2>Sem site neste servidor</h2>
+        <p className="muted small">O site público pertence a outro servidor.</p>
+      </section>
+    );
   } else if (camps.data && camps.data.length === 0) {
     content = <NoCamp />;
   } else if (camp.data) {
@@ -157,6 +165,7 @@ function Admin({ me }: { me: Me }) {
       players: <PlayersView camp={camp.data} />,
       matches: <MatchesView camp={camp.data} matchId={place.matchId} />,
       ranking: <RankingView camp={camp.data} />,
+      site: <SiteView camp={camp.data} />,
     };
     content = views[route];
   } else {
@@ -200,7 +209,7 @@ function Admin({ me }: { me: Me }) {
           </div>
         )}
         <div className="body">
-          <NavRail route={route} />
+          <NavRail route={route} site={!!me.site && guildId === me.site.guild_id} />
           <main className="main">{content}</main>
         </div>
         <ConfirmDialog

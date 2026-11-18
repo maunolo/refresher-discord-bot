@@ -1,0 +1,596 @@
+{
+ "arcane-surge": {
+  "nome": "Arcane Surge",
+  "tipo": "spirit",
+  "tier": 2,
+  "ativo": false
+ },
+ "battle-vest": {
+  "nome": "Battle Vest",
+  "tipo": "vitality",
+  "tier": 2,
+  "ativo": false
+ },
+ "berserker": {
+  "nome": "Berserker",
+  "tipo": "weapon",
+  "tier": 3,
+  "ativo": false
+ },
+ "boundless-spirit": {
+  "nome": "Boundless Spirit",
+  "tipo": "spirit",
+  "tier": 4,
+  "ativo": false
+ },
+ "bullet-lifesteal": {
+  "nome": "Bullet Lifesteal",
+  "tipo": "vitality",
+  "tier": 2,
+  "ativo": false
+ },
+ "burst-fire": {
+  "nome": "Burst Fire",
+  "tipo": "weapon",
+  "tier": 3,
+  "ativo": false
+ },
+ "capacitor": {
+  "nome": "Capacitor",
+  "tipo": "weapon",
+  "tier": 4,
+  "ativo": true
+ },
+ "cheat-death": {
+  "nome": "Cheat Death",
+  "tipo": "vitality",
+  "tier": 4,
+  "ativo": false
+ },
+ "cold-front": {
+  "nome": "Cold Front",
+  "tipo": "spirit",
+  "tier": 2,
+  "ativo": true
+ },
+ "colossus": {
+  "nome": "Colossus",
+  "tipo": "vitality",
+  "tier": 4,
+  "ativo": true
+ },
+ "compress-cooldown": {
+  "nome": "Compress Cooldown",
+  "tipo": "spirit",
+  "tier": 2,
+  "ativo": false
+ },
+ "counterspell": {
+  "nome": "Counterspell",
+  "tipo": "vitality",
+  "tier": 3,
+  "ativo": false
+ },
+ "crushing-fists": {
+  "nome": "Crushing Fists",
+  "tipo": "weapon",
+  "tier": 4,
+  "ativo": false
+ },
+ "cultist-sacrifice": {
+  "nome": "Cultist Sacrifice",
+  "tipo": "weapon",
+  "tier": 3,
+  "ativo": true
+ },
+ "debuff-reducer": {
+  "nome": "Debuff Reducer",
+  "tipo": "vitality",
+  "tier": 2,
+  "ativo": false
+ },
+ "disarming-hex": {
+  "nome": "Disarming Hex",
+  "tipo": "spirit",
+  "tier": 3,
+  "ativo": true
+ },
+ "dispel-magic": {
+  "nome": "Dispel Magic",
+  "tipo": "vitality",
+  "tier": 3,
+  "ativo": true
+ },
+ "divine-barrier": {
+  "nome": "Divine Barrier",
+  "tipo": "vitality",
+  "tier": 4,
+  "ativo": true
+ },
+ "diviner-s-kevlar": {
+  "nome": "Diviner's Kevlar",
+  "tipo": "vitality",
+  "tier": 4,
+  "ativo": false
+ },
+ "duration-extender": {
+  "nome": "Duration Extender",
+  "tipo": "spirit",
+  "tier": 2,
+  "ativo": false
+ },
+ "enchanter-s-emblem": {
+  "nome": "Enchanter's Emblem",
+  "tipo": "vitality",
+  "tier": 2,
+  "ativo": false
+ },
+ "enduring-speed": {
+  "nome": "Enduring Speed",
+  "tipo": "vitality",
+  "tier": 2,
+  "ativo": false
+ },
+ "escalating-exposure": {
+  "nome": "Escalating Exposure",
+  "tipo": "spirit",
+  "tier": 4,
+  "ativo": false
+ },
+ "escalating-resilience": {
+  "nome": "Escalating Resilience",
+  "tipo": "weapon",
+  "tier": 3,
+  "ativo": false
+ },
+ "express-shot": {
+  "nome": "Express Shot",
+  "tipo": "weapon",
+  "tier": 3,
+  "ativo": false
+ },
+ "extra-charge": {
+  "nome": "Extra Charge",
+  "tipo": "spirit",
+  "tier": 1,
+  "ativo": false
+ },
+ "extra-health": {
+  "nome": "Extra Health",
+  "tipo": "vitality",
+  "tier": 1,
+  "ativo": false
+ },
+ "fleetfoot": {
+  "nome": "Fleetfoot",
+  "tipo": "weapon",
+  "tier": 2,
+  "ativo": true
+ },
+ "fortitude": {
+  "nome": "Fortitude",
+  "tipo": "vitality",
+  "tier": 3,
+  "ativo": false
+ },
+ "fury-trance": {
+  "nome": "Fury Trance",
+  "tipo": "vitality",
+  "tier": 3,
+  "ativo": true
+ },
+ "glass-cannon": {
+  "nome": "Glass Cannon",
+  "tipo": "weapon",
+  "tier": 4,
+  "ativo": false
+ },
+ "greater-expansion": {
+  "nome": "Greater Expansion",
+  "tipo": "spirit",
+  "tier": 3,
+  "ativo": false
+ },
+ "healbane": {
+  "nome": "Healbane",
+  "tipo": "vitality",
+  "tier": 2,
+  "ativo": false
+ },
+ "healing-booster": {
+  "nome": "Healing Booster",
+  "tipo": "vitality",
+  "tier": 2,
+  "ativo": false
+ },
+ "healing-nova": {
+  "nome": "Healing Nova",
+  "tipo": "vitality",
+  "tier": 3,
+  "ativo": true
+ },
+ "healing-rite": {
+  "nome": "Healing Rite",
+  "tipo": "vitality",
+  "tier": 1,
+  "ativo": true
+ },
+ "healing-tempo": {
+  "nome": "Healing Tempo",
+  "tipo": "vitality",
+  "tier": 4,
+  "ativo": false
+ },
+ "heroic-aura": {
+  "nome": "Heroic Aura",
+  "tipo": "weapon",
+  "tier": 3,
+  "ativo": true
+ },
+ "high-velocity-rounds": {
+  "nome": "High-Velocity Rounds",
+  "tipo": "weapon",
+  "tier": 1,
+  "ativo": false
+ },
+ "hunter-s-aura": {
+  "nome": "Hunter's Aura",
+  "tipo": "weapon",
+  "tier": 3,
+  "ativo": false
+ },
+ "improved-spirit": {
+  "nome": "Improved Spirit",
+  "tipo": "spirit",
+  "tier": 2,
+  "ativo": false
+ },
+ "infuser": {
+  "nome": "Infuser",
+  "tipo": "vitality",
+  "tier": 4,
+  "ativo": true
+ },
+ "juggernaut": {
+  "nome": "Juggernaut",
+  "tipo": "vitality",
+  "tier": 4,
+  "ativo": false
+ },
+ "kinetic-dash": {
+  "nome": "Kinetic Dash",
+  "tipo": "weapon",
+  "tier": 2,
+  "ativo": false
+ },
+ "knockdown": {
+  "nome": "Knockdown",
+  "tipo": "spirit",
+  "tier": 3,
+  "ativo": true
+ },
+ "leech": {
+  "nome": "Leech",
+  "tipo": "vitality",
+  "tier": 4,
+  "ativo": false
+ },
+ "lifestrike": {
+  "nome": "Lifestrike",
+  "tipo": "vitality",
+  "tier": 3,
+  "ativo": false
+ },
+ "lucky-shot": {
+  "nome": "Lucky Shot",
+  "tipo": "weapon",
+  "tier": 4,
+  "ativo": false
+ },
+ "majestic-leap": {
+  "nome": "Majestic Leap",
+  "tipo": "vitality",
+  "tier": 3,
+  "ativo": true
+ },
+ "mercurial-magnum": {
+  "nome": "Mercurial Magnum",
+  "tipo": "spirit",
+  "tier": 4,
+  "ativo": false
+ },
+ "monster-rounds": {
+  "nome": "Monster Rounds",
+  "tipo": "weapon",
+  "tier": 1,
+  "ativo": false
+ },
+ "mystic-burst": {
+  "nome": "Mystic Burst",
+  "tipo": "spirit",
+  "tier": 1,
+  "ativo": false
+ },
+ "mystic-expansion": {
+  "nome": "Mystic Expansion",
+  "tipo": "spirit",
+  "tier": 1,
+  "ativo": false
+ },
+ "mystic-reverb": {
+  "nome": "Mystic Reverb",
+  "tipo": "spirit",
+  "tier": 4,
+  "ativo": false
+ },
+ "mystic-shot": {
+  "nome": "Mystic Shot",
+  "tipo": "weapon",
+  "tier": 2,
+  "ativo": false
+ },
+ "mystic-slow": {
+  "nome": "Mystic Slow",
+  "tipo": "spirit",
+  "tier": 2,
+  "ativo": false
+ },
+ "mystic-vulnerability": {
+  "nome": "Mystic Vulnerability",
+  "tipo": "spirit",
+  "tier": 2,
+  "ativo": false
+ },
+ "opening-rounds": {
+  "nome": "Opening Rounds",
+  "tipo": "weapon",
+  "tier": 2,
+  "ativo": false
+ },
+ "plated-armor": {
+  "nome": "Plated Armor",
+  "tipo": "vitality",
+  "tier": 4,
+  "ativo": false
+ },
+ "point-blank": {
+  "nome": "Point Blank",
+  "tipo": "weapon",
+  "tier": 3,
+  "ativo": false
+ },
+ "quicksilver-reload": {
+  "nome": "Quicksilver Reload",
+  "tipo": "spirit",
+  "tier": 2,
+  "ativo": false
+ },
+ "radiant-regeneration": {
+  "nome": "Radiant Regeneration",
+  "tipo": "spirit",
+  "tier": 3,
+  "ativo": false
+ },
+ "rapid-recharge": {
+  "nome": "Rapid Recharge",
+  "tipo": "spirit",
+  "tier": 3,
+  "ativo": false
+ },
+ "rebuttal": {
+  "nome": "Rebuttal",
+  "tipo": "vitality",
+  "tier": 1,
+  "ativo": false
+ },
+ "refresher": {
+  "nome": "Refresher",
+  "tipo": "spirit",
+  "tier": 4,
+  "ativo": true
+ },
+ "rescue-beam": {
+  "nome": "Rescue Beam",
+  "tipo": "vitality",
+  "tier": 3,
+  "ativo": true
+ },
+ "restorative-locket": {
+  "nome": "Restorative Locket",
+  "tipo": "vitality",
+  "tier": 2,
+  "ativo": true
+ },
+ "restorative-shot": {
+  "nome": "Restorative Shot",
+  "tipo": "weapon",
+  "tier": 1,
+  "ativo": false
+ },
+ "return-fire": {
+  "nome": "Return Fire",
+  "tipo": "vitality",
+  "tier": 2,
+  "ativo": true
+ },
+ "ricochet": {
+  "nome": "Ricochet",
+  "tipo": "weapon",
+  "tier": 4,
+  "ativo": false
+ },
+ "silence-wave": {
+  "nome": "Silence Wave",
+  "tipo": "spirit",
+  "tier": 3,
+  "ativo": true
+ },
+ "silencer": {
+  "nome": "Silencer",
+  "tipo": "weapon",
+  "tier": 4,
+  "ativo": false
+ },
+ "siphon-bullets": {
+  "nome": "Siphon Bullets",
+  "tipo": "vitality",
+  "tier": 4,
+  "ativo": false
+ },
+ "spellslinger": {
+  "nome": "Spellslinger",
+  "tipo": "weapon",
+  "tier": 4,
+  "ativo": false
+ },
+ "spirit-burn": {
+  "nome": "Spirit Burn",
+  "tipo": "spirit",
+  "tier": 4,
+  "ativo": false
+ },
+ "spirit-lifesteal": {
+  "nome": "Spirit Lifesteal",
+  "tipo": "vitality",
+  "tier": 2,
+  "ativo": false
+ },
+ "spirit-rend": {
+  "nome": "Spirit Rend",
+  "tipo": "weapon",
+  "tier": 3,
+  "ativo": false
+ },
+ "spirit-resilience": {
+  "nome": "Spirit Resilience",
+  "tipo": "vitality",
+  "tier": 3,
+  "ativo": false
+ },
+ "spirit-shielding": {
+  "nome": "Spirit Shielding",
+  "tipo": "vitality",
+  "tier": 2,
+  "ativo": false
+ },
+ "spirit-snatch": {
+  "nome": "Spirit Snatch",
+  "tipo": "spirit",
+  "tier": 3,
+  "ativo": false
+ },
+ "spiritual-overflow": {
+  "nome": "Spiritual Overflow",
+  "tipo": "weapon",
+  "tier": 4,
+  "ativo": false
+ },
+ "stalker": {
+  "nome": "Stalker",
+  "tipo": "weapon",
+  "tier": 2,
+  "ativo": false
+ },
+ "stamina-mastery": {
+  "nome": "Stamina Mastery",
+  "tipo": "vitality",
+  "tier": 3,
+  "ativo": false
+ },
+ "superior-cooldown": {
+  "nome": "Superior Cooldown",
+  "tipo": "spirit",
+  "tier": 3,
+  "ativo": false
+ },
+ "superior-duration": {
+  "nome": "Superior Duration",
+  "tipo": "spirit",
+  "tier": 3,
+  "ativo": false
+ },
+ "surge-of-power": {
+  "nome": "Surge of Power",
+  "tipo": "spirit",
+  "tier": 3,
+  "ativo": false
+ },
+ "swift-striker": {
+  "nome": "Swift Striker",
+  "tipo": "weapon",
+  "tier": 2,
+  "ativo": false
+ },
+ "tankbuster": {
+  "nome": "Tankbuster",
+  "tipo": "spirit",
+  "tier": 3,
+  "ativo": false
+ },
+ "tesla-bullets": {
+  "nome": "Tesla Bullets",
+  "tipo": "weapon",
+  "tier": 3,
+  "ativo": false
+ },
+ "titanic-magazine": {
+  "nome": "Titanic Magazine",
+  "tipo": "weapon",
+  "tier": 2,
+  "ativo": false
+ },
+ "torment-pulse": {
+  "nome": "Torment Pulse",
+  "tipo": "spirit",
+  "tier": 3,
+  "ativo": false
+ },
+ "toxic-bullets": {
+  "nome": "Toxic Bullets",
+  "tipo": "weapon",
+  "tier": 3,
+  "ativo": false
+ },
+ "transcendent-cooldown": {
+  "nome": "Transcendent Cooldown",
+  "tipo": "spirit",
+  "tier": 4,
+  "ativo": false
+ },
+ "trophy-collector": {
+  "nome": "Trophy Collector",
+  "tipo": "vitality",
+  "tier": 2,
+  "ativo": false
+ },
+ "unstoppable": {
+  "nome": "Unstoppable",
+  "tipo": "vitality",
+  "tier": 4,
+  "ativo": true
+ },
+ "vampiric-burst": {
+  "nome": "Vampiric Burst",
+  "tipo": "vitality",
+  "tier": 4,
+  "ativo": true
+ },
+ "vortex-web": {
+  "nome": "Vortex Web",
+  "tipo": "spirit",
+  "tier": 4,
+  "ativo": true
+ },
+ "warp-stone": {
+  "nome": "Warp Stone",
+  "tipo": "vitality",
+  "tier": 3,
+  "ativo": true
+ },
+ "weighted-shots": {
+  "nome": "Weighted Shots",
+  "tipo": "weapon",
+  "tier": 3,
+  "ativo": false
+ }
+}

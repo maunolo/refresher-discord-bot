@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Histórico das partidas · Refresher League</title>
+  <meta name="description" content="Histórico das partidas da Refresher League, campeonato de Deadlock feito pela comunidade.">
+  <meta name="theme-color" content="#081B1B">
+  <link rel="icon" type="image/png" href="assets/favicon.png">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="preload" href="assets/fonts/VALVEOracle-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="assets/fonts/VALVEOracle-Medium.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="style.css?v=20261117v">
+</head>
+<body data-i18n-title="hist.title" data-title-pt="Histórico das partidas">
+  <!-- Mesmos patronos da página inicial: Hidden King à esquerda e Arch Mother à direita -->
+  <div class="stage stage-king" aria-hidden="true">
+    <video class="stage-patron" src="assets/patronos/hidden-king-idle.webm?v=20261117l" autoplay loop muted playsinline preload="auto"></video>
+  </div>
+  <div class="stage stage-arch" aria-hidden="true">
+    <video class="stage-patron" src="assets/patronos/archmother-idle.webm?v=20261117l" autoplay loop muted playsinline preload="auto"></video>
+  </div>
+
+  <header class="nav">
+    <a href="index.html" class="nav-logo"><img src="assets/logo-dourado-small.webp" alt="" width="34" height="34"><span class="nav-name">REFRESHER <span>LEAGUE</span></span></a>
+    <nav>
+      <div class="lang" role="group" aria-label="Idioma" data-i18n-label="nav.lang">
+        <button type="button" data-lang="pt" aria-pressed="true" lang="pt-BR" aria-label="Português">PT</button>
+        <button type="button" data-lang="en" aria-pressed="false" lang="en" aria-label="English">EN</button>
+        <button type="button" data-lang="es" aria-pressed="false" lang="es" aria-label="Español">ES</button>
+      </div>
+      <a href="https://discord.gg/EmzNheNFEP" class="btn btn-small btn-discord" target="_blank" rel="noopener">Discord</a>
+    </nav>
+  </header>
+
+  <main class="history" aria-labelledby="hist-title">
+    <a href="index.html#partidas" class="history-back">← <span data-i18n="hist.back">Voltar ao início</span></a>
+    <h1 id="hist-title" class="section-title" data-i18n="hist.title">Histórico das partidas</h1>
+    <p class="history-intro" data-i18n="hist.intro">Clique numa partida para ver o placar completo.</p>
+    <!-- 24 partidas: as que já têm dados em partida.js abrem o placar; as outras aparecem como "Em breve" -->
+    <div class="history-grid" id="history-grid"></div>
+  </main>
+
+  <!-- Janela da partida (abre por cima da página, sem nova aba) -->
+  <dialog class="match-dialog" id="match-dialog" aria-label="Partida">
+    <button type="button" class="match-dialog-close" id="match-dialog-close" aria-label="Fechar" data-i18n-label="hist.close">✕</button>
+    <div id="match-dialog-body"></div>
+  </dialog>
+
+  <footer class="footer">
+    <!-- Botão discreto da equipe: abre o painel do bot (aba Site) -->
+    <a href="staff/" class="staff-link" rel="nofollow">Staff</a>
+    <p data-i18n="footer.main">Refresher League</p>
+    <p class="small" data-i18n="footer.small">Evento independente, sem vínculo com a Valve.</p>
+  </footer>
+
+  <script src="partida.js?v=20261117v"></script>
+  <script src="partidas-render.js?v=20261117v"></script>
+  <script>
+    (() => {
+      const TOTAL = 24;
+      const D = window.PARTIDAS || { partidas: [] };
+      const grid = document.getElementById("history-grid");
+      const dialog = document.getElementById("match-dialog");
+      const body = document.getElementById("match-dialog-body");
+      const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+      const t = (tag, key, text, cls) => { const e = el(tag, cls, text); e.dataset.i18n = key; return e; };
+      let lastButton = null;
+
+      for (let n = 1; n <= TOTAL; n++) {
+        const P = D.partidas[n - 1];
+        const b = el("button", "history-card" + (P ? "" : " is-soon"));
+        b.type = "button";
+        const name = el("span", "history-name");
+        name.append(t("span", "match.label", "Partida"), " " + n);
+        b.appendChild(name);
+        if (P) {
+          const w = P.times[P.vencedor];
+          const res = el("span", "history-result team-" + w.classe);
+          res.append(el("span", null, w.nome + " "), t("span", "hist.won", "venceu"));
+          const dur = Math.floor(P.duracao / 60) + ":" + String(P.duracao % 60).padStart(2, "0");
+          const mvp = el("span", "history-mvp");
+          mvp.append(el("span", "mvp", "MVP"), " ", P.mvp ? el("span", null, P.mvp) : t("span", "hist.tbd", "A definir", "is-tbd"));
+          b.append(res, mvp, el("span", "history-time", "⏱ " + dur));
+          b.addEventListener("click", () => open(P, n, b));
+        } else {
+          b.disabled = true;
+          b.append(t("span", "hist.soon", "Em breve", "history-result"));
+        }
+        grid.appendChild(b);
+      }
+
+      function open(P, n, btn) {
+        lastButton = btn;
+        body.replaceChildren(window.renderPartida(P, n, "h2"));
+        if (window.i18nApply) window.i18nApply(dialog);
+        dialog.showModal();
+        document.documentElement.classList.add("has-dialog");
+        dialog.scrollTop = 0;
+      }
+      dialog.addEventListener("close", () => {
+        document.documentElement.classList.remove("has-dialog");
+        if (lastButton) lastButton.focus();
+      });
+      document.getElementById("match-dialog-close").addEventListener("click", () => dialog.close());
+      // Clicar fora do placar (no fundo escuro) também fecha
+      dialog.addEventListener("click", (e) => { if (e.target === dialog) dialog.close(); });
+      // Link direto para uma partida: historico.html#partida-2
+      const m = location.hash.match(/^#partida-(\d+)$/);
+      if (m) { const n = +m[1], P = D.partidas[n - 1]; if (P) addEventListener("load", () => open(P, n, grid.children[n - 1])); }
+    })();
+  </script>
+  <script src="i18n.js?v=20261117v"></script>
+</body>
+</html>

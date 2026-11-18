@@ -26,7 +26,7 @@ The repo deploys as one Railway service: the [Dockerfile](Dockerfile) builds the
 1. Create a service from this GitHub repo (branch `main`).
 2. Add a volume mounted at `/data`; the database is `/data/camps.db` (set in the Dockerfile). Without it, every deploy starts from an empty database.
 3. Generate a domain for port `8080`, and add `https://<domain>/auth/callback` to the Discord application's OAuth2 redirects.
-4. Variables: `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `WEB_PUBLIC_URL=https://<domain>`, and `DEADCHAPS_API_KEY` for drafts. The other `.env` settings are optional defaults (servers can override them on **Configurações**). `WEB_BIND`, `WEB_STATIC_DIR` and `DATABASE_URL` already come from the image.
+4. Variables: `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `WEB_PUBLIC_URL=https://<domain>`, and `DEADCHAPS_API_KEY` for drafts. The other `.env` settings are optional defaults (servers can override them on **Configurações**). `WEB_BIND`, `WEB_STATIC_DIR`, `SITE_DIR` and `DATABASE_URL` already come from the image. For the public site, see [Public site](#public-site).
 
 `WEB_PUBLIC_URL` must be the domain admins open: sign-in sends Discord `{WEB_PUBLIC_URL}/auth/callback`, so with a custom domain, set it to that domain and register that callback. Signing in on any other domain of the service fails.
 
@@ -43,6 +43,7 @@ Anyone with **Manage Server** in a server the bot is in can sign in and run that
 - **Partidas:** every match of the camp, open ones first. A match's page shows each player's vote (Refresh, Manter or waiting) with tallies, the next step for its stage, **Lembrar quem falta votar** (mentions only the players who haven't voted), **Fechar e manter times**, the draft links and the party code. Finished matches show the result and, for the latest one, the corrections.
 - **Ranking:** every player by points, with MVPs, wins, matches played and win rate; manual adjustments show in parentheses, and **Ajustar** opens the same points dialog as Jogadores. Equal points are broken by MVPs; players equal on both share a place.
 - **Configurações:** per server. The five voice channels the bot moves players to (*Automático* finds or creates them by name), whether starting a match creates the Deadlock lobby and in which region, whether the bot creates drafts on DeadChaps, the drafts' rules (see [Drafts](#drafts)), and whether captains get the draft link by DM. Until an admin saves, a server uses the `.env` values. The side column has the server's **Overlays do OBS** links (see [OBS overlays](#obs-overlays)). Changes apply from the next action; a draft already created keeps its rules.
+- **Site:** only for the server in `SITE_GUILD_ID`. What the [public site](#public-site) shows for the selected camp: the four info cards in Portuguese, English and Spanish, the player ranking (typed in, or filled from the camp's ranking with **Preencher com o ranking do camp**), and the match scoreboards with the MVP staff pick for each. Matches are added by pasting JSON in the old `partida.js` shape. **Mostrar este camp no site** makes the camp the one the site shows.
 - **Regras:** the queue and match rules written out in Portuguese: starting the queue, who plays, the team split, the refresh vote and what a refresh changes, the requeue after a result, the final, and a 30-player example. It opens even with no camp selected.
 
 Each match, the queue and each camp have an **Abrir no Discord** link to their message.
@@ -138,6 +139,17 @@ Pages for an OBS browser source, on a transparent background so only the panels 
 
 The party code and draft links are never on an overlay.
 
+## Public site
+
+The league's public site ([refresherleague.com.br](https://refresherleague.com.br/)) lives in `site/` and is served by the bot, replacing the old Hostinger copy and its PHP staff panel. Its pages and assets are static files. The three scripts they read their data from, `info.js`, `jogadores.js` and `partida.js`, are built by the bot from what admins saved on the admin page's **Site** tab for the published camp. Browsers re-check them on every visit, so a save shows up on the next page load.
+
+- It's always at `{WEB_PUBLIC_URL}/site/`, so it can be checked before its domain points here. Each domain in `SITE_HOSTS` shows it at its root and nothing of the admin page.
+- `SITE_GUILD_ID` is the server whose admins see the **Site** tab. Each of its camps has its own site content, and one camp is published.
+- While `SITE_LOCK=user:password` is set, the whole site asks for that login, like the old test server's `.htaccess`. Remove it to open the site.
+- The footer's **Staff** link (`/staff/`) opens the admin page's Site tab.
+
+To move the domain here: add `refresherleague.com.br` (and `www.`, if used) as custom domains on the Railway service, create the DNS records Railway shows at the domain's DNS host (Hostinger), and set `SITE_HOSTS=refresherleague.com.br,www.refresherleague.com.br`.
+
 ## Voice channels
 
 Pick each server's voice channels on **Configurações** (the `*_VOICE_CHANNEL_ID` values in `.env` are the defaults for servers that never saved). They are used to move players who are already in voice. Left on *Automático*, or if the picked channel was deleted, the bot looks up (or creates) channels named `Queue`, `Match 1 Hiddenking`, `Match 1 Archmother`, `Match 2 Hiddenking` and `Match 2 Archmother`.
@@ -162,6 +174,7 @@ A Cargo workspace. `cargo run` at the root starts the app crate, which builds th
 | `crates/bot` | The Discord side: the shared admin actions (`actions.rs`), message embeds and syncing, voice moves, the players' buttons, and the `BotLink` implementation. |
 | `crates/web` | The admin page backend (axum): Discord login, sessions, the camp API, and serving the built page. |
 | `web/` | The admin page: React + Vite + TypeScript. |
+| `site/` | The public league site: static pages and assets. The bot builds its data scripts (`crates/web/src/site.rs`). |
 | `crates/app` | `main.rs`: loads `.env`, opens the database, and runs the bot and the web server together. |
 | `migrations/` | SQLite migrations, applied on startup. Kept byte-exact in git (see `.gitattributes`): sqlx refuses to start if an applied migration changes. |
 | `assets/` | The bot logo. |
@@ -195,6 +208,8 @@ Discord IDs are sent as strings, since they don't fit in a JavaScript number. Ev
 | `GET /api/guilds/{guild_id}/settings` | The server's settings, whether they were saved, its voice channels, and the draft timers and reserves allowed and the most bans. |
 | `PUT /api/guilds/{guild_id}/settings` | Saves them: the five `*_voice_id` (a voice channel ID or `null` for automatic), `create_lobby`, `server_region`, `use_draft_tool` (default `true`), `draft_timer_seconds`, `draft_reserve_seconds` (default 90), `draft_bans_per_team` (0 to 3, default 2), `draft_view` (`cinematic` or `competitive`, default `cinematic`) and `dm_captains` (default `true`). A channel from another server, an unlisted timer or reserve, too many bans or an unknown view is a 400. |
 | `GET /api/camps/{camp_id}` | Roster with names, points, wins and matches played, queue and who goes next, open matches with teams, votes and draft links, recent results, and Discord links. |
+| `GET /api/camps/{camp_id}/site`, `PUT` to replace | The site server's camps only. `published`, the site's `url`, and `content`: `info` (`data`, `formato`, `premiacao`, `times`, each `pt`/`en`/`es`), `players` (`nome`, `pontos`) and `matches` (`partidas`, `itens`), in the shapes of the site's old JS files. `PUT` takes `content` and returns it cleaned: empty cards become "A definir"/"TBD"/"Por definir", nameless ranking rows are dropped, and an MVP who didn't play in the match is cleared. A scoreboard the site can't draw is a 400 that says which match. |
+| `POST /api/camps/{camp_id}/site/publish` | Makes the camp the one the public site shows. |
 | `GET /api/camps/{camp_id}/matches` | Every match of the camp: open ones by slot, then finished ones newest first with their number. |
 | `GET /api/matches/{match_id}` | One match, finished or not. |
 | `POST /api/camps/{camp_id}/actions` | Runs an admin action and returns the camp afterwards. Body: `{"type": "create_match"}`, `create_final`, or `close_vote` / `refresh_teams` / `start_draft` / `start_match` / `correct_winner` / `reopen_match` with `"match_id"`, or `report_winner` with `"match_id"`, `"side"` (`hiddenking` / `archmother`) and `"mvp_user_id"`, or `change_mvp` with `"match_id"` and `"user_id"`; for the roster, `add_players` (`"user_ids"`), `remove_player` and `set_s_rank` (`"user_id"`, `"s_rank"`), `set_role` (`"user_id"`, `"role"`: `tank` / `carry` / `support`, or `null` to clear it); `adjust_points` with `"user_id"` and `"delta"` (negative takes points); `reorder_queue` with the whole queue in its new order (`"user_ids"`), `remind_voters` with `"match_id"`, and `start_queue`, `cancel_camp`, `resume_camp`, `end_camp`. A refusal (e.g. a draft before the vote ended) is a 409 with the bot's message. |

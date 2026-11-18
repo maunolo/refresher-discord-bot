@@ -1,5 +1,5 @@
-# The bot and its admin page in one image: Node builds the page, Rust builds the binary, and a
-# slim runtime runs both. Used by Railway (see railway.json); works with plain `docker build`.
+# The bot, its admin page and the public league site in one image: Node builds the page, Rust
+# builds the binary, and a slim runtime runs both. Used by Railway (see railway.json); works with plain `docker build`.
 
 FROM node:22-slim AS page
 WORKDIR /web
@@ -24,11 +24,12 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=app /src/target/release/refresher-discord-bot ./refresher-discord-bot
 COPY --from=page /web/dist ./web/dist
+COPY site ./site
 # The database lives on a volume mounted at /data. The web server listens on every interface;
 # the public address and the Discord secrets come from the service's variables.
 ENV DATABASE_URL=sqlite:/data/camps.db \
     WEB_BIND=0.0.0.0:8080 \
-    WEB_STATIC_DIR=/app/web/dist \
+    WEB_STATIC_DIR=/app/web/dist     SITE_DIR=/app/site \
     RUST_LOG=info
 EXPOSE 8080
 CMD ["./refresher-discord-bot"]
