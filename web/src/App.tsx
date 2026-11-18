@@ -24,7 +24,7 @@ const loadMe = () => api.me();
 
 function Login() {
   return (
-    <FullPage title="Refresher Admin">
+    <FullPage title="Refresher League">
       <p className="muted">Entre com a sua conta do Discord. Quem tem Gerenciar Servidor no servidor do camp é admin.</p>
       <a className="button button-primary button-wide" href="/auth/login">
         Entrar com Discord

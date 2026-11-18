@@ -95,15 +95,22 @@ function CampButtons({ camp }: { camp: Camp }) {
   );
 }
 
+function summary(camp: Camp, sRank: number): string {
+  const played = camp.match_count === 1 ? 'partida jogada' : 'partidas jogadas';
+  return `${camp.players.length} jogadores · ${formatLabel(camp.match_size)} · ${camp.match_count} ${played} · ${sRank} S rank`;
+}
+
 export function Header({ me, guildId, onGuild, camps, campId, onCamp, camp, live }: HeaderProps) {
   const sRank = camp?.players.filter((p) => p.s_rank).length ?? 0;
   return (
     <header className="header">
       <div className="header-group">
         <div className="brand">
-          <img src="/logo.png" alt="" width={40} height={40} />
-          <span className="brand-name">Refresher</span>
-          <span className="muted small">Admin</span>
+          <img src="/logo-league.webp" alt="" width={34} height={34} />
+          <span className="brand-name">
+            Refresher <span>League</span>
+          </span>
+          <span className="brand-tag">Admin</span>
         </div>
         <GuildPicker guilds={me.guilds} value={guildId} onChange={onGuild} />
         {camps.length > 0 && campId && (
@@ -120,9 +127,8 @@ export function Header({ me, guildId, onGuild, camps, campId, onCamp, camp, live
         )}
         {camp && <StatusPill status={camp.status} />}
         {camp && (
-          <span className="muted small">
-            {camp.players.length} jogadores · {formatLabel(camp.match_size)} · {camp.match_count}{' '}
-            {camp.match_count === 1 ? 'partida jogada' : 'partidas jogadas'} · {sRank} S rank
+          <span className="muted small header-summary" title={summary(camp, sRank)}>
+            {summary(camp, sRank)}
           </span>
         )}
       </div>

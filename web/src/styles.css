@@ -1,42 +1,60 @@
-/* Design A, "Mesa de controle": colors from the bot's jade serpent logo. */
+@font-face {
+  font-family: 'Valve Oracle';
+  src: url('/fonts/VALVEOracle-Medium.woff2') format('woff2');
+  font-weight: 400 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Valve Oracle';
+  src: url('/fonts/VALVEOracle-SemiBold.woff2') format('woff2');
+  font-weight: 600 800;
+  font-display: swap;
+}
+
+/* The public site's look (site/style.css): night green, cream text, mint labels, gold details,
+   the Hidden King in gold and the Archmother in blue. The variable names predate it: `--jade` is
+   the accent, now gold, and `--mint` the accent's text color. */
 :root {
-  --bg: #0a1615;
-  --bg-header: #0d1c1a;
-  --panel: #102220;
-  --inset: #0c1a19;
-  --border: #1e3734;
-  --divider: #19302d;
-  --control: #24403c;
-  --active: #123430;
+  --bg: #081b1b;
+  --bg-header: rgba(8, 27, 27, 0.92);
+  --panel: rgba(18, 48, 44, 0.9);
+  --inset: rgba(8, 27, 27, 0.7);
+  --border: #2f524c;
+  --divider: #244540;
+  --control: #3e665e;
+  --active: rgba(193, 141, 82, 0.16);
 
-  --text: #e4f2ef;
-  --text-2: #b7ccc8;
-  --muted: #93aba7;
-  --faint: #7c9692;
+  --text: #eee8b2;
+  --text-2: #d9d3a3;
+  --muted: #96cdb0;
+  --faint: #73a28b;
 
-  --jade: #34d3a6;
-  --mint: #8cf5d2;
-  --on-jade: #04201a;
+  --jade: #c18d52;
+  --mint: #d6a873;
+  --on-jade: #081b1b;
 
-  --hk: #f2b04a;
-  --hk-bg: #3a2a0e;
-  --on-hk: #241500;
-  --am: #9db4ff;
-  --am-fill: #8fa8ff;
-  --am-bg: #1c2447;
-  --on-am: #0b1840;
+  --hk: #d6a873;
+  --hk-bg: rgba(193, 141, 82, 0.16);
+  --on-hk: #081b1b;
+  --am: #9dbbe8;
+  --am-fill: #5f86c4;
+  --am-bg: rgba(95, 134, 196, 0.18);
+  --on-am: #081b1b;
 
-  --s-bg: #2a2245;
-  --s-text: #cdb8ff;
-  --gold: #f5d06b;
-  --draft: #7feaf5;
-  --draft-bg: #0e3338;
-  --live: #ff9f92;
-  --live-dot: #ff7a6b;
-  --live-bg: #3a1c19;
-  --running-bg: #0f3a2f;
+  --s-bg: rgba(226, 179, 102, 0.16);
+  --s-text: #e2b366;
+  --gold: #e2b366;
+  --draft: #96cdb0;
+  --draft-bg: rgba(150, 205, 176, 0.14);
+  --live: #ff8589;
+  --live-dot: #e5484d;
+  --live-bg: rgba(229, 72, 77, 0.14);
+  --running-bg: rgba(150, 205, 176, 0.14);
+  --success: #5fd39b;
 
-  --radius: 12px;
+  --radius: 6px;
+  --font: 'Valve Oracle', system-ui, sans-serif;
   --mono: 'IBM Plex Mono', ui-monospace, monospace;
   color-scheme: dark;
 }
@@ -49,8 +67,8 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  font-family: 'IBM Plex Sans', system-ui, sans-serif;
-  font-size: 14px;
+  font-family: var(--font);
+  font-size: 14.5px;
   line-height: 1.45;
 }
 
@@ -59,7 +77,7 @@ a {
 }
 
 a:hover {
-  color: #c4fbe8;
+  color: #e8c48f;
 }
 
 h1,
@@ -81,7 +99,7 @@ input {
 }
 
 :focus-visible {
-  outline: 2px solid var(--mint);
+  outline: 2px solid var(--muted);
   outline-offset: 2px;
 }
 
@@ -512,11 +530,11 @@ input {
 }
 
 .medal-2 {
-  background: #c9d6d3;
+  background: #c9d1cf;
 }
 
 .medal-3 {
-  background: #d49a6a;
+  background: #c27d4e;
 }
 
 .medal-4 {
@@ -720,7 +738,7 @@ input {
 
 .button:disabled {
   border-color: var(--border);
-  background: #0f1f1d;
+  background: rgba(8, 27, 27, 0.6);
   color: var(--faint);
   cursor: not-allowed;
 }
@@ -939,7 +957,7 @@ input {
 }
 
 .button-danger {
-  border-color: #6b2c26;
+  border-color: #7a2e31;
   color: var(--live);
 }
 
@@ -1194,7 +1212,7 @@ input {
   color: var(--text);
 }
 .vote-waiting {
-  border: 1px dashed #3a5e59;
+  border: 1px dashed var(--control);
   color: var(--muted);
   font-weight: 400;
 }
@@ -1449,7 +1467,7 @@ input {
   gap: 3px;
   padding: 0 6px;
   border-radius: 4px;
-  background: #3a3210;
+  background: rgba(193, 141, 82, 0.18);
   color: var(--gold);
   font-size: 11px;
   font-weight: 700;
@@ -1517,7 +1535,7 @@ input {
 }
 .live-status-on .dot {
   background: var(--jade);
-  box-shadow: 0 0 0 3px rgba(52, 211, 166, 0.18);
+  box-shadow: 0 0 0 3px rgba(95, 211, 155, 0.18);
 }
 
 /* Site: the public league site's content */
@@ -1561,4 +1579,301 @@ input {
   flex-direction: column;
   gap: 8px;
   max-width: 420px;
+}
+
+/* --- The public site's look, over the components above --- */
+
+/* The site's old-magazine texture and grain, behind everything. */
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+body::before {
+  background: url('/textura.webp') center / cover no-repeat;
+  mix-blend-mode: screen;
+  opacity: 0.32;
+}
+body::after {
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode: soft-light;
+  opacity: 0.5;
+}
+
+h1,
+h2,
+h3,
+.page-title {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.page-title {
+  font-size: 28px;
+}
+.small-title {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.eyebrow {
+  color: var(--mint);
+  letter-spacing: 0.14em;
+}
+.mono {
+  font-size: 0.94em;
+}
+
+/* Header: the site's menu bar, with its gold logo and gold underline */
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: var(--bg-header);
+  border-bottom: 1px solid rgba(193, 141, 82, 0.55);
+  backdrop-filter: blur(6px);
+}
+.brand-name {
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.brand-name span {
+  color: var(--jade);
+}
+.brand-tag {
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+/* Side menu: a gold bar and glow on the open screen */
+.nav {
+  border-right-color: rgba(193, 141, 82, 0.22);
+}
+.nav-item {
+  border-left: 2px solid transparent;
+  border-radius: 0;
+  color: var(--muted);
+}
+.nav-item:hover {
+  color: var(--text);
+}
+.nav-item-active {
+  background: linear-gradient(90deg, rgba(193, 141, 82, 0.24), rgba(193, 141, 82, 0));
+  border-left-color: var(--jade);
+}
+
+/* Cards: the site's green cards, slightly see-through over the texture */
+.card,
+.full-page-card {
+  border-radius: var(--radius);
+}
+.inset {
+  border-radius: 4px;
+}
+
+/* The site's gold frame, with corner brackets, on each screen's main piece: the matches */
+.card.match,
+.full-page-card {
+  position: relative;
+  background: rgba(8, 27, 27, 0.88);
+  border: 1px solid var(--jade);
+  border-radius: 0;
+  box-shadow:
+    inset 0 0 0 5px rgba(8, 27, 27, 0.88),
+    inset 0 0 0 6px rgba(193, 141, 82, 0.45),
+    0 18px 50px rgba(0, 0, 0, 0.35);
+}
+.card.match::before,
+.full-page-card::before {
+  content: '';
+  position: absolute;
+  inset: -5px;
+  pointer-events: none;
+  --c: var(--mint);
+  background:
+    linear-gradient(var(--c), var(--c)) top left / 24px 2px,
+    linear-gradient(var(--c), var(--c)) top left / 2px 24px,
+    linear-gradient(var(--c), var(--c)) top right / 24px 2px,
+    linear-gradient(var(--c), var(--c)) top right / 2px 24px,
+    linear-gradient(var(--c), var(--c)) bottom left / 24px 2px,
+    linear-gradient(var(--c), var(--c)) bottom left / 2px 24px,
+    linear-gradient(var(--c), var(--c)) bottom right / 24px 2px,
+    linear-gradient(var(--c), var(--c)) bottom right / 2px 24px;
+  background-repeat: no-repeat;
+}
+
+/* Buttons: gold, square-ish, like the site's */
+.button {
+  border-radius: 4px;
+  border-color: var(--jade);
+}
+.button-ghost {
+  border-color: var(--border);
+}
+.button-ghost:hover:not(:disabled) {
+  border-color: var(--jade);
+  color: var(--text);
+}
+.button-primary,
+.button-hk,
+.button-am {
+  border-radius: 4px;
+}
+.button:disabled {
+  border-color: var(--border);
+}
+.icon-button {
+  border-radius: 4px;
+}
+
+/* Fields */
+.input,
+.picker select {
+  border-radius: 4px;
+}
+.picker select {
+  background: var(--inset);
+}
+.input:focus,
+.picker select:focus {
+  border-color: var(--jade);
+}
+
+/* Badges: square corners and small caps, like the site's labels */
+.pill {
+  border-radius: 3px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.pill-running {
+  color: var(--muted);
+}
+.pill-running .dot {
+  background: var(--success);
+}
+.tag,
+.chip {
+  border-radius: 3px;
+}
+.tag {
+  letter-spacing: 0.04em;
+}
+
+/* Tables: mint headers over a gold line, as in the site's ranking */
+.table th {
+  border-bottom: 1px solid rgba(193, 141, 82, 0.6);
+  color: var(--muted);
+  letter-spacing: 0.12em;
+}
+.table tbody tr:hover td {
+  background: rgba(193, 141, 82, 0.06);
+}
+
+/* Teams: the Hidden King's gold and the Archmother's blue under each team's name */
+.team-title {
+  padding-bottom: 4px;
+  border-bottom: 2px solid currentColor;
+  letter-spacing: 0.1em;
+}
+.step-bar {
+  background: #24423d;
+}
+
+/* Live status in the header */
+.live-status-on .dot {
+  background: var(--success);
+}
+
+/* Dialogs */
+.modal-box {
+  border-radius: 0;
+}
+
+/* One header row on wide screens: the camp summary gives way, cut with "…" (whole in its tooltip). */
+@media (min-width: 1100px) {
+  .header {
+    flex-wrap: nowrap;
+  }
+  .header > .header-group:first-child {
+    flex: 1 1 auto;
+    flex-wrap: nowrap;
+  }
+  .header > .header-group:last-child {
+    flex: none;
+    flex-wrap: nowrap;
+  }
+}
+.header-summary {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Ao vivo: a long queue scrolls inside its card instead of pushing the last matches and the
+   ranking down. Beside the matches it is as tall as they are; below them, it stops at 420px. */
+.queue .rows {
+  min-height: 0;
+  margin-right: -6px;
+  padding-right: 6px;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  /* Always shown, in gold, so it's clear there are more players below. */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(193, 141, 82, 0.75) rgba(47, 82, 76, 0.45);
+}
+@media (min-width: 1200px) {
+  .live-top {
+    align-items: stretch;
+  }
+  .live-top > .queue {
+    contain: size;
+    min-height: 460px;
+  }
+  .live-top > .queue .rows {
+    flex: 1 1 0;
+  }
+}
+@media (max-width: 1199px) {
+  .queue .rows {
+    max-height: 420px;
+  }
+}
+
+/* Signup roster: every card fits its avatar, name, role, S rank switch and remove button; long
+   names shrink with "…" instead of pushing the buttons into the next card. */
+.roster {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
+}
+.roster .row {
+  min-width: 0;
+  overflow: hidden;
+}
+.roster .row > .ellipsis {
+  flex: 1 1 auto;
+  min-width: 4ch;
+}
+.roster .row-end {
+  flex: none;
+}
+.roster .icon-button-quiet {
+  color: var(--muted);
+  font-family: system-ui, sans-serif;
+  font-size: 20px;
+}
+.roster .icon-button-quiet:hover:not(:disabled) {
+  color: var(--live);
 }
