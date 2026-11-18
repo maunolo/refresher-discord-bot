@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Refresher League</title>
-  <meta name="description" content="Refresher League é um campeonato de Deadlock feito pela comunidade. Veja as regras, o formato e como se inscrever.">
+  <meta name="description" content="Refresher League é um campeonato de Deadlock feito pela comunidade. Acompanhe as lives, o ranking e as últimas partidas.">
   <meta name="theme-color" content="#081B1B">
   <link rel="canonical" href="https://refresherleague.com.br/">
   <meta property="og:type" content="website">
@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <link rel="preload" href="assets/fonts/VALVEOracle-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/VALVEOracle-Medium.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=20261117v">
+  <link rel="stylesheet" href="style.css?v=20261118h">
 </head>
 <body>
   <!-- Patronos fixos nas bordas da tela (metade de cada um aparece): Hidden King à esquerda e
@@ -32,60 +32,89 @@
     <video class="stage-patron" src="assets/patronos/archmother-idle.webm?v=20261117l" autoplay loop muted playsinline preload="auto"></video>
   </div>
 
+  <script>
+    // Quem pediu menos movimento no sistema vê os patronos parados
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) document.querySelectorAll(".stage-patron").forEach((v) => { v.autoplay = false; v.pause(); });
+  </script>
   <header class="nav">
-    <a href="#topo" class="nav-logo"><img src="assets/logo-dourado-small.webp" alt="" width="34" height="34"><span class="nav-name">REFRESHER <span>LEAGUE</span></span></a>
+    <a href="#topo" class="nav-logo" aria-label="Refresher League"><img src="assets/logo-dourado-small.webp" alt="" width="34" height="34"><span class="nav-name">REFRESHER <span>LEAGUE</span></span></a>
     <nav>
       <div class="lang" role="group" aria-label="Idioma" data-i18n-label="nav.lang">
         <button type="button" data-lang="pt" aria-pressed="true" lang="pt-BR" aria-label="Português">PT</button>
         <button type="button" data-lang="en" aria-pressed="false" lang="en" aria-label="English">EN</button>
         <button type="button" data-lang="es" aria-pressed="false" lang="es" aria-label="Español">ES</button>
       </div>
-      <a href="https://discord.gg/EmzNheNFEP" class="btn btn-small btn-discord" target="_blank" rel="noopener">Discord</a>
     </nav>
   </header>
 
-  <section id="topo" class="hero">
-    <h1>REFRESHER <span>LEAGUE</span></h1>
+  <!-- Topo: o que é e quando (a data vem de info.js, a mesma do cartão "Data") -->
+  <section id="topo" class="hero" aria-labelledby="hero-title">
+    <h1 id="hero-title">REFRESHER <span>LEAGUE</span></h1>
+    <p class="hero-sub" data-i18n="hero.sub">Campeonato de Deadlock feito pela comunidade</p>
+    <p class="hero-date" data-i18n="info.dateValue" data-info="data">28 e 29 de novembro</p>
   </section>
 
-  <section id="info" class="info">
-    <div class="info-card"><span class="label" data-i18n="info.date">Data</span><strong data-i18n="info.dateValue" data-info="data">28 e 29 de novembro</strong></div>
-    <div class="info-card"><span class="label" data-i18n="info.format">Formato</span><strong data-i18n="info.tbd" data-info="formato">A definir</strong></div>
-    <div class="info-card"><span class="label" data-i18n="info.prize">Premiação</span><strong data-i18n="info.tbd" data-info="premiacao">A definir</strong></div>
-    <div class="info-card"><span class="label" data-i18n="info.teams">Times</span><strong data-i18n="info.tbd" data-info="times">A definir</strong></div>
+  <!-- Informações: só aparecem os cartões já definidos (info.js, editado pelo painel da staff).
+       O que ainda falta vira uma linha só. A data fica no topo. -->
+  <section id="info" class="info" aria-label="Informações do campeonato">
+    <div class="info-cards">
+      <div class="info-card" data-card="formato"><span class="label" data-i18n="info.format">Formato</span><strong data-i18n="info.tbd" data-info="formato">A definir</strong></div>
+      <div class="info-card" data-card="premiacao"><span class="label" data-i18n="info.prize">Premiação</span><strong data-i18n="info.tbd" data-info="premiacao">A definir</strong></div>
+      <div class="info-card" data-card="times"><span class="label" data-i18n="info.teams">Times</span><strong data-i18n="info.tbd" data-info="times">A definir</strong></div>
+    </div>
+    <p class="info-pending">
+      <span data-i18n="info.pending">Ainda a definir:</span>
+      <span class="info-pending-list"><span data-pending="formato" data-i18n="info.format">Formato</span><span data-pending="premiacao" data-i18n="info.prize">Premiação</span><span data-pending="times" data-i18n="info.teams">Times</span><span data-pending="regras" data-i18n="info.rules">Regras</span></span>
+    </p>
   </section>
-  <!-- Os textos dos cartões vêm de info.js, que o bot monta com o que a staff salvou no painel (Site) -->
   <script src="info.js?v=20261117v"></script>
   <script>
     (() => {
       const I = window.INFO || {};
+      // Um valor conta como definido quando a staff escreveu algo diferente de "A definir"
+      const defined = (v) => v && v.pt && v.pt.trim() && v.pt.trim().toLowerCase() !== "a definir";
       document.querySelectorAll("[data-info]").forEach((e) => {
         const v = I[e.dataset.info];
-        if (v && v.pt) { e.textContent = v.pt; e.dataset.i18n = "infoval." + e.dataset.info; }
+        if (defined(v)) { e.textContent = v.pt; e.dataset.i18n = "infoval." + e.dataset.info; }
       });
+      const section = document.getElementById("info");
+      section.querySelectorAll("[data-card]").forEach((c) => { c.hidden = !defined(I[c.dataset.card]); });
+      section.querySelectorAll("[data-pending]").forEach((s) => { s.hidden = s.dataset.pending !== "regras" && defined(I[s.dataset.pending]); });
+      section.querySelector(".info-cards").hidden = !section.querySelector("[data-card]:not([hidden])");
+      section.querySelector(".info-pending").hidden = !section.querySelector("[data-pending]:not([hidden])");
     })();
   </script>
 
-  <section id="regras" class="rules">
-    <p class="rules-soon" data-i18n="rules.soon">Em breve</p>
-  </section>
-
 
   <!-- Assista ao vivo: escolha o canal em cima; embaixo, o player da Twitch grande e o chat ao lado.
-       Os iframes só carregam quando a seção chega perto da tela (a Twitch é pesada). -->
+       Os players só carregam quando a seção chega perto da tela (a Twitch é pesada).
+       "Ao vivo" nas abas: começa com o que a staff marcou no painel (INFO.aoVivo, em info.js)
+       e é corrigido pelo próprio player da Twitch assim que ele informa se o canal está no ar. -->
   <section id="ao-vivo" class="live" aria-labelledby="live-title">
     <h2 id="live-title" class="live-title" data-i18n="live.title">Assista ao vivo</h2>
     <div class="live-tabs" role="tablist" aria-labelledby="live-title">
-      <button type="button" role="tab" aria-selected="true" aria-controls="live-panel" data-channel="farinhagm">FarinhaGM</button>
-      <button type="button" role="tab" aria-selected="false" aria-controls="live-panel" data-channel="drk34_">DRK</button>
-      <button type="button" role="tab" aria-selected="false" aria-controls="live-panel" data-channel="nokeimee">Nokeime</button>
+      <button type="button" role="tab" aria-selected="true" aria-controls="live-panel" data-channel="farinhagm"><span class="tab-name">FarinhaGM</span><span class="live-badge" hidden data-i18n="live.on">Ao vivo</span></button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="live-panel" data-channel="drk34_" tabindex="-1"><span class="tab-name">DRK34_</span><span class="live-badge" hidden data-i18n="live.on">Ao vivo</span></button>
+      <button type="button" role="tab" aria-selected="false" aria-controls="live-panel" data-channel="nokeimee" tabindex="-1"><span class="tab-name">Nokeime</span><span class="live-badge" hidden data-i18n="live.on">Ao vivo</span></button>
     </div>
     <div id="live-panel" class="live-grid" role="tabpanel">
-      <div class="live-frame live-player"></div>
+      <div class="live-frame live-player">
+        <div class="live-notice" hidden role="status">
+          <p><strong class="live-notice-name"></strong> <span data-i18n="live.offline">está offline agora.</span></p>
+          <p class="live-notice-hint" data-i18n="live.offlineHint">Quando a live começar, ela aparece aqui sozinha.</p>
+          <div class="live-notice-actions">
+            <button type="button" class="btn btn-small live-notice-other" hidden><span><span data-i18n="live.watch">Assistir</span> <span class="live-notice-other-name"></span></span></button>
+            <a class="btn btn-small btn-ghost live-notice-open" href="https://www.twitch.tv/" target="_blank" rel="noopener" data-i18n="live.openShort">Abrir na Twitch</a>
+          </div>
+        </div>
+      </div>
       <div class="live-frame live-chat"></div>
       <p class="live-local" hidden data-i18n="live.local">A live só aparece no site publicado (a Twitch bloqueia quando o arquivo é aberto direto).</p>
     </div>
-    <a class="live-open" href="https://www.twitch.tv/farinhagm" target="_blank" rel="noopener"><span data-i18n="live.open">Abrir na Twitch</span> ↗</a>
+    <div class="live-foot">
+      <p class="live-help" data-i18n="live.gate">A live pediu login? Alguns canais têm restrição de idade e só abrem direto na Twitch.</p>
+      <a class="btn btn-small btn-ghost live-open" href="https://www.twitch.tv/farinhagm" target="_blank" rel="noopener"><span><span data-i18n="live.openPre">Abrir</span> <span class="live-open-name">FarinhaGM</span> <span data-i18n="live.openPost">na Twitch</span></span></a>
+    </div>
   </section>
 
   <script>
@@ -95,29 +124,78 @@
       const section = document.getElementById("ao-vivo");
       const tabs = [...section.querySelectorAll('[role="tab"]')];
       const playerBox = section.querySelector(".live-player"), chatBox = section.querySelector(".live-chat");
-      const open = section.querySelector(".live-open");
+      const open = section.querySelector(".live-open"), openName = section.querySelector(".live-open-name");
+      const notice = section.querySelector(".live-notice");
+      const other = notice.querySelector(".live-notice-other");
       const host = location.hostname;          // a Twitch exige o domínio do site em "parent"
-      const opened = new Map();                // canal -> [player, chat]
-      let current = tabs[0], started = false;
+      const opened = new Map();                // canal -> { player, chat }
+      const nameOf = (btn) => btn.querySelector(".tab-name").textContent;
+      const tabOf = (c) => tabs.find((b) => b.dataset.channel === c);
 
-      const frame = (box, src, title, full) => {
+      // Status: true = no ar, false = offline, undefined = ainda não sabemos
+      const status = {};
+      const marked = ((window.INFO || {}).aoVivo || []).filter((c) => tabOf(c));
+      marked.forEach((c) => { status[c] = true; });
+      let current = tabOf(marked[0]) || tabs[0], started = false;
+
+      const render = () => {
+        tabs.forEach((b) => { b.querySelector(".live-badge").hidden = status[b.dataset.channel] !== true; });
+        const c = current.dataset.channel;
+        const off = started && status[c] === false;
+        notice.hidden = !off;
+        if (!off) return;
+        notice.querySelector(".live-notice-name").textContent = nameOf(current);
+        notice.querySelector(".live-notice-open").href = "https://www.twitch.tv/" + c;
+        const alt = tabs.find((b) => b !== current && status[b.dataset.channel] === true);
+        other.hidden = !alt;
+        if (alt) { other.dataset.channel = alt.dataset.channel; other.querySelector(".live-notice-other-name").textContent = nameOf(alt); }
+      };
+      const setStatus = (c, on) => { if (status[c] !== on) { status[c] = on; render(); } };
+
+      // Player com a API da Twitch (avisa se o canal está no ar). Se o script dela não carregar,
+      // cai no iframe simples de antes, só sem o status automático.
+      let api = null;
+      const loadApi = () => api || (api = new Promise((ok) => {
+        const s = document.createElement("script");
+        s.src = "https://player.twitch.tv/js/embed/v1.js";
+        s.onload = () => ok(window.Twitch && window.Twitch.Player ? window.Twitch.Player : null);
+        s.onerror = () => ok(null);
+        setTimeout(() => ok(null), 8000);
+        document.head.appendChild(s);
+      }));
+      const iframe = (box, src, title, full) => {
         const f = document.createElement("iframe");
         f.src = src; f.title = title; if (full) f.allowFullscreen = true;
         box.appendChild(f); return f;
       };
+      const makePlayer = (c, name) => {
+        const box = document.createElement("div");
+        box.className = "live-slot";
+        playerBox.insertBefore(box, notice);
+        loadApi().then((P) => {
+          if (!P) { iframe(box, `https://player.twitch.tv/?channel=${c}&parent=${host}&muted=true&autoplay=true`, "Twitch: " + name, true); return; }
+          const p = new P(box, { channel: c, parent: [host], width: "100%", height: "100%", muted: true, autoplay: true });
+          p.addEventListener(P.ONLINE, () => setStatus(c, true));
+          p.addEventListener(P.OFFLINE, () => setStatus(c, false));
+          const f = box.querySelector("iframe"); if (f) f.title = "Twitch: " + name;
+        });
+        return box;
+      };
+
       const show = () => {
-        const channel = current.dataset.channel, name = current.textContent;
-        open.href = "https://www.twitch.tv/" + channel;
-        if (!started) return;
+        const c = current.dataset.channel, name = nameOf(current);
+        open.href = "https://www.twitch.tv/" + c; openName.textContent = name;
+        if (!started) return render();
         if (!host) { section.querySelector(".live-local").hidden = false; return; }
-        if (!opened.has(channel)) opened.set(channel, [
-          frame(playerBox, `https://player.twitch.tv/?channel=${channel}&parent=${host}&muted=true&autoplay=true`, "Twitch: " + name, true),
-          frame(chatBox, `https://www.twitch.tv/embed/${channel}/chat?parent=${host}&darkpopout`, "Chat da Twitch: " + name),
-        ]);
-        opened.forEach((frames, c) => frames.forEach((f) => f.classList.toggle("is-active", c === channel)));
+        if (!opened.has(c)) opened.set(c, {
+          player: makePlayer(c, name),
+          chat: iframe(chatBox, `https://www.twitch.tv/embed/${c}/chat?parent=${host}&darkpopout`, "Chat da Twitch: " + name),
+        });
+        opened.forEach((v, k) => { v.player.classList.toggle("is-active", k === c); v.chat.classList.toggle("is-active", k === c); });
+        render();
       };
       const select = (btn) => {
-        tabs.forEach((b) => b.setAttribute("aria-selected", b === btn));
+        tabs.forEach((b) => { b.setAttribute("aria-selected", b === btn); b.tabIndex = b === btn ? 0 : -1; });
         current = btn; show();
       };
       tabs.forEach((b, i) => {
@@ -128,15 +206,18 @@
           const next = tabs[(i + d + tabs.length) % tabs.length]; next.focus(); select(next);
         });
       });
+      other.addEventListener("click", () => { const t = tabOf(other.dataset.channel); if (t) { select(t); t.focus(); } });
+      select(current);
       new IntersectionObserver((entries, obs) => {
         if (entries.some((e) => e.isIntersecting)) { started = true; show(); obs.disconnect(); }
       }, { rootMargin: "400px" }).observe(section);
     })();
   </script>
 
-  <!-- Ranking de jogadores: os dados ficam em jogadores.js e a tabela é montada ordenada pela pontuação -->
+  <!-- Ranking de jogadores: os dados ficam em jogadores.js. Ordem por pontos; empate é decidido pelos MVPs.
+       Mostra o pódio (3 primeiros); "Ver mais" abre a lista completa -->
   <section id="players" class="players" aria-labelledby="players-title">
-    <h2 id="players-title" class="section-title" data-i18n="players.title">Player Ranking</h2>
+    <h2 id="players-title" class="section-title" data-i18n="players.title">Ranking de jogadores</h2>
     <div class="players-board">
       <table class="players-table">
         <thead>
@@ -144,29 +225,59 @@
             <th scope="col" class="col-rank" data-i18n="players.rank">#</th>
             <th scope="col" data-i18n="players.player">Jogador</th>
             <th scope="col" class="col-score" data-i18n="players.score">Pontos</th>
+            <th scope="col" class="col-mvp" data-i18n="players.mvp">MVP</th>
           </tr>
         </thead>
         <tbody id="players-body"></tbody>
       </table>
+      <p class="players-note" id="players-note" data-i18n="players.note">Empate em pontos? Fica na frente quem tem mais MVPs.</p>
       <p class="players-empty" id="players-empty" hidden data-i18n="players.empty">Ranking em breve</p>
+    </div>
+    <div class="players-more" id="players-more" hidden>
+      <button type="button" class="btn btn-ghost" aria-expanded="false" aria-controls="players-body">
+        <span data-i18n="players.more">Ver mais</span><span data-i18n="players.less" hidden>Ver menos</span>
+      </button>
     </div>
   </section>
   <script src="jogadores.js?v=20261117v"></script>
+  <script src="partida.js?v=20261117v"></script>
   <script>
     (() => {
+      // MVPs: quantas partidas a staff escolheu cada jogador como MVP (campo "mvp" de cada partida em partida.js)
+      const mvps = {};
+      ((window.PARTIDAS || {}).partidas || []).forEach((m) => { if (m.mvp) mvps[m.mvp] = (mvps[m.mvp] || 0) + 1; });
+      // Ordem: mais pontos; empate em pontos → quem tem mais MVPs fica na frente
       const list = (window.JOGADORES || []).filter((p) => p && p.nome)
-        .map((p) => ({ nome: String(p.nome), pontos: Number(p.pontos) || 0 }))
-        .sort((a, b) => b.pontos - a.pontos || a.nome.localeCompare(b.nome));
+        .map((p) => ({ nome: String(p.nome), pontos: Number(p.pontos) || 0, mvp: mvps[String(p.nome)] || 0 }))
+        .sort((a, b) => b.pontos - a.pontos || b.mvp - a.mvp || a.nome.localeCompare(b.nome));
       const body = document.getElementById("players-body");
-      if (!list.length) { document.getElementById("players-empty").hidden = false; body.closest("table").hidden = true; return; }
+      if (!list.length) { document.getElementById("players-empty").hidden = false; document.getElementById("players-note").hidden = true; body.closest("table").hidden = true; return; }
       let rank = 0;
       list.forEach((p, i) => {
-        if (i === 0 || p.pontos !== list[i - 1].pontos) rank = i + 1;   // empate divide a posição
+        const prev = list[i - 1];
+        if (i === 0 || p.pontos !== prev.pontos || p.mvp !== prev.mvp) rank = i + 1;   // só divide a posição se empatar nos pontos E nos MVPs
         const tr = document.createElement("tr");
         if (rank <= 3) tr.className = "top top-" + rank;
+        else { tr.className = "extra"; tr.hidden = true; }   // fora do pódio: só aparece com "Ver mais"
         const td = (text, cls) => { const c = document.createElement("td"); c.textContent = text; if (cls) c.className = cls; return c; };
-        tr.append(td(rank, "col-rank"), td(p.nome, "col-name"), td(p.pontos.toLocaleString("pt-BR"), "col-score"));
+        const score = td(p.pontos.toLocaleString("pt-BR"), "col-score"); score.dataset.num = p.pontos;
+        const mvpCell = td(p.mvp ? "★ " + p.mvp : "–", "col-mvp" + (p.mvp ? " has-mvp" : ""));
+        tr.append(td(rank, "col-rank"), td(p.nome, "col-name"), score, mvpCell);
         body.appendChild(tr);
+      });
+      // Botão "Ver mais / Ver menos" (só aparece se houver alguém além do pódio)
+      const extras = [...body.querySelectorAll("tr.extra")];
+      const wrap = document.getElementById("players-more");
+      if (!extras.length) return;
+      wrap.hidden = false;
+      const btn = wrap.querySelector("button");
+      const [more, less] = btn.querySelectorAll("span");
+      btn.addEventListener("click", () => {
+        const open = btn.getAttribute("aria-expanded") !== "true";
+        extras.forEach((tr) => { tr.hidden = !open; });
+        btn.setAttribute("aria-expanded", String(open));
+        more.hidden = open; less.hidden = !open;
+        if (!open) document.getElementById("players").scrollIntoView({ block: "start" });
       });
     })();
   </script>
@@ -178,7 +289,6 @@
     <div id="match-list" class="summary-list"></div>
     <div class="match-more"><a href="historico.html" class="btn btn-ghost" data-i18n="match.history">Histórico das partidas</a></div>
   </section>
-  <script src="partida.js?v=20261117v"></script>
   <script>
     (() => {
       const D = window.PARTIDAS;
@@ -195,9 +305,12 @@
         const head = el("div", "summary-head");
         const h3 = el("h3", "match-label");
         h3.append(t("span", "match.label", "Partida"), " " + n);
+        const ico = () => { const s = document.createElement("span"); s.className = "ico-time"; s.setAttribute("role", "img"); s.setAttribute("aria-label", "Duração"); s.dataset.i18nLabel = "match.duration"; return s; };
         const d = new Date(P.inicio * 1000);
         const dur = Math.floor(P.duracao / 60) + ":" + String(P.duracao % 60).padStart(2, "0");
-        head.append(h3, el("span", "summary-meta", d.toLocaleDateString("pt-BR") + " · ⏱ " + dur));
+        const meta = el("span", "summary-meta"), day = el("span", null, d.toLocaleDateString("pt-BR"));
+        day.dataset.date = d.getTime(); meta.append(day, " · ", ico(), dur);
+        head.append(h3, meta);
         card.appendChild(head);
 
         P.times.forEach((team, ti) => {
@@ -215,18 +328,17 @@
         });
 
         // MVP: escolhido pelo ADM em partida.js ("mvp": "nome do jogador")
-        const mvpRow = el("div", "summary-mvp");
-        mvpRow.appendChild(el("span", "mvp", "MVP"));
+        // Sem MVP escolhido ainda, a linha não aparece
         const who = P.mvp && P.times.flatMap((tm) => tm.jogadores.map((j) => ({ ...j, time: tm.classe }))).find((j) => j.nome === P.mvp);
         if (who) {
+          const mvpRow = el("div", "summary-mvp");
+          mvpRow.appendChild(el("span", "mvp", "MVP"));
           const img = el("img", "hero-ico team-" + who.time); img.src = "assets/partida/herois/" + who.img + ".webp"; img.alt = ""; img.width = 36; img.height = 36; img.loading = "lazy";
           const txt = el("span", "summary-mvp-who");
           txt.append(el("strong", null, who.nome), el("span", "hero-name", who.heroi + " · " + who.k + "/" + who.d + "/" + who.a));
           mvpRow.append(img, txt);
-        } else {
-          mvpRow.appendChild(t("span", "hist.tbd", "A definir", "is-tbd"));
+          card.appendChild(mvpRow);
         }
-        card.appendChild(mvpRow);
 
         const more = el("a", "summary-link"); more.href = "historico.html#partida-" + n;
         more.append(t("span", "match.full", "Ver placar completo"), " →");
@@ -237,12 +349,12 @@
   </script>
 
   <footer class="footer">
-    <!-- Botão discreto da equipe: abre o painel do bot (aba Site) -->
+    <!-- Botão discreto da equipe: abre o login da staff -->
     <a href="staff/" class="staff-link" rel="nofollow">Staff</a>
     <p data-i18n="footer.main">Refresher League</p>
     <p class="small" data-i18n="footer.small">Evento independente, sem vínculo com a Valve.</p>
   </footer>
 
-  <script src="i18n.js?v=20261117v"></script>
+  <script src="i18n.js?v=20261118h"></script>
 </body>
 </html>

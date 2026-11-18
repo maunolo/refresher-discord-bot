@@ -1,4 +1,6 @@
 :root {
+  --live: #e5484d;
+  --live-text: #ff8589;
   /* Paleta: Creme #EEE8B2 · Dourado #C18D52 · Verde-noite #081B1B
      Verde-escuro #203B37 · Verde-sálvia #5A8F76 · Menta #96CDB0
      Fundo verde-noite, textos creme, detalhes dourados, verdes nas superfícies. */
@@ -99,35 +101,36 @@ section[id] { scroll-margin-top: 80px; } /* o menu fixo não cobre o título ao 
 
 /* Topo */
 .hero {
-  min-height: 78vh;
+  min-height: 62vh;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   text-align: center;
   padding: 80px 6vw;
 }
 
-/* Patronos fixos nas bordas da tela: só metade de cada um aparece e eles
-   não se movem ao rolar. O fundo ganha luz laranja (Hidden King) e azul
-   (Arch Mother) por cima do verde-noite, sem deixar de ser verde. */
+/* Patronos fixos nas bordas da tela, inteiros, sem se mover ao rolar. O fundo ganha luz
+   laranja (Hidden King) e azul (Arch Mother) por cima do verde-noite, sem deixar de ser verde.
+   O vídeo é quadrado (--h de lado). Dentro dele a figura vai de ~11% a ~93% da altura;
+   na largura, o Hidden King ocupa de 33% a 72% e a Arch Mother (braços abertos) de 25% a 75%.
+   Por isso cada um é empurrado para fora só o bastante para a figura encostar na borda da tela. */
 .stage {
-  --stage-w: clamp(420px, 50vw, 900px);
+  --h: min(106vh, 100vw);           /* em tela estreita encolhe para os dois caberem lado a lado */
   position: fixed; top: 0; bottom: 0; z-index: 0;
-  width: var(--stage-w);
+  width: var(--h);
   pointer-events: none;
 }
 /* Patronos um pouco transparentes */
 .stage-patron { opacity: 0.6; }
 .stage-king {
-  left: calc(var(--stage-w) * -0.45);
-  background: radial-gradient(ellipse 60% 70% at 50% 55%, rgba(196, 116, 46, 0.30), transparent 72%);
+  left: calc(1vw - var(--h) * 0.33);
+  background: radial-gradient(ellipse 40% 60% at 52% 50%, rgba(196, 116, 46, 0.30), transparent 72%);
 }
 .stage-arch {
-  right: calc(var(--stage-w) * -0.45);
-  background: radial-gradient(ellipse 60% 70% at 50% 55%, rgba(52, 118, 168, 0.32), transparent 72%);
+  right: calc(1vw - var(--h) * 0.25);
+  background: radial-gradient(ellipse 40% 60% at 50% 50%, rgba(52, 118, 168, 0.32), transparent 72%);
 }
-/* Vídeo quadrado do patrono: a figura ocupa ~70% da altura do quadro */
 .stage-patron {
-  position: absolute; top: -4vh; left: 50%; transform: translateX(-50%);
-  height: 115vh; width: auto; aspect-ratio: 1; max-width: none;
+  position: absolute; top: calc(50vh - var(--h) * 0.5 + 30px); left: 0;   /* +30px: a cabeça não fica sob o menu */
+  width: var(--h); height: var(--h); max-width: none;
 }
 /* Conteúdo sempre por cima dos patronos */
 .nav ~ * { position: relative; z-index: 1; }
@@ -136,63 +139,27 @@ section[id] { scroll-margin-top: 80px; } /* o menu fixo não cobre o título ao 
 }
 /* Hierarquia do topo: título (display) → subtítulo (o que é o evento) → frase de apoio */
 .hero h1 { font-size: clamp(2.6rem, 7vw, 5rem); font-weight: 700; line-height: 1.05; letter-spacing: 0.01em; margin: 12px 0 6px; }
+.hero-sub { font-size: clamp(1.05rem, 2.2vw, 1.35rem); color: var(--muted); max-width: 36ch; margin-top: 6px; }
+.hero-date { margin-top: 10px; font-size: clamp(1.1rem, 2.4vw, 1.45rem); font-weight: 700; color: var(--gold-text); letter-spacing: 0.02em; }
 
-/* Informações */
-.info {
-  display: grid; grid-template-columns: repeat(4, 1fr);
-  max-width: 1100px; margin: -40px auto 0; padding: 0 6vw;
-  gap: 14px;
-}
+
+/* Informações: cartões só do que já foi definido + uma linha com o que falta */
+.info { max-width: 1100px; margin: -40px auto 0; padding: 0 6vw 90px; }
+.info-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 14px; margin-bottom: 22px; }
+.info-cards[hidden], .info-card[hidden], .info-pending[hidden], .info-pending-list > [hidden] { display: none; }
 .info-card {
   background: var(--card); border: 1px solid var(--line);
   padding: 18px 20px;
 }
 .label { display: block; text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.12em; color: var(--muted); }
 .info-card strong { font-size: 1.1rem; }
-
-/* Regras */
-.rules { max-width: 1100px; margin: 0 auto; padding: 90px 6vw 70px; }
-.rules-soon {
-  text-align: center;
-  font-size: clamp(1.4rem, 3vw, 2rem); font-weight: 600; letter-spacing: 0.06em;
-  color: var(--gold-text);
-  padding: 0 24px;
-  /* sem moldura: só o texto */
-  max-width: 520px; margin: 0 auto;
+.info-pending {
+  display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 6px 14px;
+  text-align: center; color: var(--muted); font-size: 1rem;
 }
+.info-pending-list { color: var(--text); font-weight: 600; }
+.info-pending-list > :not(:last-child)::after { content: " · "; color: var(--gold); font-weight: 400; white-space: pre; }
 
-.rule {
-  position: relative;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-top: 3px solid var(--gold); /* cantos retos, como um box de revista impressa */
-  padding: 26px 24px;
-}
-.rule .num {
-  position: absolute; top: 33px; right: 24px;
-  font-family: "Valve Oracle", sans-serif; font-size: 1.05rem; font-weight: 600;
-  letter-spacing: 0.08em; font-variant-numeric: tabular-nums; line-height: 1;
-  /* menor que o título do card: o número só indexa a regra, o título lidera */
-  color: var(--gold-text); /* número decorativo (aria-hidden) */
-}
-.rule h3 { font-size: 1.35rem; line-height: 1.25; margin-bottom: 14px; padding-right: 3ch; color: var(--title); }
-.rule ul { list-style: none; display: grid; gap: 10px; color: var(--muted); }
-.rule ul li { padding-left: 18px; position: relative; }
-.rule ul li::before { content: "◆"; position: absolute; left: 0; color: var(--gold); font-size: 0.7rem; top: 4px; }
-.rule p { color: var(--muted); margin-bottom: 12px; }
-
-.rule-penalty { border-top-color: var(--red); }
-.rule-penalty h3 { color: var(--red); }
-.penalties { list-style: none; display: grid; gap: 6px; counter-reset: p; }
-.penalties li {
-  counter-increment: p;
-  display: flex; align-items: center; gap: 10px;
-  background: rgba(239, 138, 116, 0.08);
-  padding: 6px 10px;
-}
-.penalties li::before { content: counter(p); font-weight: 600; color: var(--red); min-width: 1ch; }
-
-/* Rodapé */
 /* Players: ranking por pontuação, no mesmo quadro dourado da live */
 .players { max-width: 860px; margin: 0 auto; padding: 0 4vw 90px; }
 .section-title {
@@ -212,9 +179,13 @@ section[id] { scroll-margin-top: 80px; } /* o menu fixo não cobre o título ao 
 }
 .players-table td { padding: 13px 14px; border-bottom: 1px solid var(--line); font-size: 1.05rem; }
 .players-table tbody tr:last-child td { border-bottom: 0; }
+.players-table tbody tr:has(+ tr[hidden]) td { border-bottom: 0; } /* lista fechada: sem linha embaixo do pódio */
 .players-table tbody tr:hover td { background: rgba(193, 141, 82, 0.06); }
 .players-table .col-rank { width: 4.5rem; text-align: center; }
 .players-table .col-score { text-align: right; width: 8rem; }
+.players-table .col-mvp { text-align: center; width: 5.5rem; }
+.players-table td.col-mvp { color: var(--sage); }
+.players-table td.col-mvp.has-mvp { color: var(--gold-text); font-weight: 700; }
 .players-table td.col-rank { color: var(--muted); font-weight: 700; }
 .players-table td.col-score { font-weight: 700; color: var(--gold-text); }
 /* Pódio: ouro, prata e bronze */
@@ -223,12 +194,17 @@ section[id] { scroll-margin-top: 80px; } /* o menu fixo não cobre o título ao 
 .players-table .top-2 td.col-rank { color: #c9d1cf; }
 .players-table .top-3 td.col-rank { color: #c27d4e; }
 .players-table .top-1 td.col-name { font-weight: 700; }
+.players-more { text-align: center; margin-top: 22px; }
+.players-more .btn { font: inherit; font-weight: 600; cursor: pointer; }
+.players-note { margin-top: 14px; text-align: center; color: var(--muted); font-size: 0.9rem; }
+.players-note[hidden] { display: none; }
 .players-empty { text-align: center; color: var(--gold-text); font-size: 1.3rem; padding: 26px 0; }
 @media (max-width: 560px) {
   .players-board { padding: 10px 8px; }
   .players-table th, .players-table td { padding: 11px 8px; }
   .players-table .col-rank { width: 2.8rem; }
   .players-table .col-score { width: 5.5rem; }
+  .players-table .col-mvp { width: 3.8rem; }
 }
 
 /* Partidas: placar da última partida, na mesma moldura dourada do ranking */
@@ -439,15 +415,48 @@ html.has-dialog { overflow: hidden; }
 .live-player { z-index: 101; }
 .live-chat { grid-area: 1 / 2; }
 .live-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+.live-slot { position: absolute; inset: 0; }
 /* Lives já abertas continuam tocando por trás; só a do canal selecionado fica visível e clicável */
-.live-frame iframe:not(.is-active) { visibility: hidden; pointer-events: none; }
+.live-chat iframe:not(.is-active), .live-slot:not(.is-active) { visibility: hidden; pointer-events: none; }
+.live-slot:not(.is-active) iframe { visibility: hidden; }
+
+/* Selo "ao vivo" nas abas */
+.live-tabs button { display: inline-flex; align-items: center; gap: 10px; }
+.live-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--live-text);
+}
+.live-badge::before {
+  content: ""; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--live); box-shadow: 0 0 0 3px rgba(229, 72, 77, 0.25);
+}
+.live-badge[hidden] { display: none; }
+.live-tabs button[aria-selected="true"] .live-badge { color: var(--on-accent); }
+
+/* Aviso dentro da moldura quando o canal escolhido está offline */
+.live-notice {
+  position: absolute; inset: 0; z-index: 2;
+  display: grid; place-content: center; justify-items: center; gap: 8px;
+  padding: 24px; text-align: center;
+  background: rgba(5, 15, 15, 0.9);
+}
+.live-notice[hidden] { display: none; }
+.live-notice p { max-width: 40ch; }
+.live-notice strong { color: var(--title); }
+.live-notice-hint { color: var(--muted); font-size: 0.95rem; }
+.live-notice-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 10px; }
+.live-notice-actions .btn { font: inherit; font-weight: 600; cursor: pointer; }
 .live-local[hidden] { display: none; }
 .live-local {
   grid-area: 1 / 1; align-self: center; justify-self: center; z-index: 1; max-width: 32ch;
   color: var(--muted); text-align: center; padding: 20px; pointer-events: none;
 }
-.live-open { display: block; width: max-content; margin: 18px auto 0; color: var(--muted); font-size: 0.95rem; text-decoration: none; }
-.live-open:hover { color: var(--gold-text); }
+.live-foot {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px 18px;
+  margin-top: 20px; text-align: center;
+}
+.live-help { color: var(--muted); font-size: 0.92rem; max-width: 52ch; }
 @media (max-width: 1000px) {
   .live-grid { grid-template-columns: 1fr; padding: 12px; }
   .live-chat { grid-area: 2 / 1; height: 440px; }
@@ -457,7 +466,6 @@ html.has-dialog { overflow: hidden; }
 
 /* Celular */
 @media (max-width: 760px) {
-  .info { grid-template-columns: repeat(2, 1fr); }
   .nav nav a:not(.btn) { display: none; }
 }
 @media (max-width: 480px) {
@@ -476,6 +484,15 @@ html.has-dialog { overflow: hidden; }
 
 /* Seleção de texto na paleta do site */
 ::selection { background: var(--text); color: var(--bg); }
+html { scrollbar-color: var(--gold-strong) var(--bg); }
+
+/* Ícone de duração (cronômetro), desenhado em SVG e pintado com a cor do texto em volta */
+.ico-time {
+  display: inline-block; width: 0.95em; height: 0.95em; margin-right: 0.25em; vertical-align: -0.12em;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='13.5' r='7.5'/%3E%3Cpath d='M12 9.5v4l2.5 2M9.5 2.5h5M12 2.5V6'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='13.5' r='7.5'/%3E%3Cpath d='M12 9.5v4l2.5 2M9.5 2.5h5M12 2.5V6'/%3E%3C/svg%3E") center / contain no-repeat;
+}
 
 /* Acessibilidade: foco visível no teclado */
 a:focus-visible, button:focus-visible {
