@@ -19,6 +19,7 @@ import { matchHref, routeHref } from '../route';
 import { usePolling } from '../usePolling';
 import { Captain, CopyButton, DiscordLink, MvpTag, RoleChip, SRankChip } from './common';
 import { DraftLinks, ManualDraftNote, StagePill, Stepper } from './MatchCard';
+import { MatchStatsCard } from './MatchStatsCard';
 import { Corrections } from './Panels';
 import { WinnerDialog } from './ResultDialogs';
 
@@ -461,6 +462,7 @@ function MatchDetail({ camp, match }: { camp: Camp; match: Match }) {
           </section>
         </aside>
       </div>
+      {match.status === 'completed' && <MatchStatsCard camp={camp} match={match} />}
     </div>
   );
 }

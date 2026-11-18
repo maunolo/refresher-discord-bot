@@ -243,12 +243,12 @@
   <script src="partida.js?v=20261117v"></script>
   <script>
     (() => {
-      // MVPs: quantas partidas a staff escolheu cada jogador como MVP (campo "mvp" de cada partida em partida.js)
+      // MVPs: o bot manda a contagem em jogadores.js (p.mvps); sem ela, conta o campo "mvp" de cada partida em partida.js
       const mvps = {};
       ((window.PARTIDAS || {}).partidas || []).forEach((m) => { if (m.mvp) mvps[m.mvp] = (mvps[m.mvp] || 0) + 1; });
       // Ordem: mais pontos; empate em pontos → quem tem mais MVPs fica na frente
       const list = (window.JOGADORES || []).filter((p) => p && p.nome)
-        .map((p) => ({ nome: String(p.nome), pontos: Number(p.pontos) || 0, mvp: mvps[String(p.nome)] || 0 }))
+        .map((p) => ({ nome: String(p.nome), pontos: Number(p.pontos) || 0, mvp: Number(p.mvps ?? mvps[String(p.nome)]) || 0 }))
         .sort((a, b) => b.pontos - a.pontos || b.mvp - a.mvp || a.nome.localeCompare(b.nome));
       const body = document.getElementById("players-body");
       if (!list.length) { document.getElementById("players-empty").hidden = false; document.getElementById("players-note").hidden = true; body.closest("table").hidden = true; return; }
@@ -333,7 +333,7 @@
         if (who) {
           const mvpRow = el("div", "summary-mvp");
           mvpRow.appendChild(el("span", "mvp", "MVP"));
-          const img = el("img", "hero-ico team-" + who.time); img.src = "assets/partida/herois/" + who.img + ".webp"; img.alt = ""; img.width = 36; img.height = 36; img.loading = "lazy";
+          const img = el("img", "hero-ico team-" + who.time); img.src = who.imgUrl || "assets/partida/herois/" + who.img + ".webp"; img.alt = ""; img.width = 36; img.height = 36; img.loading = "lazy";
           const txt = el("span", "summary-mvp-who");
           txt.append(el("strong", null, who.nome), el("span", "hero-name", who.heroi + " · " + who.k + "/" + who.d + "/" + who.a));
           mvpRow.append(img, txt);

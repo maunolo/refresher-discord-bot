@@ -6,3 +6,4 @@ pub mod link;
 pub mod queue;
 pub mod ranking;
 pub mod settings;
+pub mod stats;

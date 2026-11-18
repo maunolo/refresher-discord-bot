@@ -9,7 +9,7 @@ Admins run the camp from a **web admin page** (sign in with Discord). In Discord
 1. Create an application and bot in the [Discord Developer Portal](https://discord.com/developers/applications). On the **Bot** page, turn on **Server Members Intent**: the admin page lists the server's members to add players. No other privileged intent is needed.
 2. Invite the bot with: View Channels, Send Messages, Embed Links, Connect, Move Members, and Manage Channels if you want it to create the voice channels.
 3. In the application's **OAuth2** page, copy the **Client ID**, reset and copy the **Client Secret**, and add the redirect `http://localhost:8080/auth/callback` (or `{WEB_PUBLIC_URL}/auth/callback` if you change the address).
-4. Copy `.env.example` to `.env` and set `DISCORD_TOKEN`, `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`. Leave `ENABLE_CUSTOM_MATCH_CREATE=false` until you need a real Deadlock lobby (then the IP limit is **10 creates per hour** without a key); `DEADLOCK_API_KEY` is optional. Set `DEADCHAPS_API_KEY` for the bot to create drafts (see [Drafts](#drafts)). The voice channel, lobby and region values in `.env` are only defaults: each server can change them on the admin page's **Configurações**.
+4. Copy `.env.example` to `.env` and set `DISCORD_TOKEN`, `DISCORD_CLIENT_ID` and `DISCORD_CLIENT_SECRET`. Leave `ENABLE_CUSTOM_MATCH_CREATE=false` until you need a real Deadlock lobby (then the IP limit is **10 creates per hour** without a key); `DEADLOCK_API_KEY` is optional, but without it the [match scoreboards](#match-scoreboards) can ask Steam only 3 times an hour. Set `DEADCHAPS_API_KEY` for the bot to create drafts (see [Drafts](#drafts)). The voice channel, lobby and region values in `.env` are only defaults: each server can change them on the admin page's **Configurações**.
 5. Build the admin page once (needs [Node.js](https://nodejs.org) 20 or newer): `cd web`, `npm install`, `npm run build`. The server serves `web/dist` (change it with `WEB_STATIC_DIR`).
 6. Install Rust (`https://rustup.rs`), then from the repo root:
 
@@ -45,7 +45,7 @@ Anyone with **Manage Server** in a server the bot is in can sign in and run that
 - **Partidas:** every match of the camp, open ones first. A match's page shows each player's vote (Refresh, Manter or waiting) with tallies, the next step for its stage, **Lembrar quem falta votar** (mentions only the players who haven't voted), **Fechar e manter times**, the draft links and the party code. Finished matches show the result and, for the latest one, the corrections.
 - **Ranking:** every player by points, with MVPs, wins, matches played and win rate; manual adjustments show in parentheses, and **Ajustar** opens the same points dialog as Jogadores. Equal points are broken by MVPs; players equal on both share a place.
 - **Configurações:** per server. The five voice channels the bot moves players to (*Automático* finds or creates them by name), whether starting a match creates the Deadlock lobby and in which region, whether the bot creates drafts on DeadChaps, the drafts' rules (see [Drafts](#drafts)), and whether captains get the draft link by DM. Until an admin saves, a server uses the `.env` values. The side column has the server's **Overlays do OBS** links (see [OBS overlays](#obs-overlays)). Changes apply from the next action; a draft already created keeps its rules.
-- **Site:** only for the server in `SITE_GUILD_ID`. What the [public site](#public-site) shows for the selected camp: the four info cards in Portuguese, English and Spanish, the player ranking (typed in, or filled from the camp's ranking with **Preencher com o ranking do camp**), and the match scoreboards with the MVP staff pick for each. Matches are added by pasting JSON in the old `partida.js` shape. **Mostrar este camp no site** makes the camp the one the site shows.
+- **Site:** only for the server in `SITE_GUILD_ID`. The selected camp's four info cards for the [public site](#public-site), in Portuguese, English and Spanish, and **Usar os dados deste camp no site**, which makes the site show this camp's ranking and match history. It also says how many finished matches have their [scoreboard](#match-scoreboards) yet.
 - **Regras:** the queue and match rules written out in Portuguese: starting the queue, who plays, the team split, the refresh vote and what a refresh changes, the requeue after a result, the final, and a 30-player example. It opens even with no camp selected.
 
 Each match, the queue and each camp have an **Abrir no Discord** link to their message.
@@ -143,14 +143,31 @@ The party code and draft links are never on an overlay.
 
 ## Public site
 
-The league's public site ([refresherleague.com.br](https://refresherleague.com.br/)) lives in `site/` and is served by the bot, replacing the old Hostinger copy and its PHP staff panel. Its pages and assets are static files. The three scripts they read their data from, `info.js`, `jogadores.js` and `partida.js`, are built by the bot from what admins saved on the admin page's **Site** tab for the published camp. Browsers re-check them on every visit, so a save shows up on the next page load.
+The league's public site ([refresherleague.com.br](https://refresherleague.com.br/)) lives in `site/` and is served by the bot, replacing the old Hostinger copy and its PHP staff panel. Its pages and assets are static files. Its data comes from the camp published on the admin page's **Site** tab:
+
+- **Ranking:** the camp's players by points, then MVPs, with their wins and matches, named as in Discord.
+- **Match history:** the camp's finished matches that have their Deadlock [scoreboard](#match-scoreboards), oldest first: heroes, K/D/A, souls, damage, objective damage, healing and final items. Players show their Discord name if their Steam account is linked, else their Steam name. The MVP is the admin's pick. Heroes and items the site has no icon for use the Deadlock API's.
+- **Info cards:** what admins typed on the Site tab for that camp.
+
+The pages load them as `info.js`, `jogadores.js` and `partida.js` (`window.INFO`, `window.JOGADORES`, `window.PARTIDAS`); the same data is JSON at `/api/info`, `/api/ranking` and `/api/matches`, open to any domain. Browsers re-check all of it on every visit, so changes show up on the next page load.
 
 - It's always at `{WEB_PUBLIC_URL}/site/`, so it can be checked before its domain points here. Each domain in `SITE_HOSTS` shows it at its root and nothing of the admin page.
-- `SITE_GUILD_ID` is the server whose admins see the **Site** tab. Each of its camps has its own site content, and one camp is published.
+- `SITE_GUILD_ID` is the server whose admins see the **Site** tab and pick the camp it shows.
 - While `SITE_LOCK=user:password` is set, the whole site asks for that login, like the old test server's `.htaccess`. Remove it to open the site.
 - The footer's **Staff** link (`/staff/`) opens the admin page's Site tab.
 
 To move the domain here: add `refresherleague.com.br` (and `www.`, if used) as custom domains on the Railway service, create the DNS records Railway shows at the domain's DNS host (Hostinger), and set `SITE_HOSTS=refresherleague.com.br,www.refresherleague.com.br`.
+
+## Match scoreboards
+
+When a match ends, the bot fetches its scoreboard from the [Deadlock API](https://api.deadlock-api.com/docs) for the public site's match history, and shows it on the match's page in **Partidas**.
+
+- **With the bot's lobby** (**Criar o lobby ao iniciar a partida** on): the bot turns the lobby's party into the Deadlock match ID, trying every 2 minutes for 12 minutes, then waits for the match's data. Valve publishes it a few minutes after the game, so the bot tries over about two hours, more often at first.
+- **Without it**, or if the party never turns into a match: the match's page asks for the **ID da partida**, from the Deadlock match history or the end-of-match screen. The bot looks it up within seconds, and giving an ID again retries a lookup that failed or replaces a wrong one.
+- **Steam accounts:** the scoreboard lists players by Steam account. On the match's page, pick which player of that side played on each account; the link holds for every later match on the server. When all but one of a team are linked (always, in a 1v1), the bot links the last one itself.
+- **Rate limits:** asking Steam for a match is limited to 3 requests an hour per IP without `DEADLOCK_API_KEY`, so the bot only asks Steam on every other try. With a key the limit is 300 an hour.
+
+The healing column is `player_healing` from the API, which can differ from the in-game scoreboard; every other column matches it.
 
 ## Voice channels
 
@@ -210,8 +227,12 @@ Discord IDs are sent as strings, since they don't fit in a JavaScript number. Ev
 | `GET /api/guilds/{guild_id}/settings` | The server's settings, whether they were saved, its voice channels, and the draft timers and reserves allowed and the most bans. |
 | `PUT /api/guilds/{guild_id}/settings` | Saves them: the five `*_voice_id` (a voice channel ID or `null` for automatic), `create_lobby`, `server_region`, `use_draft_tool` (default `true`), `draft_timer_seconds`, `draft_reserve_seconds` (default 90), `draft_bans_per_team` (0 to 3, default 2), `draft_view` (`cinematic` or `competitive`, default `cinematic`) and `dm_captains` (default `true`). A channel from another server, an unlisted timer or reserve, too many bans or an unknown view is a 400. |
 | `GET /api/camps/{camp_id}` | Roster with names, points, wins and matches played, queue and who goes next, open matches with teams, votes and draft links, recent results, and Discord links. |
-| `GET /api/camps/{camp_id}/site`, `PUT` to replace | The site server's camps only. `published`, the site's `url`, and `content`: `info` (`data`, `formato`, `premiacao`, `times`, each `pt`/`en`/`es`), `players` (`nome`, `pontos`) and `matches` (`partidas`, `itens`), in the shapes of the site's old JS files. `PUT` takes `content` and returns it cleaned: empty cards become "A definir"/"TBD"/"Por definir", nameless ranking rows are dropped, and an MVP who didn't play in the match is cleared. A scoreboard the site can't draw is a 400 that says which match. |
+| `GET /api/camps/{camp_id}/site`, `PUT` to save | The site server's camps only. `published`, the site's `url`, `info` (`data`, `formato`, `premiacao`, `times`, each `pt`/`en`/`es`), `finished_matches` and how many have `scoreboards`. `PUT` takes `{"info": …}` and returns it cleaned: empty cards become "A definir"/"TBD"/"Por definir". |
 | `POST /api/camps/{camp_id}/site/publish` | Makes the camp the one the public site shows. |
+| `GET /api/matches/{match_id}/stats` | The match's Deadlock scoreboard lookup: `status` (`pending`, `needs_id`, `ready`, `failed`, or `none` before it ends), `deadlock_match_id`, `attempts`, `next_attempt_at`, `error`, and once ready the `scoreboard` (`duration_s`, `winner_side`, and per player the Steam `account_id` and name, `side`, hero, K/D/A, souls and the linked `user_id`). |
+| `PUT /api/matches/{match_id}/stats` | `{"deadlock_match_id": "139086680"}`: looks the finished match up by that ID; the same ID again retries. Not a number is a 400; a match still open is a 409. |
+| `PUT /api/guilds/{guild_id}/deadlock-accounts/{account_id}` | `{"user_id": "…"}` links the Steam account to that member for the server's scoreboards; `null` unlinks it. |
+| `GET /api/info`, `/api/ranking`, `/api/matches` (site domains, or `/site/api/…`) | No session, any origin. The public site's data for the published camp: the info cards; the ranking (`posicao`, `nome`, `pontos`, `mvps`, `vitorias`, `partidas`, `avatar`); the match history (`partidas`, oldest first, and `itens`), in the shapes `info.js`, `jogadores.js` and `partida.js` give the pages. |
 | `GET /api/camps/{camp_id}/matches` | Every match of the camp: open ones by slot, then finished ones newest first with their number. |
 | `GET /api/matches/{match_id}` | One match, finished or not. |
 | `POST /api/camps/{camp_id}/actions` | Runs an admin action and returns the camp afterwards. Body: `{"type": "create_match"}`, `create_final`, or `close_vote` / `refresh_teams` / `start_draft` / `start_match` / `correct_winner` / `reopen_match` with `"match_id"`, or `report_winner` with `"match_id"`, `"side"` (`hiddenking` / `archmother`) and `"mvp_user_id"`, or `change_mvp` with `"match_id"` and `"user_id"`; for the roster, `add_players` (`"user_ids"`), `remove_player` and `set_s_rank` (`"user_id"`, `"s_rank"`), `set_role` (`"user_id"`, `"role"`: `tank` / `carry` / `support`, or `null` to clear it); `adjust_points` with `"user_id"` and `"delta"` (negative takes points); `reorder_queue` with the whole queue in its new order (`"user_ids"`), `remind_voters` with `"match_id"`, and `start_queue`, `cancel_camp`, `resume_camp`, `end_camp`. A refusal (e.g. a draft before the vote ended) is a 409 with the bot's message. |

@@ -42,7 +42,7 @@ window.renderPartida = (P, numero, titleTag = "h3") => {
       const isMvp = !!P.mvp && p.nome === P.mvp;   // MVP escolhido pelo ADM em partida.js
       const tr = el("tr", isMvp ? "is-mvp" : "");
       const who = el("td", "col-player"); const cell = el("div", "player");
-      const img = el("img", "hero-ico"); img.src = "assets/partida/herois/" + p.img + ".webp"; img.alt = ""; img.width = 40; img.height = 40; img.loading = "lazy";
+      const img = el("img", "hero-ico"); img.src = p.imgUrl || "assets/partida/herois/" + p.img + ".webp"; img.alt = ""; img.width = 40; img.height = 40; img.loading = "lazy";
       const names = el("div", "who");
       const nm = el("strong", null, p.nome);
       if (isMvp) nm.append(" ", el("span", "mvp", "MVP"));
@@ -54,7 +54,7 @@ window.renderPartida = (P, numero, titleTag = "h3") => {
         const it = D.itens[s] || { nome: s, tipo: "weapon" };
         const tile = el("span", "mi mi-" + it.tipo + (it.ativo ? " is-active" : ""));
         tile.title = it.nome;
-        const im = el("img"); im.src = "assets/partida/itens/" + s + ".webp"; im.alt = it.nome; im.width = 34; im.height = 34; im.loading = "lazy";
+        const im = el("img"); im.src = it.imgUrl || "assets/partida/itens/" + s + ".webp"; im.alt = it.nome; im.width = 34; im.height = 34; im.loading = "lazy";
         tile.appendChild(im); grid.appendChild(tile);
       });
       items.appendChild(grid);

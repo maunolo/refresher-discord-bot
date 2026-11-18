@@ -1538,43 +1538,27 @@ input {
   align-items: center;
   gap: 8px;
 }
-.site-rank .input {
-  width: 100%;
-  min-height: 38px;
+/* The Deadlock scoreboard on a finished match's page */
+.stats-table caption {
+  margin-bottom: 8px;
+  text-align: left;
 }
-.site-rank .site-points {
-  width: 120px;
+.stats-hero {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
 }
-.site-matches {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
+.stats-hero img {
+  border-radius: 6px;
 }
-.site-match {
+.stats-select {
+  min-height: 36px;
+  min-width: 180px;
+}
+.stats-id {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px;
-  border-radius: 10px;
-  border: 1px solid var(--control);
-  background: var(--inset);
-}
-.site-match-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 10px;
-}
-.site-match-head .icon-button {
-  margin-left: auto;
-}
-.site-import {
-  min-height: 110px;
-  padding: 10px 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-  resize: vertical;
+  max-width: 420px;
 }

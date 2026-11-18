@@ -22,6 +22,7 @@ mod auth;
 #[cfg(feature = "demo")]
 pub mod demo;
 mod error;
+mod scoreboard;
 mod session;
 mod site;
 
@@ -59,6 +60,7 @@ pub fn router(state: AppState) -> Router {
         .route("/camps/{camp_id}/actions", post(api::act))
         .route("/matches/{match_id}", get(api::match_info))
         .merge(site::api_routes())
+        .merge(scoreboard::api_routes())
         .fallback(|| async { ApiError::NotFound });
     let app = Router::new()
         .nest("/api", api)
@@ -1083,32 +1085,58 @@ data: 111
         Request::get(path).header("host", "RefresherLeague.com.br:443")
     }
 
-    fn site_content(mvp: &str) -> String {
-        let player = |nome: &str| {
-            serde_json::json!({
-                "nome": nome, "heroi": "Paige", "img": "paige", "almas": "40k", "k": 0, "d": 6, "a": 24,
-                "dano": "19k", "obj": "979", "cura": "25k", "itens": ["knockdown"]
-            })
+    /// A finished 1v1 in server 111 with Deadlock's scoreboard saved: the winner (Hidden King) on
+    /// Steam account 1001, the loser on 1002. Returns the camp, the match and both players.
+    async fn finished_with_scoreboard(state: &AppState) -> (String, String, i64, i64) {
+        use refresher_core::{db, stats};
+        let pool = &state.db;
+        let camp = db::create_camp(pool, 111, 900, 4, 2).await.unwrap();
+        db::add_players(pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
+        db::start_queue(pool, &camp.id).await.unwrap();
+        let (match_id, winner, loser) = play_1v1(pool, &camp.id, true).await;
+        let player = |account_id: u64, team: usize, hero: &str| stats::ScoreboardPlayer {
+            account_id,
+            team,
+            steam_name: Some(format!("steam{account_id}")),
+            hero_id: 1,
+            hero: hero.to_string(),
+            hero_image: None,
+            kills: 22,
+            deaths: 3,
+            assists: 8,
+            souls: 60_123,
+            damage: 55_000,
+            objective_damage: 13_000,
+            healing: 979,
+            items: vec![stats::ScoreboardItem {
+                id: 9,
+                name: "Knockdown".to_string(),
+                slot: "spirit".to_string(),
+                tier: Some(2),
+                active: true,
+                image: None,
+            }],
         };
-        serde_json::json!({
-            "info": { "data": { "pt": "28 e 29 de novembro", "en": "", "es": "" } },
-            "players": [{ "nome": "Kaiser77", "pontos": 980 }, { "nome": " ", "pontos": 1 }],
-            "matches": {
-                "partidas": [{
-                    "mvp": mvp, "id": 139086680, "inicio": 1794919042, "duracao": 2026, "vencedor": 0,
-                    "times": [
-                        { "nome": "Hidden King", "classe": "king", "almas": "270k", "jogadores": [player("VioletaS2")] },
-                        { "nome": "Archmother", "classe": "arch", "almas": "250k", "jogadores": [player("Zibra234")] }
-                    ]
-                }],
-                "itens": { "knockdown": { "nome": "Knockdown", "tipo": "spirit", "ativo": true } }
-            }
-        })
-        .to_string()
+        let board = stats::Scoreboard {
+            deadlock_match_id: 139086680,
+            start_time: 1794919042,
+            duration_s: 2026,
+            winning_team: 0,
+            players: vec![player(1001, 0, "Wraith"), player(1002, 1, "Paige")],
+        };
+        sqlx::query("UPDATE match_stats SET status = 'ready', deadlock_match_id = ?, data = ? WHERE match_id = ?")
+            .bind(139086680_i64)
+            .bind(serde_json::to_string(&board).unwrap())
+            .bind(&match_id)
+            .execute(pool)
+            .await
+            .unwrap();
+        stats::set_account_link(pool, 111, 1001, Some(winner)).await.unwrap();
+        (camp.id, match_id, winner, loser)
     }
 
     #[tokio::test]
-    async fn site_content_is_edited_by_admins_of_the_site_server() {
+    async fn site_info_is_edited_by_admins_of_the_site_server() {
         let state = test_state(FakeLink {
             guilds: vec![111, 222],
             ..FakeLink::default()
@@ -1127,28 +1155,20 @@ data: 111
 
         let (status, body) = get(&state, &path, Some(&token)).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["published"], false);
-        assert_eq!(body["content"]["info"]["premiacao"]["pt"], "A definir");
-        assert_eq!(body["content"]["matches"]["itens"]["refresher"]["nome"], "Refresher");
+        assert_eq!((body["published"].as_bool(), body["finished_matches"].as_u64()), (Some(false), Some(0)));
+        assert_eq!(body["info"]["premiacao"]["pt"], "A definir");
         // Only the site's server has a site.
         let other_path = format!("/api/camps/{}/site", other.id);
         assert_eq!(get(&state, &other_path, Some(&token)).await.0, StatusCode::NOT_FOUND);
-        assert_eq!(put(&state, &other_path, Some(&token), &site_content("x")).await.0, StatusCode::NOT_FOUND);
 
-        let (status, body) = put(&state, &path, Some(&token), r#"{"info": {}, "players": "no"}"#).await;
+        let (status, body) = put(&state, &path, Some(&token), r#"{"info": "no"}"#).await;
         assert_eq!(status, StatusCode::BAD_REQUEST);
         assert!(body["error"].as_str().unwrap().starts_with("Dados inválidos"));
-        let bad = site_content("VioletaS2").replace("\"king\"", "\"blue\"");
-        let (status, body) = put(&state, &path, Some(&token), &bad).await;
-        assert_eq!(status, StatusCode::BAD_REQUEST);
-        assert!(body["error"].as_str().unwrap().contains("classe"));
-
-        let (status, body) = put(&state, &path, Some(&token), &site_content("nobody")).await;
+        let info = r#"{"info": {"data": {"pt": " 28 e 29 de novembro "}}}"#;
+        let (status, body) = put(&state, &path, Some(&token), info).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(body["content"]["info"]["data"]["pt"], "28 e 29 de novembro");
-        assert_eq!(body["content"]["info"]["data"]["en"], "TBD");
-        assert_eq!(body["content"]["players"].as_array().unwrap().len(), 1);
-        assert!(body["content"]["matches"]["partidas"][0]["mvp"].is_null());
+        assert_eq!(body["info"]["data"]["pt"], "28 e 29 de novembro");
+        assert_eq!(body["info"]["data"]["en"], "TBD");
 
         let (status, body) = post(&state, &format!("{path}/publish"), Some(&token), "{}").await;
         assert_eq!(status, StatusCode::OK);
@@ -1156,50 +1176,108 @@ data: 111
     }
 
     #[tokio::test]
-    async fn the_site_shows_the_published_camp_on_its_domain() {
+    async fn the_site_shows_the_published_camps_ranking_and_scoreboards() {
+        let names = [(1, "kaze"), (2, "lia"), (3, "rui"), (4, "eva")];
         let state = test_state(FakeLink {
             guilds: vec![111],
+            names: names.iter().map(|(id, n)| (*id, n.to_string())).collect(),
             ..FakeLink::default()
         })
         .await;
-        let camp = refresher_core::db::create_camp(&state.db, 111, 900, 24, 12).await.unwrap();
         let token = sign_in(&state, &[111]).await;
-        let path = format!("/api/camps/{}/site", camp.id);
+        let (camp_id, _, winner, _) = finished_with_scoreboard(&state).await;
+        let name = |id: i64| names[(id - 1) as usize].1;
 
-        // Nothing published yet: every card is still to be decided.
-        let (status, headers, body) = fetch(&state, site_request("/info.js").body(Body::empty()).unwrap()).await;
+        // Nothing published yet: an empty site, with every card still to be decided.
+        let (status, headers, body) = fetch(&state, site_request("/api/matches").body(Body::empty()).unwrap()).await;
         assert_eq!(status, StatusCode::OK);
-        assert_eq!(headers["content-type"], "text/javascript; charset=utf-8");
-        assert_eq!(headers["cache-control"], "no-cache, must-revalidate");
-        assert!(body.contains("window.INFO = {"));
-        assert!(body.contains("\"A definir\""));
+        assert_eq!(headers["access-control-allow-origin"], "*");
+        assert_eq!(body, r#"{"partidas":[],"itens":{}}"#);
+        let (_, _, body) = fetch(&state, site_request("/info.js").body(Body::empty()).unwrap()).await;
+        assert!(body.contains("window.INFO = {") && body.contains("\"A definir\""));
 
-        assert_eq!(put(&state, &path, Some(&token), &site_content("VioletaS2")).await.0, StatusCode::OK);
-        let (_, _, body) = fetch(&state, site_request("/partida.js").body(Body::empty()).unwrap()).await;
-        assert!(!body.contains("VioletaS2"), "saved but not published");
-        post(&state, &format!("{path}/publish"), Some(&token), "{}").await;
+        post(&state, &format!("/api/camps/{camp_id}/site/publish"), Some(&token), "{}").await;
+        let (status, _, body) = fetch(&state, site_request("/api/matches").body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::OK);
+        let matches: serde_json::Value = serde_json::from_str(&body).unwrap();
+        let first = &matches["partidas"][0];
+        assert_eq!((first["id"].as_u64(), first["vencedor"].as_u64()), (Some(139086680), Some(0)));
+        assert_eq!(first["mvp"], name(winner));
+        assert_eq!(first["times"][0]["classe"], "king");
+        // The linked account shows the member's Discord name; the other its Steam name.
+        assert_eq!(first["times"][0]["jogadores"][0]["nome"], name(winner));
+        assert_eq!(first["times"][1]["jogadores"][0]["nome"], "steam1002");
+        assert_eq!(first["times"][0]["jogadores"][0]["almas"], "60k");
+        assert_eq!(matches["itens"]["knockdown"]["tipo"], "spirit");
 
+        let (_, _, body) = fetch(&state, site_request("/api/ranking").body(Body::empty()).unwrap()).await;
+        let ranking: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(ranking.as_array().unwrap().len(), 4);
+        assert_eq!(ranking[0]["nome"], name(winner));
+        assert_eq!((ranking[0]["posicao"].as_u64(), ranking[0]["pontos"].as_i64()), (Some(1), Some(1)));
+        assert_eq!((ranking[0]["mvps"].as_i64(), ranking[0]["vitorias"].as_i64()), (Some(1), Some(1)));
+
+        // The pages' scripts carry the same data.
         let (_, _, body) = fetch(&state, site_request("/partida.js").body(Body::empty()).unwrap()).await;
-        assert!(body.starts_with("// "));
-        assert!(body.contains("window.PARTIDAS = {"));
-        assert!(body.contains("\"mvp\": \"VioletaS2\""));
+        assert!(body.contains("window.PARTIDAS = {") && body.contains("\"steam1002\""));
         let (_, _, body) = fetch(&state, site_request("/jogadores.js").body(Body::empty()).unwrap()).await;
-        assert!(body.contains("\"Kaiser77\""));
+        assert!(body.contains("window.JOGADORES = [") && body.contains(&format!("\"{}\"", name(winner))));
 
         // The admin page's domain has the site under /site/, and none of the admin page on the site's.
-        let (status, _, body) = fetch(&state, Request::get("/site/jogadores.js").body(Body::empty()).unwrap()).await;
+        let (status, _, _) = fetch(&state, Request::get("/site/api/ranking").body(Body::empty()).unwrap()).await;
         assert_eq!(status, StatusCode::OK);
-        assert!(body.contains("\"Kaiser77\""));
         let (status, headers, _) = fetch(&state, Request::get("/site").body(Body::empty()).unwrap()).await;
         assert_eq!(status, StatusCode::PERMANENT_REDIRECT);
         assert_eq!(headers["location"], "/site/");
         let (status, _, _) = fetch(&state, site_request("/api/me").body(Body::empty()).unwrap()).await;
         assert_eq!(status, StatusCode::NOT_FOUND);
-
         // The old staff panel's link opens the dashboard.
         let (status, headers, _) = fetch(&state, site_request("/staff/").body(Body::empty()).unwrap()).await;
         assert_eq!(status, StatusCode::SEE_OTHER);
         assert_eq!(headers["location"], "http://localhost:8080/#/site");
+    }
+
+    #[tokio::test]
+    async fn admins_give_match_ids_and_link_steam_accounts() {
+        let state = test_state(FakeLink {
+            guilds: vec![111, 222],
+            ..FakeLink::default()
+        })
+        .await;
+        let token = sign_in(&state, &[111]).await;
+        let (_, match_id, winner, loser) = finished_with_scoreboard(&state).await;
+        let path = format!("/api/matches/{match_id}/stats");
+
+        let (status, body) = get(&state, &path, Some(&token)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!((body["status"].as_str(), body["deadlock_match_id"].as_str()), (Some("ready"), Some("139086680")));
+        assert_eq!(body["scoreboard"]["winner_side"], "hiddenking");
+        let players = body["scoreboard"]["players"].as_array().unwrap();
+        assert_eq!(players[0]["side"], "hiddenking");
+        assert_eq!(players[0]["user_id"], winner.to_string());
+        assert!(players[1]["user_id"].is_null());
+
+        // Link the other account; then unlink it.
+        let link = "/api/guilds/111/deadlock-accounts/1002";
+        assert_eq!(put(&state, link, Some(&token), &format!(r#"{{"user_id": "{loser}"}}"#)).await.0, StatusCode::OK);
+        let (_, body) = get(&state, &path, Some(&token)).await;
+        assert_eq!(body["scoreboard"]["players"][1]["user_id"], loser.to_string());
+        put(&state, link, Some(&token), r#"{"user_id": null}"#).await;
+        let (_, body) = get(&state, &path, Some(&token)).await;
+        assert!(body["scoreboard"]["players"][1]["user_id"].is_null());
+        assert_eq!(
+            put(&state, "/api/guilds/222/deadlock-accounts/1002", Some(&token), r#"{"user_id": null}"#).await.0,
+            StatusCode::NOT_FOUND
+        );
+
+        // A new ID starts a fresh lookup; anything else is refused.
+        let (status, body) = put(&state, &path, Some(&token), r#"{"deadlock_match_id": "abc"}"#).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body["error"].as_str().unwrap().contains("número"));
+        let (status, body) = put(&state, &path, Some(&token), r#"{"deadlock_match_id": " #139086681 "}"#).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!((body["status"].as_str(), body["deadlock_match_id"].as_str()), (Some("pending"), Some("139086681")));
+        assert_eq!(get(&state, &path, Some(&sign_in(&state, &[222]).await)).await.0, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
