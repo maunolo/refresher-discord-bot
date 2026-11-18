@@ -8,6 +8,8 @@ CREATE TABLE match_stats (
     status TEXT NOT NULL,
     attempts INTEGER NOT NULL DEFAULT 0,
     next_attempt_at INTEGER,
+    -- The last try that let the API ask Steam, which is rate limited hard.
+    last_steam_at INTEGER,
     last_error TEXT,
     data TEXT,
     updated_at INTEGER NOT NULL,

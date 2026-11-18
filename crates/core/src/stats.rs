@@ -5,7 +5,7 @@
 //! minutes after the game. Matches the bot didn't make the lobby for, or whose party never
 //! resolves, wait for an admin to give the match ID.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -227,7 +227,7 @@ pub async fn set_deadlock_id(pool: &SqlitePool, match_id: &str, deadlock_match_i
          VALUES (?, ?, 'pending', 0, ?, ?)
          ON CONFLICT (match_id) DO UPDATE SET deadlock_match_id = excluded.deadlock_match_id,
              status = 'pending', attempts = 0, next_attempt_at = excluded.next_attempt_at,
-             last_error = NULL, updated_at = excluded.updated_at",
+             last_steam_at = NULL, last_error = NULL, updated_at = excluded.updated_at",
     )
     .bind(match_id)
     .bind(deadlock_match_id as i64)
@@ -376,9 +376,60 @@ const PARTY_RETRY_S: i64 = 120;
 /// minutes after the game, or later if it has to ask Steam.
 const DATA_DELAYS_S: [i64; 8] = [60, 120, 180, 300, 600, 900, 1800, 3600];
 
-/// Without an API key, only every other try asks Steam: about 2 an hour, under its limit of 3.
-fn from_steam(has_key: bool, attempt: i64) -> bool {
-    has_key || attempt % 2 == 1
+/// Valve publishes a match's data a few minutes after it ends; asking Steam sooner wastes a lookup.
+const STEAM_AFTER_END_S: i64 = 300;
+/// Without an API key, one match asks Steam at most this often.
+const STEAM_SPACING_S: i64 = 900;
+/// Steam lookups per rolling hour, across all matches. The API allows 3 per IP without a key (this
+/// leaves one spare, as other apps may share the IP) and 300 per key.
+const STEAM_PER_HOUR: usize = 2;
+const STEAM_PER_HOUR_WITH_KEY: usize = 250;
+
+/// The Steam lookups the worker made in the last hour, across all matches.
+pub struct SteamBudget {
+    per_hour: usize,
+    /// When each lookup was made, oldest first.
+    used: VecDeque<i64>,
+}
+
+impl SteamBudget {
+    pub fn new(has_key: bool) -> Self {
+        let per_hour = if has_key { STEAM_PER_HOUR_WITH_KEY } else { STEAM_PER_HOUR };
+        SteamBudget { per_hour, used: VecDeque::new() }
+    }
+
+    fn forget_old(&mut self, at: i64) {
+        while self.used.front().is_some_and(|t| *t <= at - 3600) {
+            self.used.pop_front();
+        }
+    }
+
+    /// Spends a lookup at `at`, if one is left this hour.
+    fn take(&mut self, at: i64) -> bool {
+        self.forget_old(at);
+        if self.used.len() >= self.per_hour {
+            return false;
+        }
+        self.used.push_back(at);
+        true
+    }
+
+    /// When the next lookup frees up.
+    fn next_free(&mut self, at: i64) -> i64 {
+        self.forget_old(at);
+        match self.used.front() {
+            Some(oldest) if self.used.len() >= self.per_hour => oldest + 3600,
+            _ => at,
+        }
+    }
+}
+
+/// Whether this try should let the API ask Steam: from 5 minutes after the match ended and, without
+/// a key, at most every 15 minutes per match.
+fn wants_steam(has_key: bool, job: &Job, at: i64) -> bool {
+    let ended = job.completed_at.is_none_or(|t| at - t >= STEAM_AFTER_END_S);
+    let spaced = has_key || job.last_steam_at.is_none_or(|t| at - t >= STEAM_SPACING_S);
+    ended && spaced
 }
 
 struct Job {
@@ -387,14 +438,17 @@ struct Job {
     party_id: Option<String>,
     deadlock_match_id: Option<u64>,
     attempts: i64,
+    completed_at: Option<i64>,
+    last_steam_at: Option<i64>,
 }
 
-/// Match, server, party, Deadlock match ID and tries so far.
-type JobRow = (String, i64, Option<String>, Option<i64>, i64);
+/// Match, server, party, Deadlock match ID, tries so far, when it ended, last Steam try.
+type JobRow = (String, i64, Option<String>, Option<i64>, i64, Option<i64>, Option<i64>);
 
 async fn due_jobs(pool: &SqlitePool, at: i64) -> Result<Vec<Job>> {
     let rows: Vec<JobRow> = sqlx::query_as(
-        "SELECT s.match_id, c.guild_id, m.party_id, s.deadlock_match_id, s.attempts
+        "SELECT s.match_id, c.guild_id, m.party_id, s.deadlock_match_id, s.attempts, m.completed_at,
+             s.last_steam_at
          FROM match_stats s
          JOIN camp_matches m ON m.id = s.match_id
          JOIN camps c ON c.id = m.camp_id
@@ -406,12 +460,14 @@ async fn due_jobs(pool: &SqlitePool, at: i64) -> Result<Vec<Job>> {
     .await?;
     Ok(rows
         .into_iter()
-        .map(|(match_id, guild_id, party_id, id, attempts)| Job {
+        .map(|(match_id, guild_id, party_id, id, attempts, completed_at, last_steam_at)| Job {
             match_id,
             guild_id,
             party_id,
             deadlock_match_id: id.map(|id| id as u64),
             attempts,
+            completed_at,
+            last_steam_at,
         })
         .collect())
 }
@@ -474,9 +530,8 @@ async fn fetch_scoreboard(api: &dyn Api, meta: &Metadata) -> Result<Scoreboard> 
     build_scoreboard(meta, &catalog, &names)
 }
 
-/// One try at a match; says whether anything an admin sees changed.
-async fn process(pool: &SqlitePool, api: &dyn Api, job: &Job) -> Result<bool> {
-    let ts = now();
+/// One try at a match at `at`; says whether anything an admin sees changed.
+async fn process(pool: &SqlitePool, api: &dyn Api, budget: &mut SteamBudget, job: &Job, at: i64) -> Result<bool> {
     let Some(id) = job.deadlock_match_id else {
         let Some(party) = job.party_id.as_deref() else {
             update(pool, &job.match_id, NEEDS_ID, None, 0, None, None).await?;
@@ -485,7 +540,7 @@ async fn process(pool: &SqlitePool, api: &dyn Api, job: &Job) -> Result<bool> {
         let found = api.custom_match_id(party).await;
         return match found {
             Ok(Some(id)) => {
-                update(pool, &job.match_id, PENDING, Some(id), 0, Some(ts + DATA_DELAYS_S[0]), None).await?;
+                update(pool, &job.match_id, PENDING, Some(id), 0, Some(at + DATA_DELAYS_S[0]), None).await?;
                 Ok(true)
             }
             Ok(None) | Err(_) => {
@@ -496,14 +551,24 @@ async fn process(pool: &SqlitePool, api: &dyn Api, job: &Job) -> Result<bool> {
                     update(pool, &job.match_id, NEEDS_ID, None, attempts, None, Some(message)).await?;
                     Ok(true)
                 } else {
-                    let next = Some(ts + PARTY_RETRY_S);
+                    let next = Some(at + PARTY_RETRY_S);
                     update(pool, &job.match_id, PENDING, None, attempts, next, error.as_deref()).await?;
                     Ok(false)
                 }
             }
         };
     };
-    let fetched = match api.metadata(id, from_steam(api.has_key(), job.attempts)).await {
+
+    let wants = wants_steam(api.has_key(), job, at);
+    let from_steam = wants && budget.take(at);
+    if from_steam {
+        sqlx::query("UPDATE match_stats SET last_steam_at = ? WHERE match_id = ?")
+            .bind(at)
+            .bind(&job.match_id)
+            .execute(pool)
+            .await?;
+    }
+    let fetched = match api.metadata(id, from_steam).await {
         Ok(Some(meta)) => fetch_scoreboard(api, &meta).await.map(Some),
         Ok(None) => Ok(None),
         Err(err) => Err(err),
@@ -514,13 +579,21 @@ async fn process(pool: &SqlitePool, api: &dyn Api, job: &Job) -> Result<bool> {
             auto_link(pool, job.guild_id, &job.match_id, &board).await?;
             Ok(true)
         }
+        // This try was due to ask Steam but the hour's lookups are spent: it doesn't count, and
+        // comes back when one frees up.
+        Ok(None) if wants && !from_steam => {
+            let next = budget.next_free(at).max(at + 60);
+            let message = "Esperando a vez de pedir a partida à Steam (limite da API do Deadlock).";
+            update(pool, &job.match_id, PENDING, None, job.attempts, Some(next), Some(message)).await?;
+            Ok(false)
+        }
         Ok(None) | Err(_) => {
             let error = fetched.err().map(|e| e.to_string());
             let attempts = job.attempts + 1;
             match DATA_DELAYS_S.get(attempts as usize) {
                 Some(delay) => {
                     let message = error.as_deref().unwrap_or("A API do Deadlock ainda não tem a partida.");
-                    update(pool, &job.match_id, PENDING, None, attempts, Some(ts + delay), Some(message)).await?;
+                    update(pool, &job.match_id, PENDING, None, attempts, Some(at + delay), Some(message)).await?;
                     Ok(false)
                 }
                 None => {
@@ -536,11 +609,11 @@ async fn process(pool: &SqlitePool, api: &dyn Api, job: &Job) -> Result<bool> {
     }
 }
 
-/// Tries every lookup that's due; returns the servers whose admin pages should reload.
-pub async fn step(pool: &SqlitePool, api: &dyn Api) -> Result<HashSet<i64>> {
+/// Tries every lookup due at `at`; returns the servers whose admin pages should reload.
+pub async fn step(pool: &SqlitePool, api: &dyn Api, budget: &mut SteamBudget, at: i64) -> Result<HashSet<i64>> {
     let mut changed = HashSet::new();
-    for job in due_jobs(pool, now()).await? {
-        match process(pool, api, &job).await {
+    for job in due_jobs(pool, at).await? {
+        match process(pool, api, budget, &job, at).await {
             Ok(true) => {
                 changed.insert(job.guild_id);
             }
@@ -553,10 +626,11 @@ pub async fn step(pool: &SqlitePool, api: &dyn Api) -> Result<HashSet<i64>> {
 
 /// Looks matches up until the bot stops, every 10 seconds.
 pub async fn run(pool: SqlitePool, api: Arc<dyn Api>, changes: Changes) -> Result<()> {
+    let mut budget = SteamBudget::new(api.has_key());
     let mut tick = tokio::time::interval(Duration::from_secs(10));
     loop {
         tick.tick().await;
-        match step(&pool, api.as_ref()).await {
+        match step(&pool, api.as_ref(), &mut budget, now()).await {
             Ok(changed) => changed.into_iter().for_each(|guild| changes.notify(guild as u64)),
             Err(err) => tracing::error!(error = %err, "match stats worker failed"),
         }
@@ -685,6 +759,7 @@ mod tests {
         metadata: Option<Metadata>,
         /// `from_steam` of each metadata call.
         calls: Mutex<Vec<bool>>,
+        key: bool,
     }
 
     impl Api for FakeApi {
@@ -702,7 +777,7 @@ mod tests {
             Box::pin(async { Ok(Arc::new(catalog())) })
         }
         fn has_key(&self) -> bool {
-            false
+            self.key
         }
     }
 
@@ -730,13 +805,28 @@ mod tests {
         (match_id, king, arch)
     }
 
-    /// Makes the match's next try due now.
-    async fn due_now(pool: &SqlitePool, match_id: &str) {
-        sqlx::query("UPDATE match_stats SET next_attempt_at = 0 WHERE match_id = ?")
+    /// When the match ended.
+    async fn ended_at(pool: &SqlitePool, match_id: &str) -> i64 {
+        sqlx::query_scalar("SELECT completed_at FROM camp_matches WHERE id = ?")
             .bind(match_id)
-            .execute(pool)
+            .fetch_one(pool)
             .await
-            .unwrap();
+            .unwrap()
+    }
+
+    /// Runs the worker at each try's scheduled time until the lookup settles; returns those times.
+    async fn run_until_settled(pool: &SqlitePool, api: &FakeApi, budget: &mut SteamBudget, match_id: &str) -> Vec<i64> {
+        let mut times = Vec::new();
+        for _ in 0..30 {
+            let row = load(pool, match_id).await.unwrap().unwrap();
+            if row.status != PENDING {
+                break;
+            }
+            let at = row.next_attempt_at.unwrap();
+            step(pool, api, budget, at).await.unwrap();
+            times.push(at);
+        }
+        times
     }
 
     #[tokio::test]
@@ -744,51 +834,99 @@ mod tests {
         let pool = memory_db().await;
         let (match_id, _, _) = finished_match(&pool, None).await;
         assert_eq!(load(&pool, &match_id).await.unwrap().unwrap().status, NEEDS_ID);
-        assert!(step(&pool, &FakeApi::default()).await.unwrap().is_empty());
+        let mut budget = SteamBudget::new(false);
+        assert!(step(&pool, &FakeApi::default(), &mut budget, now()).await.unwrap().is_empty());
     }
 
     #[tokio::test]
     async fn a_bot_lobby_becomes_a_scoreboard_and_links_the_1v1_players() {
         let pool = memory_db().await;
         let (match_id, king, arch) = finished_match(&pool, Some("123")).await;
+        let t0 = ended_at(&pool, &match_id).await;
         let api = FakeApi { match_id: Some(139086680), metadata: Some(metadata()), ..FakeApi::default() };
+        let mut budget = SteamBudget::new(false);
 
-        assert_eq!(step(&pool, &api).await.unwrap(), HashSet::from([1]));
+        assert_eq!(step(&pool, &api, &mut budget, t0).await.unwrap(), HashSet::from([1]));
         let row = load(&pool, &match_id).await.unwrap().unwrap();
         assert_eq!((row.status.as_str(), row.deadlock_match_id), (PENDING, Some(139086680)));
 
-        // The data is tried a minute later.
-        assert!(step(&pool, &api).await.unwrap().is_empty());
-        due_now(&pool, &match_id).await;
-        step(&pool, &api).await.unwrap();
+        // The data is tried a minute later; that soon after the match, without asking Steam.
+        assert!(step(&pool, &api, &mut budget, t0).await.unwrap().is_empty());
+        step(&pool, &api, &mut budget, t0 + 60).await.unwrap();
         let row = load(&pool, &match_id).await.unwrap().unwrap();
         assert_eq!(row.status, READY);
         assert_eq!(row.scoreboard.unwrap().players.len(), 2);
+        assert_eq!(*api.calls.lock().unwrap(), [false]);
         assert_eq!(account_links(&pool, 1).await.unwrap(), HashMap::from([(100, king), (200, arch)]));
     }
 
     #[tokio::test]
-    async fn an_unknown_party_asks_for_the_id_and_missing_data_gives_up() {
+    async fn an_unknown_party_asks_for_the_id() {
         let pool = memory_db().await;
         let (match_id, _, _) = finished_match(&pool, Some("123")).await;
-        let api = FakeApi::default();
-        for _ in 0..PARTY_TRIES {
-            due_now(&pool, &match_id).await;
-            step(&pool, &api).await.unwrap();
+        let t0 = ended_at(&pool, &match_id).await;
+        let mut budget = SteamBudget::new(false);
+        for i in 0..PARTY_TRIES {
+            step(&pool, &FakeApi::default(), &mut budget, t0 + i * PARTY_RETRY_S).await.unwrap();
         }
         let row = load(&pool, &match_id).await.unwrap().unwrap();
         assert_eq!(row.status, NEEDS_ID);
         assert!(row.last_error.unwrap().contains("Informe o ID"));
+    }
 
-        // The admin gives the ID, but the API never has the match.
+    #[tokio::test]
+    async fn steam_is_asked_late_sparingly_and_within_the_hours_budget() {
+        let pool = memory_db().await;
+        let (match_id, _, _) = finished_match(&pool, None).await;
+        let t0 = ended_at(&pool, &match_id).await;
+        // The admin gives the ID right as the match ends, and the API never has it.
         set_deadlock_id(&pool, &match_id, 42).await.unwrap();
-        for _ in 0..DATA_DELAYS_S.len() {
-            due_now(&pool, &match_id).await;
-            step(&pool, &api).await.unwrap();
-        }
+        sqlx::query("UPDATE match_stats SET next_attempt_at = ? WHERE match_id = ?")
+            .bind(t0)
+            .bind(&match_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let api = FakeApi::default();
+        let times = run_until_settled(&pool, &api, &mut SteamBudget::new(false), &match_id).await;
+
+        let offsets: Vec<i64> = times.iter().map(|t| t - t0).collect();
+        // Not before 5 minutes; then every 15 minutes at most; the third Steam try within an hour
+        // (at 35 minutes) is over the budget of 2, so it waits for a slot at 65 minutes.
+        assert_eq!(offsets, [0, 120, 300, 600, 1200, 2100, 3900, 5700, 9300]);
+        assert_eq!(*api.calls.lock().unwrap(), [false, false, true, false, true, false, true, true, true]);
         let row = load(&pool, &match_id).await.unwrap().unwrap();
         assert_eq!((row.status.as_str(), row.deadlock_match_id), (FAILED, Some(42)));
-        // Without a key, only every other try asks Steam.
-        assert_eq!(*api.calls.lock().unwrap(), [false, true, false, true, false, true, false, true]);
+    }
+
+    #[tokio::test]
+    async fn with_a_key_every_try_from_5_minutes_asks_steam() {
+        let pool = memory_db().await;
+        let (match_id, _, _) = finished_match(&pool, None).await;
+        let t0 = ended_at(&pool, &match_id).await;
+        set_deadlock_id(&pool, &match_id, 42).await.unwrap();
+        let api = FakeApi { key: true, ..FakeApi::default() };
+        let mut budget = SteamBudget::new(true);
+        for offset in [0, 300, 360] {
+            sqlx::query("UPDATE match_stats SET next_attempt_at = ? WHERE match_id = ?")
+                .bind(t0 + offset)
+                .bind(&match_id)
+                .execute(&pool)
+                .await
+                .unwrap();
+            step(&pool, &api, &mut budget, t0 + offset).await.unwrap();
+        }
+        assert_eq!(*api.calls.lock().unwrap(), [false, true, true]);
+    }
+
+    #[test]
+    fn the_steam_budget_is_per_rolling_hour() {
+        let mut budget = SteamBudget::new(false);
+        assert!(budget.take(1000));
+        assert!(budget.take(2000));
+        assert!(!budget.take(2500));
+        assert_eq!(budget.next_free(2500), 4600);
+        assert!(budget.take(4600));
+        assert_eq!(budget.next_free(4600), 5600);
     }
 }
