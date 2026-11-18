@@ -9,14 +9,19 @@ const translations = {
     "info.prize": "Prize",
     "info.teams": "Teams",
     "info.tbd": "TBD",
+    "info.rules": "Rules",
+    "info.pending": "Still to be announced:",
     "info.dateValue": "November 28–29",
-    "rules.soon": "Coming soon",
     "live.title": "Watch live",
-    "players.title": "Player Ranking",
+    "players.title": "Player ranking",
+    "players.note": "Tied on points? The player with more MVPs ranks higher.",
     "players.rank": "#",
     "players.player": "Player",
     "players.score": "Points",
+    "players.mvp": "MVP",
     "players.empty": "Ranking coming soon",
+    "players.more": "See more",
+    "players.less": "See less",
     "match.title": "Latest matches",
     "match.history": "Match history",
     "match.kills": "kills",
@@ -30,6 +35,7 @@ const translations = {
     "hist.won": "won",
     "hist.close": "Close",
     "match.label": "Match",
+    "match.duration": "Duration",
     "match.win": "Victory",
     "match.loss": "Defeat",
     "match.player": "Player",
@@ -41,11 +47,17 @@ const translations = {
     "match.obj": "Obj.",
     "match.heal": "Healing",
     "match.items": "Items",
+    "live.on": "Live",
+    "live.offline": "is offline right now.",
+    "live.offlineHint": "When the stream starts, it shows up here on its own.",
+    "live.watch": "Watch",
+    "live.openShort": "Open on Twitch",
+    "live.openPre": "Open",
+    "live.openPost": "on Twitch",
+    "live.gate": "Asked you to log in? Some channels are age-restricted and only open on Twitch itself.",
     "live.open": "Open on Twitch",
     "live.local": "The stream only plays on the published site (Twitch blocks it when the file is opened directly).",
-    "cta.title": "Ready to compete?",
-    "cta.text": "Sign-ups open soon. Keep an eye on our Discord.",
-    "cta.button": "Join the Discord",
+    "hero.sub": "Community-run Deadlock tournament",
     "footer.main": "Refresher League",
     "footer.small": "Independent event, not affiliated with Valve."
   },
@@ -58,14 +70,19 @@ const translations = {
     "info.prize": "Premios",
     "info.teams": "Equipos",
     "info.tbd": "Por definir",
+    "info.rules": "Reglas",
+    "info.pending": "Aún por definir:",
     "info.dateValue": "28 y 29 de noviembre",
-    "rules.soon": "Próximamente",
     "live.title": "Mira en vivo",
     "players.title": "Ranking de jugadores",
+    "players.note": "¿Empate en puntos? Queda delante quien tenga más MVP.",
     "players.rank": "#",
     "players.player": "Jugador",
     "players.score": "Puntos",
+    "players.mvp": "MVP",
     "players.empty": "Ranking próximamente",
+    "players.more": "Ver más",
+    "players.less": "Ver menos",
     "match.title": "Últimas partidas",
     "match.history": "Historial de partidas",
     "match.kills": "bajas",
@@ -79,6 +96,7 @@ const translations = {
     "hist.won": "ganó",
     "hist.close": "Cerrar",
     "match.label": "Partida",
+    "match.duration": "Duración",
     "match.win": "Victoria",
     "match.loss": "Derrota",
     "match.player": "Jugador",
@@ -90,11 +108,17 @@ const translations = {
     "match.obj": "Obj.",
     "match.heal": "Curación",
     "match.items": "Objetos",
+    "live.on": "En vivo",
+    "live.offline": "está desconectado ahora.",
+    "live.offlineHint": "Cuando empiece la transmisión, aparecerá aquí sola.",
+    "live.watch": "Ver",
+    "live.openShort": "Abrir en Twitch",
+    "live.openPre": "Abrir",
+    "live.openPost": "en Twitch",
+    "live.gate": "¿Te pidió iniciar sesión? Algunos canales tienen restricción de edad y solo abren en Twitch.",
     "live.open": "Abrir en Twitch",
     "live.local": "La transmisión solo aparece en el sitio publicado (Twitch la bloquea al abrir el archivo directamente).",
-    "cta.title": "¿Listo para competir?",
-    "cta.text": "Las inscripciones abren pronto. Atento a nuestro Discord.",
-    "cta.button": "Unirse al Discord",
+    "hero.sub": "Torneo de Deadlock hecho por la comunidad",
     "footer.main": "Refresher League",
     "footer.small": "Evento independiente, sin vínculo con Valve."
   }
@@ -107,9 +131,9 @@ if (window.INFO) Object.entries(window.INFO).forEach(([k, v]) => {
 
 const htmlLang = { pt: "pt-BR", en: "en", es: "es" };
 const descriptions = {
-  pt: "Refresher League é um campeonato de Deadlock feito pela comunidade. Veja as regras, o formato e como se inscrever.",
-  en: "Refresher League is a community-run Deadlock tournament. See the rules, the format and how to sign up.",
-  es: "Refresher League es un torneo de Deadlock hecho por la comunidad. Mira las reglas, el formato y cómo inscribirte."
+  pt: "Refresher League é um campeonato de Deadlock feito pela comunidade. Acompanhe as lives, o ranking e as últimas partidas.",
+  en: "Refresher League is a community-run Deadlock tournament. Follow the streams, the ranking and the latest matches.",
+  es: "Refresher League es un torneo de Deadlock hecho por la comunidad. Sigue las transmisiones, el ranking y las últimas partidas."
 };
 const titles = {
   pt: "Refresher League",
@@ -140,6 +164,14 @@ function apply(root, dict) {
     if (!(k in translations.pt)) translations.pt[k] = el.getAttribute("alt");
     const alt = dict[k];
     if (alt) el.setAttribute("alt", alt); // atributo: funciona em <img> e em <model-viewer>
+  });
+  // Números e datas no formato do idioma escolhido (1.234 / 1,234; 17/11/2026 / 11/17/2026)
+  const loc = htmlLang[current] || "pt-BR";
+  root.querySelectorAll("[data-num]").forEach((el) => { el.textContent = Number(el.dataset.num).toLocaleString(loc); });
+  root.querySelectorAll("[data-date]").forEach((el) => { el.textContent = new Date(+el.dataset.date).toLocaleDateString(loc); });
+  root.querySelectorAll("[data-datetime]").forEach((el) => {
+    const d = new Date(+el.dataset.datetime);
+    el.textContent = d.toLocaleDateString(loc) + " · " + d.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" });
   });
 }
 window.i18nApply = (root) => apply(root, translations[current] || translations.pt);

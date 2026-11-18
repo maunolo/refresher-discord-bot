@@ -10,7 +10,7 @@
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
   <link rel="preload" href="assets/fonts/VALVEOracle-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/VALVEOracle-Medium.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=20261117v">
+  <link rel="stylesheet" href="style.css?v=20261118h">
 </head>
 <body data-i18n-title="hist.title" data-title-pt="Histórico das partidas">
   <!-- Mesmos patronos da página inicial: Hidden King à esquerda e Arch Mother à direita -->
@@ -21,15 +21,18 @@
     <video class="stage-patron" src="assets/patronos/archmother-idle.webm?v=20261117l" autoplay loop muted playsinline preload="auto"></video>
   </div>
 
+  <script>
+    // Quem pediu menos movimento no sistema vê os patronos parados
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) document.querySelectorAll(".stage-patron").forEach((v) => { v.autoplay = false; v.pause(); });
+  </script>
   <header class="nav">
-    <a href="index.html" class="nav-logo"><img src="assets/logo-dourado-small.webp" alt="" width="34" height="34"><span class="nav-name">REFRESHER <span>LEAGUE</span></span></a>
+    <a href="index.html" class="nav-logo" aria-label="Refresher League"><img src="assets/logo-dourado-small.webp" alt="" width="34" height="34"><span class="nav-name">REFRESHER <span>LEAGUE</span></span></a>
     <nav>
       <div class="lang" role="group" aria-label="Idioma" data-i18n-label="nav.lang">
         <button type="button" data-lang="pt" aria-pressed="true" lang="pt-BR" aria-label="Português">PT</button>
         <button type="button" data-lang="en" aria-pressed="false" lang="en" aria-label="English">EN</button>
         <button type="button" data-lang="es" aria-pressed="false" lang="es" aria-label="Español">ES</button>
       </div>
-      <a href="https://discord.gg/EmzNheNFEP" class="btn btn-small btn-discord" target="_blank" rel="noopener">Discord</a>
     </nav>
   </header>
 
@@ -48,14 +51,14 @@
   </dialog>
 
   <footer class="footer">
-    <!-- Botão discreto da equipe: abre o painel do bot (aba Site) -->
+    <!-- Botão discreto da equipe: abre o login da staff -->
     <a href="staff/" class="staff-link" rel="nofollow">Staff</a>
     <p data-i18n="footer.main">Refresher League</p>
     <p class="small" data-i18n="footer.small">Evento independente, sem vínculo com a Valve.</p>
   </footer>
 
   <script src="partida.js?v=20261117v"></script>
-  <script src="partidas-render.js?v=20261117v"></script>
+  <script src="partidas-render.js?v=20261118f"></script>
   <script>
     (() => {
       const TOTAL = 24;
@@ -64,6 +67,7 @@
       const dialog = document.getElementById("match-dialog");
       const body = document.getElementById("match-dialog-body");
       const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+      const ico = () => { const s = el("span", "ico-time"); s.setAttribute("role", "img"); s.setAttribute("aria-label", "Duração"); s.dataset.i18nLabel = "match.duration"; return s; };
       const t = (tag, key, text, cls) => { const e = el(tag, cls, text); e.dataset.i18n = key; return e; };
       let lastButton = null;
 
@@ -79,9 +83,9 @@
           const res = el("span", "history-result team-" + w.classe);
           res.append(el("span", null, w.nome + " "), t("span", "hist.won", "venceu"));
           const dur = Math.floor(P.duracao / 60) + ":" + String(P.duracao % 60).padStart(2, "0");
-          const mvp = el("span", "history-mvp");
-          mvp.append(el("span", "mvp", "MVP"), " ", P.mvp ? el("span", null, P.mvp) : t("span", "hist.tbd", "A definir", "is-tbd"));
-          b.append(res, mvp, el("span", "history-time", "⏱ " + dur));
+          b.append(res);
+          if (P.mvp) { const mvp = el("span", "history-mvp"); mvp.append(el("span", "mvp", "MVP"), " ", el("span", null, P.mvp)); b.append(mvp); }
+          { const tm = el("span", "history-time"); tm.append(ico(), dur); b.append(tm); }
           b.addEventListener("click", () => open(P, n, b));
         } else {
           b.disabled = true;
@@ -110,6 +114,6 @@
       if (m) { const n = +m[1], P = D.partidas[n - 1]; if (P) addEventListener("load", () => open(P, n, grid.children[n - 1])); }
     })();
   </script>
-  <script src="i18n.js?v=20261117v"></script>
+  <script src="i18n.js?v=20261118h"></script>
 </body>
 </html>

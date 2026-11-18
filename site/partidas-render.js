@@ -15,10 +15,12 @@ window.renderPartida = (P, numero, titleTag = "h3") => {
   label.append(t("span", "match.label", "Partida"), " " + numero);
   const d = new Date(P.inicio * 1000);
   const dur = Math.floor(P.duracao / 60) + ":" + String(P.duracao % 60).padStart(2, "0");
+  const when = el("span", null, d.toLocaleDateString("pt-BR") + " · " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }));
+  when.dataset.datetime = d.getTime();
   const meta = el("p", "match-meta");
   meta.append(
-    el("span", null, d.toLocaleDateString("pt-BR") + " · " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })),
-    el("span", null, "⏱ " + dur));
+    when,
+    (() => { const s = el("span", null), i = el("span", "ico-time"); i.setAttribute("role", "img"); i.setAttribute("aria-label", "Duração"); i.dataset.i18nLabel = "match.duration"; s.append(i, dur); return s; })());
   if (P.id) meta.append(el("span", "match-id", "#" + P.id));
   mh.append(label, meta);
   board.appendChild(mh);
