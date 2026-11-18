@@ -322,7 +322,7 @@ async fn discord_vote(state: AppState) -> Result<String, crate::error::ApiError>
     Ok(format!("{name} votou Manter na partida {}.", open.row.slot))
 }
 
-pub async fn run(bind: &str, static_dir: &str) -> Result<()> {
+pub async fn run(bind: &str, public_url: &str, static_dir: &str) -> Result<()> {
     // The camp lives only as long as this one connection: never let the pool close it.
     let db = SqlitePoolOptions::new()
         .max_connections(1)
@@ -341,10 +341,14 @@ pub async fn run(bind: &str, static_dir: &str) -> Result<()> {
         db,
         config: Arc::new(WebConfig {
             bind: bind.to_string(),
-            public_url: format!("http://{bind}"),
+            public_url: public_url.to_string(),
             discord_client_id: "demo".to_string(),
             discord_client_secret: "demo".to_string(),
             static_dir: static_dir.to_string(),
+            site_dir: "site".to_string(),
+            site_hosts: Vec::new(),
+            site_guild_id: Some(GUILD),
+            site_lock: None,
         }),
         http: reqwest::Client::new(),
         link,
@@ -359,7 +363,7 @@ pub async fn run(bind: &str, static_dir: &str) -> Result<()> {
         )
         .route("/demo/discord-vote", post(move || discord_vote(vote_state.clone())));
     let listener = tokio::net::TcpListener::bind(bind).await?;
-    println!("demo admin ready: open http://{bind}/demo/login");
+    println!("demo admin ready: open {public_url}/demo/login");
     axum::serve(listener, app).await?;
     Ok(())
 }

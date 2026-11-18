@@ -32,6 +32,14 @@ pub struct Me {
     user: UserDto,
     /// Servers the user manages that the bot is also in.
     guilds: Vec<GuildDto>,
+    /// The public league site, for admins of its server.
+    site: Option<SiteLinkDto>,
+}
+
+#[derive(Serialize)]
+struct SiteLinkDto {
+    guild_id: String,
+    url: String,
 }
 
 #[derive(Serialize)]
@@ -406,6 +414,14 @@ pub async fn me(State(state): State<AppState>, Admin(session): Admin) -> Json<Me
                 icon_url: g.icon.as_deref().map(|hash| icon_url(g.id, hash)),
             })
             .collect(),
+        site: state
+            .config
+            .site_guild_id
+            .filter(|id| session.is_admin_of(*id) && state.link.in_guild(*id))
+            .map(|id| SiteLinkDto {
+                guild_id: id.to_string(),
+                url: crate::site::site_url(&state.config),
+            }),
     })
 }
 
@@ -422,7 +438,7 @@ pub async fn guild_camps(
 }
 
 /// A camp in a server the admin manages, or 404.
-async fn admin_camp(state: &AppState, session: &Session, camp_id: &str) -> Result<CampState, ApiError> {
+pub(crate) async fn admin_camp(state: &AppState, session: &Session, camp_id: &str) -> Result<CampState, ApiError> {
     db::load_camp(&state.db, &camp_id.trim().to_uppercase())
         .await?
         .filter(|c| session.is_admin_of(c.camp.guild_id as u64))

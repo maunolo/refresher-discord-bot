@@ -1,7 +1,17 @@
 import type { ReactNode } from 'react';
 
 import { routeHref, type Route } from '../route';
-import { BookIcon, CampsIcon, LiveIcon, MatchesIcon, PlayersIcon, QueueIcon, SettingsIcon, TrophyIcon } from './Icons';
+import {
+  BookIcon,
+  CampsIcon,
+  GlobeIcon,
+  LiveIcon,
+  MatchesIcon,
+  PlayersIcon,
+  QueueIcon,
+  SettingsIcon,
+  TrophyIcon,
+} from './Icons';
 
 const SECTIONS: { label: string; icon: ReactNode; route: Route }[] = [
   { label: 'Ao vivo', icon: <LiveIcon />, route: 'live' },
@@ -11,13 +21,15 @@ const SECTIONS: { label: string; icon: ReactNode; route: Route }[] = [
   { label: 'Ranking', icon: <TrophyIcon />, route: 'ranking' },
   { label: 'Camps', icon: <CampsIcon />, route: 'camps' },
   { label: 'Configurações', icon: <SettingsIcon />, route: 'settings' },
+  { label: 'Site', icon: <GlobeIcon />, route: 'site' },
   { label: 'Regras', icon: <BookIcon />, route: 'rules' },
 ];
 
-export function NavRail({ route }: { route: Route }) {
+/** `site` shows Site, for the server that has the public site. */
+export function NavRail({ route, site }: { route: Route; site: boolean }) {
   return (
     <nav className="nav" aria-label="Seções">
-      {SECTIONS.map((s) => (
+      {SECTIONS.filter((s) => site || s.route !== 'site').map((s) => (
         <a
           key={s.label}
           href={routeHref(s.route)}

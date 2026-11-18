@@ -1,0 +1,535 @@
+:root {
+  /* Paleta: Creme #EEE8B2 · Dourado #C18D52 · Verde-noite #081B1B
+     Verde-escuro #203B37 · Verde-sálvia #5A8F76 · Menta #96CDB0
+     Fundo verde-noite, textos creme, detalhes dourados, verdes nas superfícies. */
+  --bg: #081B1B;
+  --bg-2: #0d2424;
+  --card: #203B37;
+  --line: #2f524c;
+  --title: #EEE8B2;   /* creme: títulos */
+  --text: #EEE8B2;    /* creme: texto principal */
+  --muted: #96CDB0;   /* menta: texto secundário e rótulos */
+  --sage: #5A8F76;    /* sálvia: detalhes discretos */
+  /* Dourado: preenchimentos, bordas e destaques (≥4:1 no fundo e nos cards) */
+  --gold: #C18D52;
+  --gold-strong: #C18D52;
+  --gold-text: #d6a873;
+  --gold-hover: #d6a873;
+  --on-accent: #081B1B;
+  --focus: #96CDB0;
+  --red: #ef8a74;
+}
+
+/* Fonte do site: Valve Oracle (arquivos locais em assets/fonts).
+   Medium (400-500) e SemiBold (600-800), em WOFF2 só com os caracteres latinos usados (PT/EN/ES). */
+@font-face { font-family: "Valve Oracle"; src: url("assets/fonts/VALVEOracle-Medium.woff2") format("woff2"); font-weight: 400 500; font-display: swap; }
+@font-face { font-family: "Valve Oracle"; src: url("assets/fonts/VALVEOracle-SemiBold.woff2") format("woff2"); font-weight: 600 800; font-display: swap; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: "Valve Oracle", system-ui, sans-serif;
+  line-height: 1.6;
+}
+
+a { color: inherit; text-decoration: none; }
+
+h1, h2, h3 { color: var(--title); text-wrap: balance; }
+h1, h2, h3, .nav-logo { font-family: "Valve Oracle", system-ui, sans-serif; font-weight: 600; letter-spacing: 0.02em; }
+
+/* Navegação */
+.nav {
+  position: sticky; top: 0; z-index: 102;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 6vw;
+  background: rgba(8, 27, 27, 0.9);
+  backdrop-filter: blur(6px);
+  isolation: isolate;
+}
+/* O menu fica acima do filtro geral (para não ser coberto pelo vídeo da live),
+   então recebe a mesma textura de revista antiga por conta própria. */
+.nav::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: url("assets/textura-revista-escura.webp") center top / 100vw 100vh no-repeat;
+  mix-blend-mode: screen; opacity: 0.55;
+}
+.nav::after {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+    linear-gradient(rgba(193, 141, 82, 0.06), rgba(193, 141, 82, 0.06));
+  mix-blend-mode: soft-light;
+  opacity: 0.7;
+}
+.nav-logo { font-weight: 800; font-size: 1.1rem; white-space: nowrap; }
+.nav nav a, .lang { white-space: nowrap; flex-shrink: 0; }
+section[id] { scroll-margin-top: 80px; } /* o menu fixo não cobre o título ao clicar nos links */
+.nav-logo span, .hero h1 span { color: var(--gold-strong); }
+.nav nav { display: flex; gap: 22px; align-items: center; font-size: 0.95rem; }
+.nav nav a:not(.btn):hover { color: var(--gold-text); }
+
+/* Seletor de idioma */
+.lang { display: flex; border: 1px solid var(--gold-strong); border-radius: 4px; overflow: hidden; }
+.lang button {
+  background: transparent; color: var(--muted); border: 0;
+  padding: 6px 10px; font: 600 0.8rem "Valve Oracle", sans-serif; cursor: pointer;
+}
+.lang button + button { border-left: 1px solid var(--gold-strong); }
+.lang button:hover { color: var(--text); }
+.lang button[aria-pressed="true"] { background: var(--gold); color: var(--on-accent); }
+
+/* Botões */
+.btn {
+  display: inline-block;
+  padding: 12px 26px;
+  background: var(--gold);
+  color: var(--on-accent);
+  font-weight: 600;
+  border: 1px solid var(--gold);
+  border-radius: 4px;
+  transition: transform 0.15s, background 0.15s;
+}
+.btn:hover { transform: translateY(-2px); background: var(--gold-hover); }
+.btn-ghost { background: transparent; color: var(--text); border-color: var(--gold-strong); }
+.btn-ghost:hover { background: var(--card); }
+.btn-small { padding: 7px 16px; font-size: 0.9rem; }
+
+/* Topo */
+.hero {
+  min-height: 78vh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  text-align: center;
+  padding: 80px 6vw;
+}
+
+/* Patronos fixos nas bordas da tela: só metade de cada um aparece e eles
+   não se movem ao rolar. O fundo ganha luz laranja (Hidden King) e azul
+   (Arch Mother) por cima do verde-noite, sem deixar de ser verde. */
+.stage {
+  --stage-w: clamp(420px, 50vw, 900px);
+  position: fixed; top: 0; bottom: 0; z-index: 0;
+  width: var(--stage-w);
+  pointer-events: none;
+}
+/* Patronos um pouco transparentes */
+.stage-patron { opacity: 0.6; }
+.stage-king {
+  left: calc(var(--stage-w) * -0.45);
+  background: radial-gradient(ellipse 60% 70% at 50% 55%, rgba(196, 116, 46, 0.30), transparent 72%);
+}
+.stage-arch {
+  right: calc(var(--stage-w) * -0.45);
+  background: radial-gradient(ellipse 60% 70% at 50% 55%, rgba(52, 118, 168, 0.32), transparent 72%);
+}
+/* Vídeo quadrado do patrono: a figura ocupa ~70% da altura do quadro */
+.stage-patron {
+  position: absolute; top: -4vh; left: 50%; transform: translateX(-50%);
+  height: 115vh; width: auto; aspect-ratio: 1; max-width: none;
+}
+/* Conteúdo sempre por cima dos patronos */
+.nav ~ * { position: relative; z-index: 1; }
+@media (max-width: 760px) {
+  .stage { opacity: 0.45; }
+}
+/* Hierarquia do topo: título (display) → subtítulo (o que é o evento) → frase de apoio */
+.hero h1 { font-size: clamp(2.6rem, 7vw, 5rem); font-weight: 700; line-height: 1.05; letter-spacing: 0.01em; margin: 12px 0 6px; }
+
+/* Informações */
+.info {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  max-width: 1100px; margin: -40px auto 0; padding: 0 6vw;
+  gap: 14px;
+}
+.info-card {
+  background: var(--card); border: 1px solid var(--line);
+  padding: 18px 20px;
+}
+.label { display: block; text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.12em; color: var(--muted); }
+.info-card strong { font-size: 1.1rem; }
+
+/* Regras */
+.rules { max-width: 1100px; margin: 0 auto; padding: 90px 6vw 70px; }
+.rules-soon {
+  text-align: center;
+  font-size: clamp(1.4rem, 3vw, 2rem); font-weight: 600; letter-spacing: 0.06em;
+  color: var(--gold-text);
+  padding: 0 24px;
+  /* sem moldura: só o texto */
+  max-width: 520px; margin: 0 auto;
+}
+
+.rule {
+  position: relative;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-top: 3px solid var(--gold); /* cantos retos, como um box de revista impressa */
+  padding: 26px 24px;
+}
+.rule .num {
+  position: absolute; top: 33px; right: 24px;
+  font-family: "Valve Oracle", sans-serif; font-size: 1.05rem; font-weight: 600;
+  letter-spacing: 0.08em; font-variant-numeric: tabular-nums; line-height: 1;
+  /* menor que o título do card: o número só indexa a regra, o título lidera */
+  color: var(--gold-text); /* número decorativo (aria-hidden) */
+}
+.rule h3 { font-size: 1.35rem; line-height: 1.25; margin-bottom: 14px; padding-right: 3ch; color: var(--title); }
+.rule ul { list-style: none; display: grid; gap: 10px; color: var(--muted); }
+.rule ul li { padding-left: 18px; position: relative; }
+.rule ul li::before { content: "◆"; position: absolute; left: 0; color: var(--gold); font-size: 0.7rem; top: 4px; }
+.rule p { color: var(--muted); margin-bottom: 12px; }
+
+.rule-penalty { border-top-color: var(--red); }
+.rule-penalty h3 { color: var(--red); }
+.penalties { list-style: none; display: grid; gap: 6px; counter-reset: p; }
+.penalties li {
+  counter-increment: p;
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(239, 138, 116, 0.08);
+  padding: 6px 10px;
+}
+.penalties li::before { content: counter(p); font-weight: 600; color: var(--red); min-width: 1ch; }
+
+/* Rodapé */
+/* Players: ranking por pontuação, no mesmo quadro dourado da live */
+.players { max-width: 860px; margin: 0 auto; padding: 0 4vw 90px; }
+.section-title {
+  font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 700; letter-spacing: 0.01em;
+  text-align: center; margin-bottom: 24px;
+}
+.players-board {
+  background: rgba(8, 27, 27, 0.82);
+  border: 1px solid var(--gold);
+  box-shadow: inset 0 0 0 6px rgba(8, 27, 27, 0.82), inset 0 0 0 7px rgba(193, 141, 82, 0.45), 0 24px 70px rgba(0, 0, 0, 0.5);
+  padding: 18px 22px;
+}
+.players-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.players-table th {
+  text-align: left; text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.12em;
+  color: var(--muted); font-weight: 600; padding: 10px 14px; border-bottom: 1px solid var(--gold);
+}
+.players-table td { padding: 13px 14px; border-bottom: 1px solid var(--line); font-size: 1.05rem; }
+.players-table tbody tr:last-child td { border-bottom: 0; }
+.players-table tbody tr:hover td { background: rgba(193, 141, 82, 0.06); }
+.players-table .col-rank { width: 4.5rem; text-align: center; }
+.players-table .col-score { text-align: right; width: 8rem; }
+.players-table td.col-rank { color: var(--muted); font-weight: 700; }
+.players-table td.col-score { font-weight: 700; color: var(--gold-text); }
+/* Pódio: ouro, prata e bronze */
+.players-table .top td.col-rank { font-size: 1.15rem; }
+.players-table .top-1 td.col-rank { color: #e2b366; }
+.players-table .top-2 td.col-rank { color: #c9d1cf; }
+.players-table .top-3 td.col-rank { color: #c27d4e; }
+.players-table .top-1 td.col-name { font-weight: 700; }
+.players-empty { text-align: center; color: var(--gold-text); font-size: 1.3rem; padding: 26px 0; }
+@media (max-width: 560px) {
+  .players-board { padding: 10px 8px; }
+  .players-table th, .players-table td { padding: 11px 8px; }
+  .players-table .col-rank { width: 2.8rem; }
+  .players-table .col-score { width: 5.5rem; }
+}
+
+/* Partidas: placar da última partida, na mesma moldura dourada do ranking */
+.match { max-width: 1280px; margin: 0 auto; padding: 0 4vw 90px; }
+.match-board {
+  position: relative;
+  background: rgba(8, 27, 27, 0.82);
+  border: 1px solid var(--gold);
+  box-shadow: inset 0 0 0 6px rgba(8, 27, 27, 0.82), inset 0 0 0 7px rgba(193, 141, 82, 0.45), 0 24px 70px rgba(0, 0, 0, 0.5);
+  padding: 22px 24px 26px;
+}
+.match-board::before {
+  content: ""; position: absolute; inset: -6px; pointer-events: none;
+  --c: var(--gold-text);
+  background:
+    linear-gradient(var(--c), var(--c)) top left / 34px 3px, linear-gradient(var(--c), var(--c)) top left / 3px 34px,
+    linear-gradient(var(--c), var(--c)) top right / 34px 3px, linear-gradient(var(--c), var(--c)) top right / 3px 34px,
+    linear-gradient(var(--c), var(--c)) bottom left / 34px 3px, linear-gradient(var(--c), var(--c)) bottom left / 3px 34px,
+    linear-gradient(var(--c), var(--c)) bottom right / 34px 3px, linear-gradient(var(--c), var(--c)) bottom right / 3px 34px;
+  background-repeat: no-repeat;
+}
+.match-list { display: grid; gap: 44px; }
+.match-more { text-align: center; margin-top: 34px; }
+.match-label { font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.14em; color: var(--gold-text); }
+.match-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 20px; margin-bottom: 18px; }
+.match-meta { display: flex; flex-wrap: wrap; gap: 4px 18px; color: var(--muted); font-size: 0.95rem; font-variant-numeric: tabular-nums; }
+.match-id { color: var(--sage); }
+
+.match-team { --team: var(--gold); --team-text: var(--gold-text); --team-bg: rgba(193, 141, 82, 0.07); }
+.match-team.team-arch { --team: #5f86c4; --team-text: #9dbbe8; --team-bg: rgba(95, 134, 196, 0.08); }
+.match-team + .match-team { margin-top: 28px; }
+.match-team-head {
+  display: flex; align-items: center; gap: 14px;
+  padding: 8px 0 10px; border-bottom: 2px solid var(--team);
+}
+.match-team-head h4 { color: var(--team-text); font-size: 1.45rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.match-badge {
+  font-size: 0.75rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.12em;
+  padding: 3px 10px; border-radius: 3px; background: var(--team); color: var(--on-accent);
+}
+.match-badge.is-loss { background: transparent; color: var(--muted); border: 1px solid var(--line); }
+.match-total { margin-left: auto; font-weight: 700; color: var(--team-text); font-variant-numeric: tabular-nums; }
+.match-total::before { content: "◆ "; font-size: 0.7em; vertical-align: 0.15em; }
+
+.match-scroll { overflow-x: auto; }
+.match-table { width: 100%; min-width: 1020px; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.match-table th {
+  text-align: left; text-transform: uppercase; font-size: 0.72rem; letter-spacing: 0.12em;
+  color: var(--muted); font-weight: 600; padding: 10px 10px 6px;
+}
+.match-table td { padding: 7px 10px; border-top: 1px solid var(--line); vertical-align: middle; }
+.match-table tbody tr { background: var(--team-bg); }
+.match-table tbody tr:hover { background: rgba(238, 232, 178, 0.06); }
+.match-table .num { text-align: center; font-weight: 600; white-space: nowrap; }
+.match-table th.kda, .match-table td.kda { width: 2.6rem; padding-inline: 4px; }
+.match-table td.k { color: var(--title); }
+.match-table td.d { color: var(--muted); }
+.match-table .col-player { min-width: 230px; }
+.match-table .player { display: flex; align-items: center; gap: 10px; }
+.match-table .hero-ico { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #050f0f; border: 1px solid var(--team); flex: none; }
+.match-table .who { display: flex; flex-direction: column; line-height: 1.2; min-width: 0; }
+.match-table .who strong { font-weight: 600; overflow-wrap: anywhere; }
+.match-table .hero-name { color: var(--muted); font-size: 0.85rem; }
+.match-table .mvp {
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; vertical-align: 0.15em;
+  padding: 1px 5px; border-radius: 3px; background: var(--gold); color: var(--on-accent);
+}
+.match-table tr.is-mvp { background: rgba(193, 141, 82, 0.14); }
+
+/* Itens: o ícone tem fundo creme; com "multiply" ele ganha a cor da categoria, como no jogo */
+.items { display: flex; flex-wrap: wrap; gap: 4px; }
+.mi { position: relative; width: 34px; height: 34px; border-radius: 4px; overflow: hidden; flex: none; background: #c9813d; }
+.mi-vitality { background: #6fa83f; }
+.mi-spirit { background: #9a6ad6; }
+.mi img { display: block; width: 100%; height: 100%; mix-blend-mode: multiply; }
+.mi.is-active::after { content: ""; position: absolute; left: 3px; right: 3px; bottom: 2px; height: 2px; background: rgba(8, 27, 27, 0.7); border-radius: 1px; }
+@media (max-width: 560px) {
+  .match-board { padding: 14px 10px 18px; }
+  .match-team-head h4 { font-size: 1.15rem; }
+}
+
+/* Página inicial: resumo das últimas partidas (o placar completo fica no histórico) */
+.summary-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap: 22px; max-width: 1000px; margin: 0 auto; }
+.summary {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 20px 22px 18px;
+  background: rgba(8, 27, 27, 0.82);
+  border: 1px solid var(--gold);
+  box-shadow: inset 0 0 0 6px rgba(8, 27, 27, 0.82), inset 0 0 0 7px rgba(193, 141, 82, 0.45), 0 24px 70px rgba(0, 0, 0, 0.5);
+}
+.summary-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 4px; }
+.summary-meta { color: var(--muted); font-size: 0.88rem; font-variant-numeric: tabular-nums; }
+.summary-team {
+  --team: var(--gold); --team-text: var(--gold-text); --team-bg: rgba(193, 141, 82, 0.08);
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px;
+  padding: 10px 12px; background: var(--team-bg); border-top: 2px solid var(--team);
+}
+.summary-team.team-arch { --team: #5f86c4; --team-text: #9dbbe8; --team-bg: rgba(95, 134, 196, 0.09); }
+.summary-team .match-badge { background: var(--team); }
+.summary-team .match-badge.is-loss { background: transparent; }
+.summary-name { font-weight: 700; font-size: 1.1rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--team-text); }
+.summary-stats { margin-left: auto; display: flex; gap: 14px; color: var(--muted); font-size: 0.88rem; font-variant-numeric: tabular-nums; }
+.summary-stats strong { color: var(--text); font-size: 1rem; }
+.summary-mvp { display: flex; align-items: center; gap: 10px; padding: 8px 2px 2px; min-height: 48px; }
+.summary-mvp .mvp { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.1em; padding: 2px 7px; border-radius: 3px; background: var(--gold); color: var(--on-accent); }
+.summary-mvp .hero-ico { width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--gold); background: #050f0f; }
+.summary-mvp .hero-ico.team-arch { border-color: #5f86c4; }
+.summary-mvp-who { display: flex; flex-direction: column; line-height: 1.2; }
+.summary-mvp-who .hero-name { color: var(--muted); font-size: 0.82rem; font-variant-numeric: tabular-nums; }
+.summary-mvp .is-tbd { color: var(--muted); }
+.summary-link { align-self: flex-end; color: var(--gold-text); font-size: 0.92rem; font-weight: 600; }
+.summary-link:hover { color: var(--title); }
+.summary-link:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+
+/* Histórico das partidas: grade de botões; cada um abre o placar numa janela por cima da página */
+.history { position: relative; max-width: 1100px; margin: 0 auto; padding: 40px 4vw 90px; }
+.history-back { display: inline-block; color: var(--muted); font-size: 0.95rem; margin-bottom: 18px; }
+.history-back:hover { color: var(--gold-text); }
+.history .section-title { margin-bottom: 8px; }
+.history-intro { text-align: center; color: var(--muted); margin-bottom: 30px; }
+.history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 14px; }
+.history-card {
+  position: relative; display: flex; flex-direction: column; align-items: flex-start; gap: 4px;
+  min-height: 108px; padding: 16px 18px; text-align: left; cursor: pointer;
+  font: inherit; color: var(--text);
+  background: rgba(8, 27, 27, 0.82);
+  border: 1px solid var(--gold);
+  box-shadow: inset 0 0 0 4px rgba(8, 27, 27, 0.82), inset 0 0 0 5px rgba(193, 141, 82, 0.35);
+  transition: transform 0.15s, background 0.15s, border-color 0.15s;
+}
+.history-card:hover:not(:disabled) { transform: translateY(-2px); background: rgba(32, 59, 55, 0.92); border-color: var(--gold-text); }
+.history-card:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.history-name { font-size: 1.15rem; font-weight: 700; color: var(--title); text-transform: uppercase; letter-spacing: 0.06em; }
+.history-result { font-size: 0.9rem; color: var(--gold-text); }
+.history-result.team-arch { color: #9dbbe8; }
+.history-mvp { display: flex; align-items: center; gap: 6px; font-size: 0.88rem; font-weight: 600; color: var(--title); overflow-wrap: anywhere; }
+.history-mvp .mvp { font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; padding: 1px 5px; border-radius: 3px; background: var(--gold); color: var(--on-accent); }
+.history-mvp .is-tbd { color: var(--muted); font-weight: 500; }
+.history-time { margin-top: auto; font-size: 0.82rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.history-card.is-soon { cursor: default; border-color: var(--line); box-shadow: none; background: rgba(8, 27, 27, 0.6); }
+.history-card.is-soon .history-name { color: var(--muted); }
+.history-card.is-soon .history-result { color: var(--sage); }
+
+.match-dialog {
+  width: min(1320px, 96vw); max-width: none; max-height: 92vh; margin: auto;
+  padding: 14px; border: 0; background: transparent; color: var(--text); overflow: auto;
+}
+.match-dialog::backdrop { background: rgba(3, 10, 10, 0.78); backdrop-filter: blur(4px); }
+.match-dialog .match-board { margin: 8px; }
+.match-dialog .match-head { padding-right: 46px; }
+.match-dialog-close {
+  position: sticky; top: 0; z-index: 2; float: right; margin: 0 0 -44px;
+  width: 42px; height: 42px; border-radius: 50%; cursor: pointer;
+  font: 700 1.1rem "Valve Oracle", sans-serif; color: var(--on-accent);
+  background: var(--gold); border: 1px solid var(--gold-text);
+}
+.match-dialog-close:hover { background: var(--gold-hover); }
+.match-dialog-close:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+html.has-dialog { overflow: hidden; }
+@media (max-width: 560px) {
+  .history-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .history-card { min-height: 96px; padding: 12px; }
+  .match-dialog { width: 100vw; max-height: 100vh; padding: 6px; }
+}
+@media (prefers-reduced-motion: reduce) { .history-card { transition: none; } .history-card:hover { transform: none; } }
+
+/* Assista ao vivo: abas de canal em cima; embaixo, player grande + chat dentro de uma moldura dourada */
+.live { max-width: 1520px; margin: 0 auto; padding: 20px 4vw 100px; }
+.live-title {
+  font-size: clamp(1.8rem, 4vw, 2.6rem); font-weight: 700; letter-spacing: 0.01em;
+  text-align: center; margin-bottom: 22px;
+}
+.live-tabs { display: flex; justify-content: center; flex-wrap: wrap; gap: 10px; margin-bottom: 26px; }
+.live-tabs button {
+  font: inherit; font-weight: 600; font-size: 1rem; cursor: pointer;
+  padding: 10px 22px; border-radius: 4px;
+  background: transparent; color: var(--muted); border: 1px solid var(--line);
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+.live-tabs button:hover { color: var(--gold-text); border-color: var(--gold-strong); }
+.live-tabs button[aria-selected="true"] { background: var(--gold); color: var(--on-accent); border-color: var(--gold); }
+.live-tabs button:focus-visible { outline: 2px solid var(--gold-text); outline-offset: 3px; }
+
+/* Moldura: fio dourado por fora, filete fino por dentro e cantoneiras nos quatro cantos */
+.live-grid {
+  position: relative;
+  display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 16px;
+  padding: 22px;
+  background: rgba(8, 27, 27, 0.82);
+  border: 1px solid var(--gold);
+  box-shadow: inset 0 0 0 6px rgba(8, 27, 27, 0.82), inset 0 0 0 7px rgba(193, 141, 82, 0.45), 0 24px 70px rgba(0, 0, 0, 0.55);
+}
+.live-grid::before {
+  content: ""; position: absolute; inset: -6px; pointer-events: none;
+  --c: var(--gold-text);
+  background:
+    linear-gradient(var(--c), var(--c)) top left / 34px 3px, linear-gradient(var(--c), var(--c)) top left / 3px 34px,
+    linear-gradient(var(--c), var(--c)) top right / 34px 3px, linear-gradient(var(--c), var(--c)) top right / 3px 34px,
+    linear-gradient(var(--c), var(--c)) bottom left / 34px 3px, linear-gradient(var(--c), var(--c)) bottom left / 3px 34px,
+    linear-gradient(var(--c), var(--c)) bottom right / 34px 3px, linear-gradient(var(--c), var(--c)) bottom right / 3px 34px;
+  background-repeat: no-repeat;
+}
+.live-frame { position: relative; background: #050f0f; border: 1px solid var(--line); }
+.live-player { grid-area: 1 / 1; aspect-ratio: 16 / 9; }
+/* O vídeo da live fica por cima do filtro de revista antiga (camadas z-index 100); o chat continua com o filtro.
+   Para isso a seção não cria camada própria, e o menu fixo sobe acima do vídeo ao rolar a página. */
+.nav ~ .live { z-index: auto; }
+.live-player { z-index: 101; }
+.live-chat { grid-area: 1 / 2; }
+.live-frame iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+/* Lives já abertas continuam tocando por trás; só a do canal selecionado fica visível e clicável */
+.live-frame iframe:not(.is-active) { visibility: hidden; pointer-events: none; }
+.live-local[hidden] { display: none; }
+.live-local {
+  grid-area: 1 / 1; align-self: center; justify-self: center; z-index: 1; max-width: 32ch;
+  color: var(--muted); text-align: center; padding: 20px; pointer-events: none;
+}
+.live-open { display: block; width: max-content; margin: 18px auto 0; color: var(--muted); font-size: 0.95rem; text-decoration: none; }
+.live-open:hover { color: var(--gold-text); }
+@media (max-width: 1000px) {
+  .live-grid { grid-template-columns: 1fr; padding: 12px; }
+  .live-chat { grid-area: 2 / 1; height: 440px; }
+}
+.footer { position: relative; text-align: center; padding: 30px 6vw 52px; color: var(--muted); }
+.footer .small { font-size: 0.8rem; margin-top: 4px; }
+
+/* Celular */
+@media (max-width: 760px) {
+  .info { grid-template-columns: repeat(2, 1fr); }
+  .nav nav a:not(.btn) { display: none; }
+}
+@media (max-width: 480px) {
+  .nav { padding: 12px 16px; }
+  .nav-logo { font-size: 0.95rem; }
+  .nav nav { gap: 10px; }
+  .nav-name { display: none; } /* no celular o menu mostra só o símbolo do logo */
+  .nav-logo img { width: 34px; height: 34px; }
+  .btn-small { padding: 6px 12px; }
+}
+/* Alvos de toque confortáveis no celular (≥40px) */
+@media (max-width: 760px) {
+  .lang button { min-height: 40px; min-width: 40px; }
+  .btn-small { min-height: 40px; display: inline-flex; align-items: center; }
+}
+
+/* Seleção de texto na paleta do site */
+::selection { background: var(--text); color: var(--bg); }
+
+/* Acessibilidade: foco visível no teclado */
+a:focus-visible, button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+/* Acessibilidade: menos animação para quem pede isso no sistema */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .btn { transition: none; }
+  .btn:hover { transform: none; }
+}
+
+/* Logo */
+.nav-logo { display: flex; align-items: center; gap: 10px; }
+.nav-logo img { width: 34px; height: 34px; border-radius: 50%; }
+.nav-logo .nav-name { color: var(--title); }
+.nav-logo .nav-name span { color: var(--gold-text); }
+
+/* Efeito de capa de revista antiga: poeira, arranhões, dobras e bordas gastas sobre o
+   fundo verde-noite. As camadas ficam por cima de tudo, mas não bloqueiam cliques.
+   A textura usa "screen": o preto dela não muda nada, só as marcas clareiam o fundo. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+}
+body::before {
+  background: url("assets/textura-revista-escura.webp") center / cover no-repeat;
+  /* Textura clara sobre preto: com "screen" só a poeira e os arranhões clareiam o fundo escuro. */
+  mix-blend-mode: screen;
+  opacity: 0.55;
+}
+/* Granulação de impressão + leve tom ocre de papel envelhecido */
+body::after {
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+    linear-gradient(rgba(193, 141, 82, 0.06), rgba(193, 141, 82, 0.06));
+  mix-blend-mode: soft-light;
+  opacity: 0.7;
+}
+
+/* Imagens e cores com aparência de impressão envelhecida */
+
+/* Botão discreto da staff, no canto inferior esquerdo do rodapé */
+.staff-link {
+  position: absolute; left: 6vw; bottom: 22px;
+  padding: 4px 10px; border: 1px solid var(--line); border-radius: 3px;
+  font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--sage); opacity: 0.55; transition: opacity 0.2s, color 0.2s;
+}
+.staff-link:hover, .staff-link:focus-visible { opacity: 1; color: var(--muted); }
+@media (max-width: 480px) { .staff-link { left: 16px; bottom: 14px; } .footer { padding-bottom: 64px; } }

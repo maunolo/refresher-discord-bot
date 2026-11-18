@@ -1519,3 +1519,62 @@ input {
   background: var(--jade);
   box-shadow: 0 0 0 3px rgba(52, 211, 166, 0.18);
 }
+
+/* Site: the public league site's content */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+.site-texts {
+  gap: 8px;
+}
+.site-lang {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+.site-rank .input {
+  width: 100%;
+  min-height: 38px;
+}
+.site-rank .site-points {
+  width: 120px;
+}
+.site-matches {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.site-match {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--control);
+  background: var(--inset);
+}
+.site-match-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+}
+.site-match-head .icon-button {
+  margin-left: auto;
+}
+.site-import {
+  min-height: 110px;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  resize: vertical;
+}

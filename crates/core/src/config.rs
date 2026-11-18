@@ -32,6 +32,15 @@ pub struct WebConfig {
     pub discord_client_secret: String,
     /// The built admin page (`npm run build` in `web/`).
     pub static_dir: String,
+    /// The public league site's pages and assets.
+    pub site_dir: String,
+    /// Domains that show the public site instead of the admin page, e.g. `refresherleague.com.br`.
+    /// Without any, it's only at `{public_url}/site/`.
+    pub site_hosts: Vec<String>,
+    /// The Discord server whose admins edit the site and pick the camp it shows.
+    pub site_guild_id: Option<u64>,
+    /// `user:password` the site asks for while it isn't public yet.
+    pub site_lock: Option<String>,
 }
 
 fn optional_var(name: &str) -> Option<String> {
@@ -60,6 +69,18 @@ fn web_from_env() -> Result<WebConfig> {
         discord_client_id,
         discord_client_secret,
         static_dir: optional_var("WEB_STATIC_DIR").unwrap_or_else(|| "web/dist".to_string()),
+        site_dir: optional_var("SITE_DIR").unwrap_or_else(|| "site".to_string()),
+        site_hosts: optional_var("SITE_HOSTS")
+            .map(|hosts| {
+                hosts
+                    .split(',')
+                    .map(|h| h.trim().to_ascii_lowercase())
+                    .filter(|h| !h.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default(),
+        site_guild_id: optional_channel("SITE_GUILD_ID")?,
+        site_lock: optional_var("SITE_LOCK"),
     })
 }
 

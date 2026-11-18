@@ -2559,6 +2559,10 @@ mod tests {
                 discord_client_id: String::new(),
                 discord_client_secret: String::new(),
                 static_dir: String::new(),
+                site_dir: String::new(),
+                site_hosts: Vec::new(),
+                site_guild_id: None,
+                site_lock: None,
             },
         };
         let env = GuildSettings::from_config(&config);

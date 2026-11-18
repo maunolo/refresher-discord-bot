@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+# Sem sitemap por enquanto; o site tem só index.html e historico.html.
+Disallow: /staff/
