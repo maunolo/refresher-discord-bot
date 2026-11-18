@@ -36,6 +36,8 @@ pub struct AppState {
     pub link: Arc<dyn BotLink>,
     /// Settings of a server that never saved its own: the `.env` values.
     pub default_settings: GuildSettings,
+    /// The public site's data, shared by the requests of one page load.
+    pub site_cache: Arc<site::SiteCache>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -147,6 +149,7 @@ pub async fn run(
         http,
         link,
         default_settings,
+        site_cache: Default::default(),
     };
     axum::serve(listener, router(state)).await?;
     Ok(())
@@ -334,6 +337,7 @@ mod tests {
                 draft_view: refresher_core::draft::DraftView::Cinematic,
                 dm_captains: true,
             },
+            site_cache: Default::default(),
         }
     }
 
