@@ -1,12 +1,30 @@
 /* OBS browser sources: a transparent page, so only the panels show over the scene. */
 
+@font-face {
+  font-family: 'Valve Oracle';
+  src: url('/fonts/VALVEOracle-Medium.woff2') format('woff2');
+  font-weight: 400 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Valve Oracle';
+  src: url('/fonts/VALVEOracle-SemiBold.woff2') format('woff2');
+  font-weight: 600 800;
+  font-display: swap;
+}
+
+/* The public site's palette: cream text, mint labels, gold details; the Hidden King in gold and
+   the Archmother in blue. `--jade` is the accent, now gold. */
 :root {
-  --hk: #f2b04a;
-  --am: #9db4ff;
-  --jade: #34d3a6;
-  --s: #cdb8ff;
-  --muted: #9db5b0;
-  --wait: #7f9893;
+  --hk: #d6a873;
+  --am: #9dbbe8;
+  --jade: #d6a873;
+  --gold: #c18d52;
+  --s: #e2b366;
+  --muted: #96cdb0;
+  --wait: #73a28b;
+  --ok: #5fd39b;
 }
 
 * {
@@ -21,8 +39,8 @@ body {
 }
 
 body {
-  font-family: 'IBM Plex Sans', system-ui, sans-serif;
-  color: #e9f5f2;
+  font-family: 'Valve Oracle', system-ui, sans-serif;
+  color: #eee8b2;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -37,16 +55,39 @@ h1 {
   padding: 10px;
 }
 
+/* The site's gold frame, with corner brackets */
 .ov-panel {
+  position: relative;
+  margin: 6px;
   padding: 20px 22px 18px;
-  background: rgba(6, 17, 16, 0.88);
-  border: 1px solid rgba(140, 245, 210, 0.16);
-  border-radius: 14px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  background: rgba(8, 27, 27, 0.9);
+  border: 1px solid var(--gold);
+  box-shadow:
+    inset 0 0 0 5px rgba(8, 27, 27, 0.9),
+    inset 0 0 0 6px rgba(193, 141, 82, 0.45),
+    0 10px 30px rgba(0, 0, 0, 0.45);
   animation: ov-in 0.45s ease both;
   transition:
     opacity 0.6s ease,
     transform 0.6s ease;
+}
+
+.ov-panel::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  pointer-events: none;
+  --c: var(--jade);
+  background:
+    linear-gradient(var(--c), var(--c)) top left / 26px 2px,
+    linear-gradient(var(--c), var(--c)) top left / 2px 26px,
+    linear-gradient(var(--c), var(--c)) top right / 26px 2px,
+    linear-gradient(var(--c), var(--c)) top right / 2px 26px,
+    linear-gradient(var(--c), var(--c)) bottom left / 26px 2px,
+    linear-gradient(var(--c), var(--c)) bottom left / 2px 26px,
+    linear-gradient(var(--c), var(--c)) bottom right / 26px 2px,
+    linear-gradient(var(--c), var(--c)) bottom right / 2px 26px;
+  background-repeat: no-repeat;
 }
 
 .ov-leaving {
@@ -67,6 +108,7 @@ h1 {
   font-size: 28px;
   font-weight: 700;
   line-height: 1.15;
+  letter-spacing: 0.02em;
 }
 
 .ov-label {
@@ -95,8 +137,9 @@ h1 {
 .ov-pill {
   flex: none;
   padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(52, 211, 166, 0.14);
+  border: 1px solid rgba(193, 141, 82, 0.6);
+  border-radius: 3px;
+  background: rgba(193, 141, 82, 0.16);
   color: var(--jade);
   font-size: 15px;
   font-weight: 700;
@@ -113,6 +156,8 @@ h1 {
   justify-content: space-between;
   align-items: baseline;
   margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 2px solid currentColor;
   font-size: 14px;
 }
 
@@ -128,8 +173,8 @@ h1 {
 
 .ov-pips i {
   height: 9px;
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.1);
+  border-radius: 1px;
+  background: rgba(238, 232, 178, 0.1);
   transition:
     background 0.3s ease,
     box-shadow 0.3s ease;
@@ -137,12 +182,12 @@ h1 {
 
 .ov-pips-hiddenking i.on {
   background: var(--hk);
-  box-shadow: 0 0 8px rgba(242, 176, 74, 0.6);
+  box-shadow: 0 0 8px rgba(214, 168, 115, 0.6);
 }
 
 .ov-pips-archmother i.on {
   background: var(--am);
-  box-shadow: 0 0 8px rgba(157, 180, 255, 0.6);
+  box-shadow: 0 0 8px rgba(157, 187, 232, 0.6);
 }
 
 .ov-row {
@@ -152,13 +197,13 @@ h1 {
   gap: 8px;
   min-height: 35px;
   padding: 4px 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid rgba(47, 82, 76, 0.8);
   font-size: 16px;
   font-weight: 600;
 }
 
 .ov-new {
-  background: linear-gradient(90deg, rgba(52, 211, 166, 0.12), transparent);
+  background: linear-gradient(90deg, rgba(193, 141, 82, 0.16), transparent);
 }
 
 .ov-who {
@@ -184,7 +229,7 @@ h1 {
   flex: none;
   overflow: hidden;
   border-radius: 50%;
-  background: #24403c;
+  background: #2f524c;
   font-size: 12px;
   font-weight: 700;
 }
@@ -204,8 +249,8 @@ h1 {
 .ov-s {
   flex: none;
   padding: 0 5px;
-  border-radius: 4px;
-  background: #2a2245;
+  border-radius: 3px;
+  background: rgba(226, 179, 102, 0.16);
   color: var(--s);
   font-size: 11px;
   font-weight: 700;
@@ -219,7 +264,7 @@ h1 {
 
 .ov-ok {
   flex: none;
-  color: var(--jade);
+  color: var(--ok);
   font-size: 13px;
   font-weight: 700;
   animation: ov-pop 0.35s ease;
@@ -250,7 +295,7 @@ h1 {
   gap: 12px;
   margin-top: 14px;
   padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(193, 141, 82, 0.35);
   font-size: 14px;
 }
 
@@ -271,7 +316,8 @@ h1 {
 .ov-rank-head h1 {
   font-size: 24px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .ov-rank-head .ov-muted {
@@ -279,6 +325,7 @@ h1 {
 }
 
 .ov-rank-list {
+  border-top: 1px solid var(--gold);
   margin: 0;
   padding: 0;
   list-style: none;
@@ -291,13 +338,12 @@ h1 {
   gap: 8px;
   height: 54px;
   padding: 0 4px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid rgba(47, 82, 76, 0.8);
   animation: ov-in 0.45s ease both;
 }
 
 .ov-rank-first {
-  border-radius: 8px;
-  background: linear-gradient(90deg, rgba(245, 208, 107, 0.12), transparent);
+  background: linear-gradient(90deg, rgba(193, 141, 82, 0.18), transparent);
 }
 
 .ov-place {
@@ -307,15 +353,15 @@ h1 {
 }
 
 .ov-place-1 {
-  color: #f5d06b;
+  color: #e2b366;
 }
 
 .ov-place-2 {
-  color: #d4dde0;
+  color: #c9d1cf;
 }
 
 .ov-place-3 {
-  color: #e0a272;
+  color: #c27d4e;
 }
 
 .ov-rank-who {
@@ -341,20 +387,20 @@ h1 {
 .ov-plus {
   flex: none;
   padding: 0 6px;
-  border-radius: 4px;
+  border-radius: 3px;
   font-size: 11px;
   font-weight: 700;
   line-height: 17px;
 }
 
 .ov-mvp {
-  background: rgba(245, 208, 107, 0.14);
-  color: #f5d06b;
+  background: rgba(193, 141, 82, 0.18);
+  color: #e2b366;
 }
 
 .ov-plus {
-  background: rgba(52, 211, 166, 0.16);
-  color: var(--jade);
+  background: var(--gold);
+  color: #081b1b;
   animation: ov-pop 0.35s ease;
 }
 
@@ -365,18 +411,19 @@ h1 {
 }
 
 .ov-up {
-  color: var(--jade);
+  color: var(--ok);
 }
 
 .ov-down {
-  color: #ff9f92;
+  color: #ff8589;
 }
 
 .ov-same {
-  color: #5f7a75;
+  color: #5a8f76;
 }
 
 .ov-pts {
+  color: var(--jade);
   font-size: 22px;
   font-weight: 700;
   line-height: 1.05;
@@ -394,7 +441,7 @@ h1 {
 .ov-rank-foot {
   margin-top: 8px;
   padding-top: 10px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid rgba(193, 141, 82, 0.35);
   color: var(--muted);
   font-size: 12.5px;
 }

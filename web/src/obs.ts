@@ -114,7 +114,7 @@ function sceneCss(): string[] {
     `.obs-hero-slot img { object-fit: cover !important; object-position: 50% 0%; animation: ${REVEAL}; }`,
     '@keyframes refresher-reveal { from { opacity: 0; transform: scale(1.08); } to { opacity: 1; transform: none; } }',
     `.obs-timer-bar { position: absolute !important; left: ${timer.x}px; top: ${timer.y}px; width: ${width - 2 * timer.x}px !important; height: ${timer.height}px !important; margin: 0 !important; }`,
-    '.obs-timer-line.amber, .obs-timer-line.sapphire { background: #e4fbf3 !important; box-shadow: 0 0 8px rgba(140, 245, 210, 0.8), 0 0 20px rgba(52, 211, 166, 0.45) !important; }',
+    '.obs-timer-line.amber, .obs-timer-line.sapphire { background: #eee8b2 !important; box-shadow: 0 0 8px rgba(214, 168, 115, 0.85), 0 0 20px rgba(193, 141, 82, 0.5) !important; }',
   ];
   for (let i = 1; i <= MAX_BANS; i++) {
     rules.push(`.obs-minimap-ban.empty:nth-child(${i})::after { content: "${i}"; }`);
