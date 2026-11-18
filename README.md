@@ -32,6 +32,8 @@ The repo deploys as one Railway service: the [Dockerfile](Dockerfile) builds the
 
 Run only one copy of the bot per token: stop a local `cargo run` while the deployed one is up.
 
+To preview a branch without a second bot on the token, deploy it as a separate service with no Discord variables running the demo (see [Working on the page](#working-on-the-page)): variables `BUILD_DEMO=true` (the image then also builds `./refresher-demo`), `DEMO_BIND=0.0.0.0:8080` and `WEB_PUBLIC_URL=https://<its domain>`, and start command `./refresher-demo`. Open `/demo/login` to sign in and `/site/` for the public site. Its camp lives in memory and starts over on each deploy.
+
 ## Admin page
 
 Anyone with **Manage Server** in a server the bot is in can sign in and run that server's camps. A sign-in lasts 12 hours; sign in again to pick up permission changes.

@@ -14,7 +14,14 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 # sqlx embeds the migrations at compile time.
 COPY migrations ./migrations
-RUN cargo build --release --locked -p refresher-app
+# BUILD_DEMO=true (a service variable) also builds the demo server, for previews without Discord.
+ARG BUILD_DEMO=false
+RUN cargo build --release --locked -p refresher-app \
+    && mkdir -p /out && cp target/release/refresher-discord-bot /out/ \
+    && if [ "$BUILD_DEMO" = "true" ]; then \
+        cargo build --release --locked -p refresher-web --example demo --features demo \
+        && cp target/release/examples/demo /out/refresher-demo; \
+    fi
 
 FROM debian:trixie-slim
 RUN apt-get update \
@@ -22,14 +29,15 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /data
 WORKDIR /app
-COPY --from=app /src/target/release/refresher-discord-bot ./refresher-discord-bot
+COPY --from=app /out/ ./
 COPY --from=page /web/dist ./web/dist
 COPY site ./site
 # The database lives on a volume mounted at /data. The web server listens on every interface;
 # the public address and the Discord secrets come from the service's variables.
 ENV DATABASE_URL=sqlite:/data/camps.db \
     WEB_BIND=0.0.0.0:8080 \
-    WEB_STATIC_DIR=/app/web/dist     SITE_DIR=/app/site \
+    WEB_STATIC_DIR=/app/web/dist \
+    SITE_DIR=/app/site \
     RUST_LOG=info
 EXPOSE 8080
 CMD ["./refresher-discord-bot"]
