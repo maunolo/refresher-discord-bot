@@ -1921,6 +1921,7 @@ pub async fn report_winner(
         .bind(camp_id)
         .execute(&mut *tx)
         .await?;
+    crate::stats::queue_in_tx(&mut tx, match_id).await?;
 
     let ordered = queue::requeue(waiters, finished, &mut rand::thread_rng());
     write_queue_order(&mut tx, camp_id, &ordered).await?;

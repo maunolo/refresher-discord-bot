@@ -216,7 +216,8 @@ export interface OverlayLinks {
   ranking_url: string;
 }
 
-// The public league site's data (crates/web/src/site.rs), in the shapes its pages read.
+// The public league site (crates/web/src/site.rs): staff write its info cards; its ranking and
+// matches come from the published camp.
 
 /** One info card in each of the site's languages. */
 export interface SiteTexts {
@@ -229,65 +230,45 @@ export type SiteInfoKey = 'data' | 'formato' | 'premiacao' | 'times';
 
 export type SiteInfo = Record<SiteInfoKey, SiteTexts>;
 
-export interface SiteRankedPlayer {
-  nome: string;
-  pontos: number;
-}
-
-export interface SiteMatchPlayer {
-  nome: string;
-  heroi: string;
-  /** Hero icon: site/assets/partida/herois/{img}.webp */
-  img: string;
-  almas: string | number;
-  k: number;
-  d: number;
-  a: number;
-  dano: string | number;
-  obj: string | number;
-  cura: string | number;
-  itens: string[];
-}
-
-export interface SiteTeam {
-  nome: string;
-  classe: 'king' | 'arch';
-  almas: string | number;
-  jogadores: SiteMatchPlayer[];
-}
-
-export interface SiteMatch {
-  /** A player's name in this match, picked by staff. */
-  mvp: string | null;
-  /** The Deadlock match ID. */
-  id: number | null;
-  /** Unix seconds. */
-  inicio: number;
-  /** Seconds. */
-  duracao: number;
-  /** Index of the winning team. */
-  vencedor: number;
-  times: SiteTeam[];
-}
-
-export interface SiteItem {
-  nome: string;
-  tipo: 'weapon' | 'spirit' | 'vitality';
-  tier?: number;
-  ativo: boolean;
-}
-
-export interface SiteContent {
-  info: SiteInfo;
-  players: SiteRankedPlayer[];
-  matches: { partidas: SiteMatch[]; itens: Record<string, SiteItem> };
-}
-
 export interface SiteState {
   /** This camp is the one the site shows. */
   published: boolean;
   url: string;
-  content: SiteContent;
+  info: SiteInfo;
+  /** Finished matches of the camp, and how many have a Deadlock scoreboard for the site. */
+  finished_matches: number;
+  scoreboards: number;
+}
+
+/** A finished match's scoreboard lookup on the Deadlock API (crates/web/src/scoreboard.rs). */
+export interface MatchStats {
+  /** The bot is looking; an admin has to give the ID; done; or the API never had it. */
+  status: 'pending' | 'needs_id' | 'ready' | 'failed' | 'none';
+  deadlock_match_id: string | null;
+  attempts: number;
+  /** Unix seconds. */
+  next_attempt_at: number | null;
+  error: string | null;
+  scoreboard: {
+    duration_s: number;
+    winner_side: Side;
+    players: StatsPlayer[];
+  } | null;
+}
+
+export interface StatsPlayer {
+  /** The Steam account. */
+  account_id: string;
+  side: Side;
+  steam_name: string | null;
+  hero: string;
+  hero_image: string | null;
+  kills: number;
+  deaths: number;
+  assists: number;
+  souls: number;
+  /** The member linked to the Steam account. */
+  user_id: string | null;
 }
 
 /** The session is missing or expired: show the login screen. */
@@ -323,10 +304,17 @@ export const api = {
   createCamp: (guildId: string, channelId: string, size: CampSizeChoice) =>
     post<Camp>(`/api/guilds/${guildId}/camps`, { channel_id: channelId, size }),
   site: (campId: string) => request<SiteState>(`/api/camps/${campId}/site`),
-  /** Replaces everything the site shows for the camp; comes back cleaned up. */
-  saveSite: (campId: string, content: SiteContent) => send<SiteState>('PUT', `/api/camps/${campId}/site`, content),
-  /** Shows this camp on the site instead of the one before. */
+  /** Saves the camp's info cards; they come back cleaned up. */
+  saveSite: (campId: string, info: SiteInfo) => send<SiteState>('PUT', `/api/camps/${campId}/site`, { info }),
+  /** The site shows this camp's ranking, matches and info from now on. */
   publishSite: (campId: string) => post<SiteState>(`/api/camps/${campId}/site/publish`, {}),
+  matchStats: (matchId: string) => request<MatchStats>(`/api/matches/${matchId}/stats`),
+  /** Looks the match up on the Deadlock API by this ID; the same ID again retries. */
+  setDeadlockId: (matchId: string, deadlockMatchId: string) =>
+    send<MatchStats>('PUT', `/api/matches/${matchId}/stats`, { deadlock_match_id: deadlockMatchId }),
+  /** Who plays on a Steam account, or `null` to unlink it. */
+  linkAccount: (guildId: string, accountId: string, userId: string | null) =>
+    send<Record<string, never>>('PUT', `/api/guilds/${guildId}/deadlock-accounts/${accountId}`, { user_id: userId }),
 };
 
 function post<T>(path: string, body: unknown): Promise<T> {

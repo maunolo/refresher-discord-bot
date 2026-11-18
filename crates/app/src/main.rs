@@ -1,5 +1,7 @@
+use std::sync::Arc;
+
 use anyhow::Result;
-use refresher_core::{config::Config, db, settings::GuildSettings};
+use refresher_core::{config::Config, db, settings::GuildSettings, stats};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -16,6 +18,9 @@ async fn main() -> Result<()> {
     let bot = refresher_bot::Bot::new(config.clone(), db.clone()).await?;
     let link = bot.link();
     let defaults = GuildSettings::from_config(&config);
-    tokio::try_join!(bot.run(), refresher_web::run(config.web, defaults, db, link))?;
+    // Fetches each finished match's scoreboard from the Deadlock API, for the public site.
+    let deadlock = Arc::new(stats::HttpApi::new(config.deadlock_api_key.clone())?);
+    let stats_worker = stats::run(db.clone(), deadlock, link.changes().clone());
+    tokio::try_join!(bot.run(), refresher_web::run(config.web, defaults, db, link), stats_worker)?;
     Ok(())
 }

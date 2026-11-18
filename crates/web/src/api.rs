@@ -492,7 +492,7 @@ async fn camp_response(state: &AppState, camp: CampState) -> Result<Json<CampDto
 }
 
 /// A server the admin manages and the bot is in, or 404.
-fn managed_guild(state: &AppState, session: &Session, guild_id: u64) -> Result<(), ApiError> {
+pub(crate) fn managed_guild(state: &AppState, session: &Session, guild_id: u64) -> Result<(), ApiError> {
     if session.is_admin_of(guild_id) && state.link.in_guild(guild_id) {
         Ok(())
     } else {

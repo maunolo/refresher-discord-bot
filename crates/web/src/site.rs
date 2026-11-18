@@ -1,14 +1,17 @@
-//! The public league site (`site/`), which replaces the old PHP staff panel. Its pages and assets
-//! are static files; the three scripts they read their data from (`info.js`, `jogadores.js` and
-//! `partida.js`) are built here from what staff typed in the dashboard for the published camp.
+//! The public league site (`site/`). Its pages and assets are static files. Its data comes from
+//! the camp the site's server publishes: the ranking and the match history (each match's
+//! scoreboard from the Deadlock API, see `refresher_core::stats`), plus the four info cards staff
+//! write in the dashboard. It's served as JSON under `/api/` and as the three scripts the pages
+//! load (`info.js`, `jogadores.js` and `partida.js`).
 
-use std::collections::BTreeMap;
-use std::path::PathBuf;
-use std::sync::LazyLock;
+use std::collections::{BTreeMap, HashMap};
+use std::path::{Path as FsPath, PathBuf};
 
 use anyhow::Result;
 use axum::extract::{Path, Request, State};
-use axum::http::header::{AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE, WWW_AUTHENTICATE};
+use axum::http::header::{
+    ACCESS_CONTROL_ALLOW_ORIGIN, AUTHORIZATION, CACHE_CONTROL, CONTENT_TYPE, WWW_AUTHENTICATE,
+};
 use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Redirect, Response};
@@ -18,6 +21,9 @@ use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use refresher_core::config::WebConfig;
 use refresher_core::db;
+use refresher_core::link::Profile;
+use refresher_core::ranking::{rank, Standing};
+use refresher_core::stats::{self, slug, Scoreboard, ScoreboardPlayer};
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tower_http::services::ServeDir;
@@ -46,115 +52,96 @@ pub struct Info {
     pub times: Texts,
 }
 
-/// A ranking row (`window.JOGADORES`); the page sorts them by points.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+/// A ranking row, best first (`window.JOGADORES`, `/api/ranking`).
+#[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct RankedPlayer {
+    /// 1 is first; players equal on points and MVPs share it.
+    pub posicao: usize,
     pub nome: String,
-    #[serde(default)]
     pub pontos: i64,
+    pub mvps: i64,
+    pub vitorias: i64,
+    pub partidas: i64,
+    pub avatar: Option<String>,
 }
 
-/// Match scoreboards, and the name and kind of each item their icons show (`window.PARTIDAS`).
-#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+/// The match history, oldest first, and the name and kind of each item its icons show
+/// (`window.PARTIDAS`, `/api/matches`).
+#[derive(Clone, Debug, Default, Serialize, PartialEq)]
 pub struct Matches {
-    #[serde(default)]
     pub partidas: Vec<SiteMatch>,
-    #[serde(default)]
     pub itens: BTreeMap<String, Item>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Item {
     pub nome: String,
     /// `weapon`, `spirit` or `vitality`: the tile's color.
     pub tipo: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tier: Option<i64>,
-    #[serde(default)]
     pub ativo: bool,
+    /// The icon on the Deadlock API, for items the site has no icon of its own for.
+    #[serde(rename = "imgUrl", skip_serializing_if = "Option::is_none")]
+    pub img_url: Option<String>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct SiteMatch {
-    /// Picked by staff by a player's name in this match; not the game's MVP.
-    #[serde(default)]
+    /// The admin's pick, by name; not the game's MVP.
     pub mvp: Option<String>,
     /// The Deadlock match ID.
-    #[serde(default)]
-    pub id: Option<u64>,
+    pub id: u64,
     /// When it started, in Unix seconds.
     pub inicio: i64,
     /// How long it lasted, in seconds.
     pub duracao: i64,
     /// The winning team's index in `times`.
     pub vencedor: usize,
+    /// Hidden King, then Archmother.
     pub times: Vec<Team>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct Team {
     pub nome: String,
     /// `king` or `arch`: the side's colors.
     pub classe: String,
-    pub almas: Stat,
+    pub almas: String,
     pub jogadores: Vec<MatchPlayer>,
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
 pub struct MatchPlayer {
+    /// The member's Discord name if their Steam account is linked, else their Steam name.
     pub nome: String,
     pub heroi: String,
     /// The hero's icon: `assets/partida/herois/{img}.webp`.
     pub img: String,
-    pub almas: Stat,
+    /// The icon on the Deadlock API, for heroes the site has no icon of its own for.
+    #[serde(rename = "imgUrl", skip_serializing_if = "Option::is_none")]
+    pub img_url: Option<String>,
+    pub almas: String,
     pub k: i64,
     pub d: i64,
     pub a: i64,
-    pub dano: Stat,
-    pub obj: Stat,
-    pub cura: Stat,
-    /// Item icons: `assets/partida/itens/{slug}.webp`.
-    #[serde(default)]
+    pub dano: String,
+    pub obj: String,
+    pub cura: String,
+    /// Item icons: `assets/partida/itens/{slug}.webp`, named in `itens`.
     pub itens: Vec<String>,
 }
 
-/// A number as the scoreboard shows it, e.g. `40k` or `979`.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-#[serde(untagged)]
-pub enum Stat {
-    Number(i64),
-    Text(String),
-}
-
-/// Everything the site shows for a camp.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
-pub struct SiteContent {
-    pub info: Info,
-    pub players: Vec<RankedPlayer>,
-    pub matches: Matches,
-}
-
-/// Names and kinds of the items the site has icons for, from the old `partida.js`.
-static ITEM_CATALOG: LazyLock<BTreeMap<String, Item>> =
-    LazyLock::new(|| serde_json::from_str(include_str!("site_items.json")).expect("site_items.json is valid"));
-
-impl SiteContent {
-    /// A camp nobody has written anything for yet.
-    pub fn empty() -> Self {
-        SiteContent {
-            info: clean_info(Info::default()),
-            players: Vec::new(),
-            matches: Matches {
-                partidas: Vec::new(),
-                itens: ITEM_CATALOG.clone(),
-            },
-        }
+/// A number as the scoreboard shows it: `979`, `4.9k`, `40k`.
+pub fn short(n: i64) -> String {
+    if n < 1000 {
+        n.to_string()
+    } else if n < 9950 {
+        format!("{:.1}k", n as f64 / 1000.0).replace(".0k", "k")
+    } else {
+        format!("{}k", (n as f64 / 1000.0).round())
     }
 }
-
-const MAX_PLAYERS: usize = 200;
-const MAX_MATCHES: usize = 200;
-const MAX_ITEMS: usize = 1000;
 
 /// Whitespace runs become one space, then the text is cut to `max` characters.
 fn text(value: &str, max: usize) -> String {
@@ -172,139 +159,24 @@ fn clean_info(mut info: Info) -> Info {
     info
 }
 
-/// Rows without a name are dropped.
-fn clean_players(players: Vec<RankedPlayer>) -> Vec<RankedPlayer> {
-    players
-        .into_iter()
-        .filter_map(|p| {
-            let nome = text(&p.nome, 40);
-            (!nome.is_empty()).then(|| RankedPlayer {
-                nome,
-                pontos: p.pontos.clamp(-99_999, 999_999),
-            })
-        })
-        .take(MAX_PLAYERS)
-        .collect()
-}
-
-/// Icon names end up in URLs, so they stay plain.
-fn is_slug(value: &str) -> bool {
-    !value.is_empty()
-        && value.len() <= 60
-        && value.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
-}
-
-fn clean_stat(stat: Stat) -> Stat {
-    match stat {
-        Stat::Number(n) => Stat::Number(n.clamp(0, 1_000_000_000)),
-        Stat::Text(s) => Stat::Text(text(&s, 12)),
+async fn load_info(db: &SqlitePool, camp_id: &str) -> Result<Info> {
+    let info: Option<String> = sqlx::query_scalar("SELECT info FROM site_content WHERE camp_id = ?")
+        .bind(camp_id)
+        .fetch_optional(db)
+        .await?;
+    match info {
+        Some(info) => Ok(serde_json::from_str(&info)?),
+        None => Ok(clean_info(Info::default())),
     }
 }
 
-/// Refuses scoreboards the pages can't draw; an MVP who didn't play in the match is cleared.
-fn clean_matches(matches: Matches) -> Result<Matches, String> {
-    if matches.partidas.len() > MAX_MATCHES {
-        return Err(format!("No máximo {MAX_MATCHES} partidas."));
-    }
-    if matches.itens.len() > MAX_ITEMS {
-        return Err(format!("No máximo {MAX_ITEMS} itens."));
-    }
-    let mut partidas = Vec::with_capacity(matches.partidas.len());
-    for (i, mut m) in matches.partidas.into_iter().enumerate() {
-        let n = i + 1;
-        if m.times.len() != 2 {
-            return Err(format!("Partida {n}: precisa de exatamente dois times."));
-        }
-        if m.vencedor > 1 {
-            return Err(format!("Partida {n}: \"vencedor\" é 0 (primeiro time) ou 1 (segundo)."));
-        }
-        if m.inicio < 0 || !(0..=24 * 3600).contains(&m.duracao) {
-            return Err(format!("Partida {n}: início ou duração inválidos."));
-        }
-        for team in &mut m.times {
-            team.nome = text(&team.nome, 40);
-            if team.nome.is_empty() {
-                return Err(format!("Partida {n}: um time está sem nome."));
-            }
-            if team.classe != "king" && team.classe != "arch" {
-                return Err(format!("Partida {n}: \"classe\" do time é \"king\" ou \"arch\"."));
-            }
-            if team.jogadores.is_empty() || team.jogadores.len() > 12 {
-                return Err(format!("Partida {n}: cada time tem de 1 a 12 jogadores."));
-            }
-            team.almas = clean_stat(team.almas.clone());
-            for p in &mut team.jogadores {
-                p.nome = text(&p.nome, 40);
-                p.heroi = text(&p.heroi, 40);
-                if p.nome.is_empty() || p.heroi.is_empty() {
-                    return Err(format!("Partida {n}: um jogador está sem nome ou sem herói."));
-                }
-                if !is_slug(&p.img) {
-                    return Err(format!("Partida {n}: ícone de herói inválido para {}.", p.nome));
-                }
-                if p.itens.len() > 30 || !p.itens.iter().all(|s| is_slug(s)) {
-                    return Err(format!("Partida {n}: itens inválidos para {}.", p.nome));
-                }
-                for kda in [&mut p.k, &mut p.d, &mut p.a] {
-                    *kda = (*kda).clamp(0, 9999);
-                }
-                for stat in [&mut p.almas, &mut p.dano, &mut p.obj, &mut p.cura] {
-                    *stat = clean_stat(stat.clone());
-                }
-            }
-        }
-        let played = |name: &String| m.times.iter().flat_map(|t| &t.jogadores).any(|p| &p.nome == name);
-        m.mvp = m.mvp.map(|name| text(&name, 40)).filter(played);
-        partidas.push(m);
-    }
-    let mut itens = BTreeMap::new();
-    for (slug, mut item) in matches.itens {
-        if !is_slug(&slug) {
-            return Err(format!("Item com nome de ícone inválido: {slug}."));
-        }
-        item.nome = text(&item.nome, 60);
-        if !["weapon", "spirit", "vitality"].contains(&item.tipo.as_str()) {
-            return Err(format!("Item {slug}: \"tipo\" é weapon, spirit ou vitality."));
-        }
-        itens.insert(slug, item);
-    }
-    Ok(Matches { partidas, itens })
-}
-
-pub fn clean(content: SiteContent) -> Result<SiteContent, String> {
-    Ok(SiteContent {
-        info: clean_info(content.info),
-        players: clean_players(content.players),
-        matches: clean_matches(content.matches)?,
-    })
-}
-
-async fn load(db: &SqlitePool, camp_id: &str) -> Result<SiteContent> {
-    let row: Option<(String, String, String)> =
-        sqlx::query_as("SELECT info, players, matches FROM site_content WHERE camp_id = ?")
-            .bind(camp_id)
-            .fetch_optional(db)
-            .await?;
-    let Some((info, players, matches)) = row else {
-        return Ok(SiteContent::empty());
-    };
-    Ok(SiteContent {
-        info: serde_json::from_str(&info)?,
-        players: serde_json::from_str(&players)?,
-        matches: serde_json::from_str(&matches)?,
-    })
-}
-
-async fn save(db: &SqlitePool, camp_id: &str, content: &SiteContent) -> Result<()> {
+async fn save_info(db: &SqlitePool, camp_id: &str, info: &Info) -> Result<()> {
     sqlx::query(
-        "INSERT INTO site_content (camp_id, info, players, matches, updated_at) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT (camp_id) DO UPDATE SET info = excluded.info, players = excluded.players,
-             matches = excluded.matches, updated_at = excluded.updated_at",
+        "INSERT INTO site_content (camp_id, info, updated_at) VALUES (?, ?, ?)
+         ON CONFLICT (camp_id) DO UPDATE SET info = excluded.info, updated_at = excluded.updated_at",
     )
     .bind(camp_id)
-    .bind(serde_json::to_string(&content.info)?)
-    .bind(serde_json::to_string(&content.players)?)
-    .bind(serde_json::to_string(&content.matches)?)
+    .bind(serde_json::to_string(info)?)
     .bind(db::now())
     .execute(db)
     .await?;
@@ -339,6 +211,168 @@ pub fn site_url(config: &WebConfig) -> String {
     }
 }
 
+/// Everything the site shows.
+#[derive(Default)]
+struct SiteData {
+    info: Info,
+    ranking: Vec<RankedPlayer>,
+    matches: Matches,
+}
+
+/// Whether the site ships its own icon, `site/assets/partida/{folder}/{name}.webp`.
+fn has_icon(site_dir: &str, folder: &str, name: &str) -> bool {
+    FsPath::new(site_dir)
+        .join("assets/partida")
+        .join(folder)
+        .join(format!("{name}.webp"))
+        .is_file()
+}
+
+/// A Deadlock scoreboard in the site's shape, with Discord names for linked accounts.
+fn site_match(
+    board: &Scoreboard,
+    mvp: Option<String>,
+    name_of: &dyn Fn(&ScoreboardPlayer) -> String,
+    site_dir: &str,
+    itens: &mut BTreeMap<String, Item>,
+) -> SiteMatch {
+    let teams = [("Hidden King", "king"), ("Archmother", "arch")];
+    let times = teams
+        .iter()
+        .enumerate()
+        .map(|(team, (nome, classe))| {
+            let players: Vec<&ScoreboardPlayer> = board.players.iter().filter(|p| p.team == team).collect();
+            Team {
+                nome: nome.to_string(),
+                classe: classe.to_string(),
+                almas: short(players.iter().map(|p| p.souls).sum()),
+                jogadores: players
+                    .iter()
+                    .map(|p| {
+                        let img = slug(&p.hero);
+                        let own_icon = has_icon(site_dir, "herois", &img);
+                        MatchPlayer {
+                            nome: name_of(p),
+                            heroi: p.hero.clone(),
+                            img_url: if own_icon { None } else { p.hero_image.clone() },
+                            img,
+                            almas: short(p.souls),
+                            k: p.kills,
+                            d: p.deaths,
+                            a: p.assists,
+                            dano: short(p.damage),
+                            obj: short(p.objective_damage),
+                            cura: short(p.healing),
+                            itens: p
+                                .items
+                                .iter()
+                                .map(|item| {
+                                    let key = slug(&item.name);
+                                    itens.entry(key.clone()).or_insert_with(|| Item {
+                                        nome: item.name.clone(),
+                                        tipo: item.slot.clone(),
+                                        tier: item.tier,
+                                        ativo: item.active,
+                                        img_url: (!has_icon(site_dir, "itens", &key))
+                                            .then(|| item.image.clone())
+                                            .flatten(),
+                                    });
+                                    key
+                                })
+                                .collect(),
+                        }
+                    })
+                    .collect(),
+            }
+        })
+        .collect();
+    SiteMatch {
+        mvp,
+        id: board.deadlock_match_id,
+        inicio: board.start_time,
+        duracao: board.duration_s,
+        vencedor: board.winning_team,
+        times,
+    }
+}
+
+/// The published camp's info, ranking and the finished matches that have a scoreboard.
+async fn site_data(state: &AppState) -> Result<SiteData> {
+    let Some(guild_id) = state.config.site_guild_id else {
+        return Ok(SiteData { info: clean_info(Info::default()), ..SiteData::default() });
+    };
+    let Some(camp_id) = published_camp(&state.db, guild_id).await? else {
+        return Ok(SiteData { info: clean_info(Info::default()), ..SiteData::default() });
+    };
+    let info = load_info(&state.db, &camp_id).await?;
+    let Some(camp) = db::load_camp(&state.db, &camp_id).await? else {
+        return Ok(SiteData { info, ..SiteData::default() });
+    };
+
+    let mut finished: Vec<db::MatchDetail> = db::list_matches(&state.db, &camp_id)
+        .await?
+        .into_iter()
+        .filter(|m| m.number.is_some())
+        .collect();
+    finished.sort_by_key(|m| m.number);
+    let boards = stats::camp_scoreboards(&state.db, &camp_id).await?;
+    let links = stats::account_links(&state.db, guild_id as i64).await?;
+
+    let mut user_ids: Vec<u64> = camp.players.iter().map(|p| p.user_id as u64).collect();
+    user_ids.extend(links.values().map(|u| *u as u64));
+    user_ids.extend(finished.iter().filter_map(|m| m.row.mvp_user_id).map(|u| u as u64));
+    user_ids.sort_unstable();
+    user_ids.dedup();
+    let profiles: HashMap<u64, Profile> = state.link.profiles(guild_id, &user_ids).await;
+    let discord_name = |user_id: i64| profiles.get(&(user_id as u64)).map(|p| p.name.clone());
+
+    let player_stats = db::player_stats(&state.db, &camp_id).await?;
+    let standings: Vec<Standing> = camp
+        .players
+        .iter()
+        .map(|p| Standing {
+            user_id: p.user_id,
+            points: p.points,
+            mvps: player_stats.get(&p.user_id).map_or(0, |s| s.mvps),
+        })
+        .collect();
+    let ranking = rank(&standings)
+        .into_iter()
+        .map(|(s, place)| {
+            let played = player_stats.get(&s.user_id).copied().unwrap_or_default();
+            RankedPlayer {
+                posicao: place,
+                nome: discord_name(s.user_id).unwrap_or_else(|| s.user_id.to_string()),
+                pontos: s.points,
+                mvps: s.mvps,
+                vitorias: played.wins,
+                partidas: played.played,
+                avatar: profiles
+                    .get(&(s.user_id as u64))
+                    .map(|p| p.avatar_url.clone())
+                    .filter(|url| !url.is_empty()),
+            }
+        })
+        .collect();
+
+    let name_of = |p: &ScoreboardPlayer| {
+        links
+            .get(&p.account_id)
+            .and_then(|user| discord_name(*user))
+            .or_else(|| p.steam_name.clone())
+            .unwrap_or_else(|| "Jogador".to_string())
+    };
+    let mut matches = Matches::default();
+    for m in &finished {
+        if let Some(board) = boards.get(&m.row.id) {
+            let mvp = m.row.mvp_user_id.and_then(discord_name);
+            let site = site_match(board, mvp, &name_of, &state.config.site_dir, &mut matches.itens);
+            matches.partidas.push(site);
+        }
+    }
+    Ok(SiteData { info, ranking, matches })
+}
+
 // --- Dashboard API ---
 
 #[derive(Serialize)]
@@ -346,11 +380,23 @@ pub struct SiteDto {
     /// This camp is the one the site shows.
     published: bool,
     url: String,
-    content: SiteContent,
+    info: Info,
+    /// Finished matches of the camp, and how many of them have a scoreboard for the site.
+    finished_matches: usize,
+    scoreboards: usize,
+}
+
+#[derive(Deserialize)]
+pub struct SiteRequest {
+    info: Info,
 }
 
 /// A camp of the site's server that the admin manages, or 404.
-async fn site_camp(state: &AppState, session: &crate::session::Session, camp_id: &str) -> Result<(String, i64), ApiError> {
+async fn site_camp(
+    state: &AppState,
+    session: &crate::session::Session,
+    camp_id: &str,
+) -> Result<(String, i64), ApiError> {
     let camp = admin_camp(state, session, camp_id).await?;
     if state.config.site_guild_id != Some(camp.camp.guild_id as u64) {
         return Err(ApiError::NotFound);
@@ -359,10 +405,17 @@ async fn site_camp(state: &AppState, session: &crate::session::Session, camp_id:
 }
 
 async fn site_dto(state: &AppState, camp_id: &str, guild_id: i64) -> Result<SiteDto, ApiError> {
+    let finished = db::list_matches(&state.db, camp_id)
+        .await?
+        .iter()
+        .filter(|m| m.number.is_some())
+        .count();
     Ok(SiteDto {
         published: published_camp(&state.db, guild_id as u64).await?.as_deref() == Some(camp_id),
         url: site_url(&state.config),
-        content: load(&state.db, camp_id).await?,
+        info: load_info(&state.db, camp_id).await?,
+        finished_matches: finished,
+        scoreboards: stats::camp_scoreboards(&state.db, camp_id).await?.len(),
     })
 }
 
@@ -375,7 +428,7 @@ pub async fn camp_site(
     Ok(Json(site_dto(&state, &camp_id, guild_id).await?))
 }
 
-/// Replaces everything the site shows for the camp. Shows on the site right away if it's published.
+/// Saves the camp's info cards. On the site right away if the camp is the published one.
 pub async fn save_camp_site(
     State(state): State<AppState>,
     Admin(session): Admin,
@@ -383,15 +436,14 @@ pub async fn save_camp_site(
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<SiteDto>, ApiError> {
     let (camp_id, guild_id) = site_camp(&state, &session, &camp_id).await?;
-    let content: SiteContent =
+    let request: SiteRequest =
         serde_json::from_value(body).map_err(|err| ApiError::BadRequest(format!("Dados inválidos: {err}")))?;
-    let content = clean(content).map_err(ApiError::BadRequest)?;
-    save(&state.db, &camp_id, &content).await?;
-    tracing::info!(user_id = session.user_id, camp_id, "site content saved from the web");
+    save_info(&state.db, &camp_id, &clean_info(request.info)).await?;
+    tracing::info!(user_id = session.user_id, camp_id, "site info saved from the web");
     Ok(Json(site_dto(&state, &camp_id, guild_id).await?))
 }
 
-/// Shows this camp on the site instead of the one before.
+/// The site shows this camp's ranking, matches and info from now on.
 pub async fn publish_camp_site(
     State(state): State<AppState>,
     Admin(session): Admin,
@@ -411,18 +463,7 @@ pub fn api_routes() -> Router<AppState> {
 
 // --- The public site ---
 
-/// What the published camp shows; a site with none shows "to be decided" everywhere.
-async fn published_content(state: &AppState) -> Result<SiteContent> {
-    let Some(guild_id) = state.config.site_guild_id else {
-        return Ok(SiteContent::empty());
-    };
-    match published_camp(&state.db, guild_id).await? {
-        Some(camp_id) => load(&state.db, &camp_id).await,
-        None => Ok(SiteContent::empty()),
-    }
-}
-
-/// `window.{name} = …;`, re-checked by browsers on every visit so saves show up right away.
+/// `window.{name} = …;`, re-checked by browsers on every visit so changes show up right away.
 fn data_script(name: &str, value: &impl Serialize) -> Result<Response, ApiError> {
     let json = serde_json::to_string_pretty(value)?;
     Ok((
@@ -430,24 +471,48 @@ fn data_script(name: &str, value: &impl Serialize) -> Result<Response, ApiError>
             (CONTENT_TYPE, "text/javascript; charset=utf-8"),
             (CACHE_CONTROL, "no-cache, must-revalidate"),
         ],
-        format!("// Gerado pelo bot com o que a staff salvou no painel (Site).\nwindow.{name} = {json};\n"),
+        format!("// Gerado pelo bot com os dados do camp publicado no site.\nwindow.{name} = {json};\n"),
     )
         .into_response())
 }
 
+/// JSON any page may read, from any domain.
+fn public_json(value: &impl Serialize) -> Response {
+    (
+        [
+            (ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+            (CACHE_CONTROL, "no-cache, must-revalidate"),
+        ],
+        Json(value),
+    )
+        .into_response()
+}
+
 async fn info_js(State(state): State<AppState>) -> Result<Response, ApiError> {
-    data_script("INFO", &published_content(&state).await?.info)
+    data_script("INFO", &site_data(&state).await?.info)
 }
 
 async fn players_js(State(state): State<AppState>) -> Result<Response, ApiError> {
-    data_script("JOGADORES", &published_content(&state).await?.players)
+    data_script("JOGADORES", &site_data(&state).await?.ranking)
 }
 
 async fn matches_js(State(state): State<AppState>) -> Result<Response, ApiError> {
-    data_script("PARTIDAS", &published_content(&state).await?.matches)
+    data_script("PARTIDAS", &site_data(&state).await?.matches)
 }
 
-/// The footer's Staff link: the site is edited in the dashboard now.
+async fn info_api(State(state): State<AppState>) -> Result<Response, ApiError> {
+    Ok(public_json(&site_data(&state).await?.info))
+}
+
+async fn ranking_api(State(state): State<AppState>) -> Result<Response, ApiError> {
+    Ok(public_json(&site_data(&state).await?.ranking))
+}
+
+async fn matches_api(State(state): State<AppState>) -> Result<Response, ApiError> {
+    Ok(public_json(&site_data(&state).await?.matches))
+}
+
+/// The footer's Staff link: the site is edited in the dashboard.
 async fn staff(State(state): State<AppState>) -> Redirect {
     Redirect::to(&format!("{}/#/site", state.config.public_url))
 }
@@ -488,7 +553,7 @@ async fn require_lock(State(expected): State<Option<String>>, request: Request, 
     next.run(request).await
 }
 
-/// The site's pages, assets and data scripts, from its root.
+/// The site's pages, assets, data scripts and JSON, from its root.
 pub fn router(state: AppState) -> Router {
     let lock = state.config.site_lock.as_ref().map(|l| format!("Basic {}", STANDARD.encode(l)));
     let files = ServeDir::new(PathBuf::from(&state.config.site_dir));
@@ -496,6 +561,9 @@ pub fn router(state: AppState) -> Router {
         .route("/info.js", get(info_js))
         .route("/jogadores.js", get(players_js))
         .route("/partida.js", get(matches_js))
+        .route("/api/info", get(info_api))
+        .route("/api/ranking", get(ranking_api))
+        .route("/api/matches", get(matches_api))
         .route("/staff", get(staff))
         .route("/staff/", get(staff))
         .route("/staff/{*rest}", get(staff))
@@ -507,39 +575,18 @@ pub fn router(state: AppState) -> Router {
 
 #[cfg(test)]
 mod tests {
+    use refresher_core::stats::ScoreboardItem;
+
     use super::*;
 
-    fn player(nome: &str) -> MatchPlayer {
-        MatchPlayer {
-            nome: nome.to_string(),
-            heroi: "Paige".to_string(),
-            img: "paige".to_string(),
-            almas: Stat::Text("40k".to_string()),
-            k: 1,
-            d: 2,
-            a: 3,
-            dano: Stat::Text("19k".to_string()),
-            obj: Stat::Number(979),
-            cura: Stat::Text("25k".to_string()),
-            itens: vec!["knockdown".to_string()],
-        }
-    }
-
-    pub(crate) fn sample_match() -> SiteMatch {
-        let team = |nome: &str, classe: &str, who: &str| Team {
-            nome: nome.to_string(),
-            classe: classe.to_string(),
-            almas: Stat::Text("270k".to_string()),
-            jogadores: vec![player(who)],
-        };
-        SiteMatch {
-            mvp: Some("VioletaS2".to_string()),
-            id: Some(139086680),
-            inicio: 1794919042,
-            duracao: 2026,
-            vencedor: 0,
-            times: vec![team("Hidden King", "king", "VioletaS2"), team("Archmother", "arch", "Zibra234")],
-        }
+    #[test]
+    fn numbers_read_like_the_game_scoreboard() {
+        assert_eq!(short(979), "979");
+        assert_eq!(short(4_912), "4.9k");
+        assert_eq!(short(2_000), "2k");
+        assert_eq!(short(9_960), "10k");
+        assert_eq!(short(60_123), "60k");
+        assert_eq!(short(270_499), "270k");
     }
 
     #[test]
@@ -550,55 +597,65 @@ mod tests {
         assert_eq!(info.data.pt, "28 e 29 de novembro");
         assert_eq!(info.data.en, "TBD");
         assert_eq!(info.premiacao.es, "Por definir");
-        assert_eq!(clean_info(Info { formato: Texts { pt: "x".repeat(100), ..Texts::default() }, ..Info::default() }).formato.pt.len(), 80);
     }
 
-    #[test]
-    fn ranking_drops_nameless_rows_and_bounds_points() {
-        let players = clean_players(vec![
-            RankedPlayer { nome: " Kaiser77 ".to_string(), pontos: 5_000_000 },
-            RankedPlayer { nome: "   ".to_string(), pontos: 10 },
-            RankedPlayer { nome: "hydan".to_string(), pontos: -200_000 },
-        ]);
-        assert_eq!(
-            players,
-            vec![
-                RankedPlayer { nome: "Kaiser77".to_string(), pontos: 999_999 },
-                RankedPlayer { nome: "hydan".to_string(), pontos: -99_999 },
-            ]
-        );
-        let many = (0..300).map(|i| RankedPlayer { nome: format!("p{i}"), pontos: i }).collect();
-        assert_eq!(clean_players(many).len(), MAX_PLAYERS);
-    }
-
-    #[test]
-    fn an_mvp_who_did_not_play_is_cleared() {
-        let mut m = sample_match();
-        m.mvp = Some("someone else".to_string());
-        let cleaned = clean_matches(Matches { partidas: vec![sample_match(), m], itens: BTreeMap::new() }).unwrap();
-        assert_eq!(cleaned.partidas[0].mvp.as_deref(), Some("VioletaS2"));
-        assert_eq!(cleaned.partidas[1].mvp, None);
-    }
-
-    #[test]
-    fn scoreboards_the_pages_cannot_draw_are_refused() {
-        let check = |change: fn(&mut SiteMatch)| {
-            let mut m = sample_match();
-            change(&mut m);
-            clean_matches(Matches { partidas: vec![m], itens: BTreeMap::new() }).unwrap_err()
+    fn board() -> Scoreboard {
+        let player = |account_id, team, hero: &str, item: &str| ScoreboardPlayer {
+            account_id,
+            team,
+            steam_name: Some(format!("steam{account_id}")),
+            hero_id: 1,
+            hero: hero.to_string(),
+            hero_image: Some(format!("https://api/{hero}.webp")),
+            kills: 22,
+            deaths: 3,
+            assists: 8,
+            souls: 60_123,
+            damage: 55_000,
+            objective_damage: 13_000,
+            healing: 979,
+            items: vec![ScoreboardItem {
+                id: 1,
+                name: item.to_string(),
+                slot: "spirit".to_string(),
+                tier: Some(3),
+                active: true,
+                image: Some(format!("https://api/{item}.webp")),
+            }],
         };
-        assert!(check(|m| m.vencedor = 2).contains("vencedor"));
-        assert!(check(|m| m.times.truncate(1)).contains("dois times"));
-        assert!(check(|m| m.times[0].classe = "blue".to_string()).contains("classe"));
-        assert!(check(|m| m.times[1].jogadores[0].img = "../x".to_string()).contains("herói"));
-        assert!(check(|m| m.times[1].jogadores[0].itens.push("<b>".to_string())).contains("itens"));
+        Scoreboard {
+            deadlock_match_id: 139086680,
+            start_time: 1794919042,
+            duration_s: 2026,
+            winning_team: 1,
+            players: vec![
+                player(1, 0, "Wraith", "Knockdown"),
+                player(2, 1, "Brand New Hero", "Brand New Item"),
+            ],
+        }
     }
 
     #[test]
-    fn the_old_item_catalog_loads() {
-        let empty = SiteContent::empty();
-        assert_eq!(empty.matches.itens["refresher"].nome, "Refresher");
-        assert_eq!(clean(empty.clone()).unwrap(), empty);
+    fn scoreboards_take_the_site_shape_and_fall_back_to_api_icons() {
+        let site_dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../site");
+        let mut itens = BTreeMap::new();
+        let name_of = |p: &ScoreboardPlayer| if p.account_id == 1 { "kaze".to_string() } else { p.steam_name.clone().unwrap() };
+        let m = site_match(&board(), Some("kaze".to_string()), &name_of, site_dir, &mut itens);
+        assert_eq!((m.id, m.vencedor, m.duracao), (139086680, 1, 2026));
+        assert_eq!(m.mvp.as_deref(), Some("kaze"));
+        assert_eq!((m.times[0].nome.as_str(), m.times[0].classe.as_str()), ("Hidden King", "king"));
+        assert_eq!(m.times[1].classe, "arch");
+        let wraith = &m.times[0].jogadores[0];
+        assert_eq!((wraith.nome.as_str(), wraith.img.as_str()), ("kaze", "wraith"));
+        assert_eq!((wraith.almas.as_str(), wraith.dano.as_str(), wraith.cura.as_str()), ("60k", "55k", "979"));
+        // The site has its own Wraith and Knockdown icons; the new ones come from the API.
+        assert_eq!(wraith.img_url, None);
+        assert_eq!(itens["knockdown"].img_url, None);
+        let new = &m.times[1].jogadores[0];
+        assert_eq!(new.nome, "steam2");
+        assert_eq!(new.img_url.as_deref(), Some("https://api/Brand New Hero.webp"));
+        assert_eq!(itens["brand-new-item"].img_url.as_deref(), Some("https://api/Brand New Item.webp"));
+        assert_eq!((itens["knockdown"].tipo.as_str(), itens["knockdown"].ativo), ("spirit", true));
     }
 
     #[test]
