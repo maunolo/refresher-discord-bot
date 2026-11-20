@@ -76,6 +76,57 @@ pub struct MatchRow {
     pub refreshed_by_admin: bool,
     /// Picked by the admin with the result; breaks ties in points in the final ranking.
     pub mvp_user_id: Option<i64>,
+    /// What each player of the winning side earns, set when the match is created.
+    pub win_points: i64,
+    /// What each player of the losing side earns.
+    pub loss_points: i64,
+}
+
+/// The most points a match can give each player, for a win or a loss.
+pub const MAX_MATCH_POINTS: i64 = 10;
+
+/// What a match gives each player: `win` to the winning side, `loss` to the losing one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MatchPoints {
+    pub win: i64,
+    pub loss: i64,
+}
+
+impl Default for MatchPoints {
+    fn default() -> Self {
+        Self { win: 1, loss: 0 }
+    }
+}
+
+impl MatchPoints {
+    pub fn check(self) -> Result<Self> {
+        for (what, points) in [("a vitória", self.win), ("a derrota", self.loss)] {
+            if !(0..=MAX_MATCH_POINTS).contains(&points) {
+                return Err(anyhow!("os pontos d{what} precisam ser de 0 a {MAX_MATCH_POINTS}"));
+            }
+        }
+        Ok(self)
+    }
+
+    /// For one player: `won` says whether their side won.
+    pub fn for_side(self, won: bool) -> i64 {
+        if won {
+            self.win
+        } else {
+            self.loss
+        }
+    }
+}
+
+/// What the camp's newest match gives, the starting values for the next one; 1 and 0 before any.
+pub async fn last_match_points(pool: &SqlitePool, camp_id: &str) -> Result<MatchPoints> {
+    let row: Option<(i64, i64)> = sqlx::query_as(
+        "SELECT win_points, loss_points FROM camp_matches WHERE camp_id = ? ORDER BY rowid DESC LIMIT 1",
+    )
+    .bind(camp_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|(win, loss)| MatchPoints { win, loss }).unwrap_or_default())
 }
 
 /// `FROM` a camp's players (`p`) with their server roles (`r.role`, `NULL` when unset).
@@ -86,9 +137,16 @@ const PLAYERS_WITH_ROLES: &str = "FROM camp_players p
 /// The columns a `MatchRow` reads, for `SELECT {MATCH_COLUMNS} FROM camp_matches m`.
 const MATCH_COLUMNS: &str = "m.id, m.slot, m.status, m.refresh_used, m.message_id, m.party_id, m.party_code,
      m.winner_side, m.is_final, m.draft_url, m.draft_join_url, m.vote_closed_by_admin,
-     m.draft_manual, m.refreshed_by_admin, m.mvp_user_id";
+     m.draft_manual, m.refreshed_by_admin, m.mvp_user_id, m.win_points, m.loss_points";
 
 impl MatchRow {
+    pub fn points(&self) -> MatchPoints {
+        MatchPoints {
+            win: self.win_points,
+            loss: self.loss_points,
+        }
+    }
+
     /// The draft step happened, on the draft tool or by hand.
     pub fn draft_started(&self) -> bool {
         self.draft_url.is_some() || self.draft_manual
@@ -352,13 +410,14 @@ pub struct RecentMatch {
     pub is_final: bool,
     pub completed_at: i64,
     pub mvp_user_id: Option<i64>,
+    pub points: MatchPoints,
     pub players: Vec<MatchPlayerRow>,
 }
 
 /// A camp's finished matches, newest first.
 pub async fn recent_matches(pool: &SqlitePool, camp_id: &str, limit: i64) -> Result<Vec<RecentMatch>> {
-    let rows = sqlx::query_as::<_, (String, String, i64, i64, Option<i64>)>(
-        "SELECT id, winner_side, is_final, completed_at, mvp_user_id FROM camp_matches
+    let rows = sqlx::query_as::<_, (String, String, i64, i64, Option<i64>, i64, i64)>(
+        "SELECT id, winner_side, is_final, completed_at, mvp_user_id, win_points, loss_points FROM camp_matches
          WHERE camp_id = ? AND status = 'completed' AND winner_side IS NOT NULL AND completed_at IS NOT NULL
          ORDER BY completed_at DESC, id DESC LIMIT ?",
     )
@@ -367,7 +426,7 @@ pub async fn recent_matches(pool: &SqlitePool, camp_id: &str, limit: i64) -> Res
     .fetch_all(pool)
     .await?;
     let mut out = Vec::with_capacity(rows.len());
-    for (id, winner_side, is_final, completed_at, mvp_user_id) in rows {
+    for (id, winner_side, is_final, completed_at, mvp_user_id, win, loss) in rows {
         let players = sqlx::query_as::<_, (i64, String, Option<i64>, i64)>(
             "SELECT user_id, side, points_after, is_captain FROM camp_match_players WHERE match_id = ?",
         )
@@ -388,6 +447,7 @@ pub async fn recent_matches(pool: &SqlitePool, camp_id: &str, limit: i64) -> Res
             is_final: is_final != 0,
             completed_at,
             mvp_user_id,
+            points: MatchPoints { win, loss },
             players,
         });
     }
@@ -1233,6 +1293,7 @@ async fn insert_match_players(
 async fn pull_match_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     camp_id: &str,
+    points: MatchPoints,
 ) -> Result<Option<String>> {
     let slot = match next_free_slot(tx, camp_id).await? {
         Some(s) => s,
@@ -1263,11 +1324,14 @@ async fn pull_match_in_tx(
     let match_id = generate_unique_match_id(tx).await?;
 
     sqlx::query(
-        "INSERT INTO camp_matches (id, camp_id, slot, status, refresh_used, is_final) VALUES (?, ?, ?, 'voting', 0, 0)",
+        "INSERT INTO camp_matches (id, camp_id, slot, status, refresh_used, is_final, win_points, loss_points)
+         VALUES (?, ?, ?, 'voting', 0, 0, ?, ?)",
     )
     .bind(&match_id)
     .bind(camp_id)
     .bind(slot)
+    .bind(points.win)
+    .bind(points.loss)
     .execute(&mut **tx)
     .await?;
     insert_match_players(tx, &match_id, &split).await?;
@@ -1363,7 +1427,14 @@ pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<Vec<i64>> {
     Ok(ids)
 }
 
-pub async fn create_match(pool: &SqlitePool, camp_id: &str, guild_id: i64) -> Result<(String, String)> {
+/// A match from the front of the queue, giving `points` to its players when it ends.
+pub async fn create_match(
+    pool: &SqlitePool,
+    camp_id: &str,
+    guild_id: i64,
+    points: MatchPoints,
+) -> Result<(String, String)> {
+    let points = points.check()?;
     let mut state = load_camp(pool, camp_id)
         .await?
         .ok_or_else(|| anyhow!("camp não encontrado"))?;
@@ -1407,7 +1478,7 @@ pub async fn create_match(pool: &SqlitePool, camp_id: &str, guild_id: i64) -> Re
         ));
     }
     let mut tx = pool.begin().await?;
-    let match_id = pull_match_in_tx(&mut tx, &camp_id)
+    let match_id = pull_match_in_tx(&mut tx, &camp_id, points)
         .await?
         .ok_or_else(|| anyhow!("não foi possível criar uma partida a partir da fila"))?;
     tx.commit().await?;
@@ -1418,7 +1489,9 @@ pub async fn create_final_match(
     pool: &SqlitePool,
     camp_id: &str,
     guild_id: i64,
+    points: MatchPoints,
 ) -> Result<(String, String)> {
+    let points = points.check()?;
     let mut state = load_camp(pool, camp_id)
         .await?
         .ok_or_else(|| anyhow!("camp não encontrado"))?;
@@ -1467,11 +1540,14 @@ pub async fn create_final_match(
     let match_id = generate_unique_match_id(&mut tx).await?;
 
     sqlx::query(
-        "INSERT INTO camp_matches (id, camp_id, slot, status, refresh_used, is_final) VALUES (?, ?, ?, 'voting', 0, 1)",
+        "INSERT INTO camp_matches (id, camp_id, slot, status, refresh_used, is_final, win_points, loss_points)
+         VALUES (?, ?, ?, 'voting', 0, 1, ?, ?)",
     )
     .bind(&match_id)
     .bind(&camp_id)
     .bind(slot)
+    .bind(points.win)
+    .bind(points.loss)
     .execute(&mut *tx)
     .await?;
     insert_match_players(&mut tx, &match_id, &split).await?;
@@ -1817,15 +1893,17 @@ pub async fn report_winner(
     mvp_user_id: Option<i64>,
 ) -> Result<()> {
     let mut tx = pool.begin().await?;
-    let status: Option<String> =
-        sqlx::query_scalar("SELECT status FROM camp_matches WHERE id = ? AND camp_id = ?")
-            .bind(match_id)
-            .bind(camp_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-    if status.as_deref() != Some("live") {
+    let found: Option<(String, i64, i64)> = sqlx::query_as(
+        "SELECT status, win_points, loss_points FROM camp_matches WHERE id = ? AND camp_id = ?",
+    )
+    .bind(match_id)
+    .bind(camp_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(("live", win, loss)) = found.as_ref().map(|(s, w, l)| (s.as_str(), *w, *l)) else {
         return Err(anyhow!("essa partida não está ao vivo"));
-    }
+    };
+    let match_points = MatchPoints { win, loss };
 
     let roster: Vec<(i64, String)> =
         sqlx::query_as("SELECT user_id, side FROM camp_match_players WHERE match_id = ?")
@@ -1853,13 +1931,12 @@ pub async fn report_winner(
     let mut finished = Vec::new();
     for (user_id, side) in &roster {
         let won = side == winner_side;
-        if won {
-            sqlx::query("UPDATE camp_players SET points = points + 1 WHERE camp_id = ? AND user_id = ?")
-                .bind(camp_id)
-                .bind(user_id)
-                .execute(&mut *tx)
-                .await?;
-        }
+        sqlx::query("UPDATE camp_players SET points = points + ? WHERE camp_id = ? AND user_id = ?")
+            .bind(match_points.for_side(won))
+            .bind(camp_id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
         sqlx::query(
             "UPDATE camp_players SET consecutive_matches = consecutive_matches + 1
              WHERE camp_id = ? AND user_id = ?",
@@ -1935,6 +2012,7 @@ struct CorrectableMatch {
     is_final: bool,
     winner_side: String,
     party_code: Option<String>,
+    points: MatchPoints,
     roster: Vec<(i64, String)>,
 }
 
@@ -1962,16 +2040,17 @@ async fn require_correctable_match(
         None => return Err(anyhow!("camp não encontrado")),
     }
 
-    let row: Option<(String, i64, Option<String>, Option<i64>, i64, Option<String>)> =
+    #[allow(clippy::type_complexity)]
+    let row: Option<(String, i64, Option<String>, Option<i64>, i64, Option<String>, i64, i64)> =
         sqlx::query_as(
-            "SELECT status, slot, winner_side, completed_at, is_final, party_code
+            "SELECT status, slot, winner_side, completed_at, is_final, party_code, win_points, loss_points
              FROM camp_matches WHERE id = ? AND camp_id = ?",
         )
         .bind(match_id)
         .bind(camp_id)
         .fetch_optional(&mut **tx)
         .await?;
-    let Some((status, slot, winner_side, _completed_at, is_final, party_code)) = row else {
+    let Some((status, slot, winner_side, _completed_at, is_final, party_code, win, loss)) = row else {
         return Err(anyhow!("partida não encontrada"));
     };
     let Some(winner_side) = winner_side else {
@@ -2037,6 +2116,7 @@ async fn require_correctable_match(
         is_final: is_final != 0,
         winner_side,
         party_code,
+        points: MatchPoints { win, loss },
         roster,
     })
 }
@@ -2133,22 +2213,15 @@ pub async fn correct_winner(
     let old_side = current.winner_side.clone();
 
     for (user_id, side) in &current.roster {
-        if side == &old_side {
-            sqlx::query(
-                "UPDATE camp_players SET points = MAX(0, points - 1) WHERE camp_id = ? AND user_id = ?",
-            )
+        // What the old result gave is taken back, and the new result's points given.
+        let won_before = side == &old_side;
+        let delta = current.points.for_side(!won_before) - current.points.for_side(won_before);
+        sqlx::query("UPDATE camp_players SET points = MAX(0, points + ?) WHERE camp_id = ? AND user_id = ?")
+            .bind(delta)
             .bind(camp_id)
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
-        }
-        if side == new_side {
-            sqlx::query("UPDATE camp_players SET points = points + 1 WHERE camp_id = ? AND user_id = ?")
-                .bind(camp_id)
-                .bind(user_id)
-                .execute(&mut *tx)
-                .await?;
-        }
         let points: i64 =
             sqlx::query_scalar("SELECT points FROM camp_players WHERE camp_id = ? AND user_id = ?")
                 .bind(camp_id)
@@ -2226,15 +2299,12 @@ pub async fn reopen_match(pool: &SqlitePool, camp_id: &str, match_id: &str) -> R
     let location = slot_location(current.slot);
 
     for (user_id, side) in &current.roster {
-        if side == &current.winner_side {
-            sqlx::query(
-                "UPDATE camp_players SET points = MAX(0, points - 1) WHERE camp_id = ? AND user_id = ?",
-            )
+        sqlx::query("UPDATE camp_players SET points = MAX(0, points - ?) WHERE camp_id = ? AND user_id = ?")
+            .bind(current.points.for_side(side == &current.winner_side))
             .bind(camp_id)
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
-        }
         sqlx::query(
             "UPDATE camp_players SET consecutive_matches = MAX(0, consecutive_matches - 1),
              location = ?, queue_position = NULL
@@ -2378,7 +2448,7 @@ mod tests {
         let camp = create_camp(pool, 1, 10, 4, 4).await.unwrap();
         add_players(pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
         start_queue(pool, &camp.id).await.unwrap();
-        let (_, match_id) = create_match(pool, &camp.id, 1).await.unwrap();
+        let (_, match_id) = create_match(pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
         (camp.id, match_id)
     }
 
@@ -2420,7 +2490,7 @@ mod tests {
         add_players(&pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
         set_s_rank(&pool, &camp.id, &[1, 2, 3]).await.unwrap();
         start_queue(&pool, &camp.id).await.unwrap();
-        create_match(&pool, &camp.id, 1).await.unwrap();
+        create_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
 
         let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
         let players = &state.open_matches[0].players;
@@ -2493,7 +2563,7 @@ mod tests {
         let camp = create_camp(&pool, 1, 10, 4, 2).await.unwrap();
         add_players(&pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
         start_queue(&pool, &camp.id).await.unwrap();
-        create_match(&pool, &camp.id, 1).await.unwrap();
+        create_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
         let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
         let before = queue_order(&state);
         assert_eq!(before.len(), 2);
@@ -2516,7 +2586,7 @@ mod tests {
         close_voting(&pool, &camp_id, &first).await.unwrap();
         start_live_match(&pool, &first, None, None).await.unwrap();
         report_winner(&pool, &camp_id, &first, "hiddenking", None).await.unwrap();
-        let (_, second) = create_match(&pool, &camp_id, 1).await.unwrap();
+        let (_, second) = create_match(&pool, &camp_id, 1, MatchPoints::default()).await.unwrap();
 
         let matches = list_matches(&pool, &camp_id).await.unwrap();
         assert_eq!(matches.len(), 2);
@@ -2537,6 +2607,46 @@ mod tests {
             let wins = i64::from(winners.contains(&p.user_id));
             assert_eq!(stats[&p.user_id], PlayerStats { played: 1, wins, ..PlayerStats::default() });
         }
+    }
+
+    #[tokio::test]
+    async fn matches_give_the_points_they_were_created_with() {
+        let pool = memory_db().await;
+        let camp = create_camp(&pool, 1, 10, 4, 4).await.unwrap();
+        add_players(&pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
+        start_queue(&pool, &camp.id).await.unwrap();
+        assert_eq!(last_match_points(&pool, &camp.id).await.unwrap(), MatchPoints::default());
+        for bad in [MatchPoints { win: MAX_MATCH_POINTS + 1, loss: 0 }, MatchPoints { win: 1, loss: -1 }] {
+            assert!(create_match(&pool, &camp.id, 1, bad).await.is_err());
+        }
+
+        let worth = MatchPoints { win: 3, loss: 1 };
+        let (_, id) = create_match(&pool, &camp.id, 1, worth).await.unwrap();
+        assert_eq!(last_match_points(&pool, &camp.id).await.unwrap(), worth);
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert_eq!(state.open_matches[0].row.points(), worth);
+        let sides = sides(&state);
+        let points_of = |state: &CampState, side: &str| -> Vec<i64> {
+            state.players.iter().filter(|p| sides[&p.user_id] == side).map(|p| p.points).collect()
+        };
+        close_voting(&pool, &camp.id, &id).await.unwrap();
+        start_live_match(&pool, &id, None, None).await.unwrap();
+
+        report_winner(&pool, &camp.id, &id, "hiddenking", None).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert_eq!(points_of(&state, "hiddenking"), [3, 3]);
+        assert_eq!(points_of(&state, "archmother"), [1, 1]);
+        let recent = recent_matches(&pool, &camp.id, 1).await.unwrap();
+        assert_eq!(recent[0].points, worth);
+
+        correct_winner(&pool, &camp.id, &id).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert_eq!(points_of(&state, "hiddenking"), [1, 1], "the win's points swap sides");
+        assert_eq!(points_of(&state, "archmother"), [3, 3]);
+
+        reopen_match(&pool, &camp.id, &id).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert!(state.players.iter().all(|p| p.points == 0), "reopening takes both sides' points back");
     }
 
     #[tokio::test]
@@ -2697,7 +2807,7 @@ mod tests {
         start_live_match(&pool, &match_id, None, None).await.unwrap();
         assert!(end_camp(&pool, &camp_id).await.is_err(), "no scored match yet");
         report_winner(&pool, &camp_id, &match_id, "hiddenking", None).await.unwrap();
-        create_match(&pool, &camp_id, 1).await.unwrap();
+        create_match(&pool, &camp_id, 1, MatchPoints::default()).await.unwrap();
         assert!(end_camp(&pool, &camp_id).await.is_err(), "a match is open");
         let info = load_match_info(&pool, &match_id, 1).await.unwrap();
         assert!(info.row.draft_manual);
@@ -2740,7 +2850,7 @@ mod tests {
             let camp = create_camp(&pool, 1, 10, 4, 2).await.unwrap();
             add_players(&pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
             start_queue(&pool, &camp.id).await.unwrap();
-            let (_, match_id) = create_match(&pool, &camp.id, 1).await.unwrap();
+            let (_, match_id) = create_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
             let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
             let playing: Vec<i64> = state.open_matches[0].players.iter().map(|p| p.user_id).collect();
             let waiting = queue_order(&state);
@@ -2804,7 +2914,7 @@ mod tests {
             .execute(&pool)
             .await
             .unwrap();
-        let (_, second) = create_match(&pool, &camp_id, 1).await.unwrap();
+        let (_, second) = create_match(&pool, &camp_id, 1, MatchPoints::default()).await.unwrap();
         close_voting(&pool, &camp_id, &second).await.unwrap();
         start_live_match(&pool, &second, None, None).await.unwrap();
         report_winner(&pool, &camp_id, &second, "archmother", Some(3)).await.unwrap();

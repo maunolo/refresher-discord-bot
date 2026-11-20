@@ -94,6 +94,11 @@ export function draftStarted(match: Match): boolean {
 }
 
 /** `+2`, `-1`: a manual points change. */
+/** `1 ponto`, `3 pontos`. */
+export function pointsWord(n: number): string {
+  return `${n} ${n === 1 ? 'ponto' : 'pontos'}`;
+}
+
 export function signed(n: number): string {
   return n > 0 ? `+${n}` : `${n}`;
 }

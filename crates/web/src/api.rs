@@ -10,7 +10,7 @@ use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::Json;
 use futures_util::stream::{self, Stream};
 use refresher_core::db::{
-    self, CampRow, CampState, CampSummary, MatchPlayerRow, MatchRow, PlayerRow, PlayerStats, RecentMatch,
+    self, CampRow, CampState, CampSummary, MatchPlayerRow, MatchPoints, MatchRow, PlayerRow, PlayerStats, RecentMatch,
     RefreshVote,
 };
 use refresher_core::draft::{self, DraftView};
@@ -98,6 +98,20 @@ pub struct CampDto {
     draft_tool: bool,
     /// Captains get the draft's invite link by DM; either way it's on their match message button.
     dm_captains: bool,
+    /// What the newest match gives, the starting values for the next one.
+    next_points: PointsDto,
+}
+
+#[derive(Serialize)]
+struct PointsDto {
+    win: i64,
+    loss: i64,
+}
+
+impl From<MatchPoints> for PointsDto {
+    fn from(p: MatchPoints) -> Self {
+        Self { win: p.win, loss: p.loss }
+    }
 }
 
 #[derive(Serialize)]
@@ -127,6 +141,7 @@ struct RecentMatchDto {
     winner_side: String,
     is_final: bool,
     completed_at: i64,
+    points: PointsDto,
     captains: Vec<CaptainDto>,
     players: Vec<MatchPlayerDto>,
     mvp_user_id: Option<String>,
@@ -176,6 +191,8 @@ pub struct MatchDto {
     refreshed_by_admin: bool,
     winner_side: Option<String>,
     mvp_user_id: Option<String>,
+    /// What each player earns when it ends.
+    points: PointsDto,
     party_code: Option<String>,
     draft: Option<DraftDto>,
     players: Vec<MatchPlayerDto>,
@@ -249,6 +266,7 @@ fn match_dto(camp: &CampRow, row: &MatchRow, players: &[MatchPlayerRow], votes: 
         refreshed_by_admin: row.refreshed_by_admin,
         winner_side: row.winner_side.clone(),
         mvp_user_id: row.mvp_user_id.map(|id| id.to_string()),
+        points: row.points().into(),
         party_code: row.party_code.clone(),
         draft: row.draft_url.clone().map(|spectator_url| DraftDto {
             obs_url: draft::obs_url(&spectator_url),
@@ -299,6 +317,7 @@ fn recent_dto(state: &CampState, recent: &[RecentMatch]) -> Vec<RecentMatchDto> 
             winner_side: m.winner_side.clone(),
             is_final: m.is_final,
             completed_at: m.completed_at,
+            points: m.points.into(),
             captains: m
                 .players
                 .iter()
@@ -325,6 +344,7 @@ fn camp_dto(
     profiles: &HashMap<u64, Profile>,
     queue_voice: Vec<u64>,
     settings: &GuildSettings,
+    next_points: MatchPoints,
 ) -> CampDto {
     CampDto {
         id: state.camp.id.clone(),
@@ -381,6 +401,7 @@ fn camp_dto(
         discord_url: discord_url(state.camp.guild_id, state.camp.channel_id, state.camp.board_message_id),
         draft_tool: settings.use_draft_tool,
         dm_captains: settings.dm_captains,
+        next_points: next_points.into(),
     }
 }
 
@@ -488,7 +509,8 @@ async fn camp_response(state: &AppState, camp: CampState) -> Result<Json<CampDto
         Vec::new()
     };
     let (settings, _) = db::guild_settings(&state.db, camp.camp.guild_id, &state.default_settings).await?;
-    Ok(Json(camp_dto(&camp, &recent, &stats, &profiles, queue_voice, &settings)))
+    let next_points = db::last_match_points(&state.db, &camp.camp.id).await?;
+    Ok(Json(camp_dto(&camp, &recent, &stats, &profiles, queue_voice, &settings, next_points)))
 }
 
 /// A server the admin manages and the bot is in, or 404.
@@ -915,8 +937,19 @@ pub enum SideRequest {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ActionRequest {
-    CreateMatch,
-    CreateFinal,
+    /// Points each winner and each loser earns; 1 and 0 when left out.
+    CreateMatch {
+        #[serde(default = "default_win_points")]
+        win_points: i64,
+        #[serde(default)]
+        loss_points: i64,
+    },
+    CreateFinal {
+        #[serde(default = "default_win_points")]
+        win_points: i64,
+        #[serde(default)]
+        loss_points: i64,
+    },
     CloseVote { match_id: String },
     RefreshTeams { match_id: String },
     StartDraft { match_id: String },
@@ -946,6 +979,16 @@ pub enum ActionRequest {
     EndCamp,
 }
 
+fn default_win_points() -> i64 {
+    MatchPoints::default().win
+}
+
+fn match_points(win: i64, loss: i64) -> Result<MatchPoints, ApiError> {
+    MatchPoints { win, loss }
+        .check()
+        .map_err(|e| ApiError::BadRequest(e.to_string()))
+}
+
 fn user_id(id: &str) -> Result<u64, ApiError> {
     id.parse()
         .map_err(|_| ApiError::BadRequest(format!("ID de usuário inválido: {id}")))
@@ -956,8 +999,12 @@ impl TryFrom<ActionRequest> for CampAction {
 
     fn try_from(request: ActionRequest) -> Result<Self, ApiError> {
         Ok(match request {
-            ActionRequest::CreateMatch => CampAction::CreateMatch,
-            ActionRequest::CreateFinal => CampAction::CreateFinal,
+            ActionRequest::CreateMatch { win_points, loss_points } => CampAction::CreateMatch {
+                points: match_points(win_points, loss_points)?,
+            },
+            ActionRequest::CreateFinal { win_points, loss_points } => CampAction::CreateFinal {
+                points: match_points(win_points, loss_points)?,
+            },
             ActionRequest::CloseVote { match_id } => CampAction::CloseVote { match_id },
             ActionRequest::RefreshTeams { match_id } => CampAction::RefreshTeams { match_id },
             ActionRequest::StartDraft { match_id } => CampAction::StartDraft { match_id },

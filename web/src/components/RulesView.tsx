@@ -131,7 +131,10 @@ export function RulesView() {
 
       <section className="card" aria-labelledby="rules-result">
         <h2 id="rules-result">6. Depois de um resultado</h2>
-        <p>Os vencedores ganham +1 ponto, e todos que jogaram ganham +1 partida seguida. Aí a fila é refeita:</p>
+        <p>
+          Cada jogador ganha os pontos que a partida vale: o admin escolhe ao criá-la quanto vale a vitória e quanto vale a
+          derrota (1 e 0, se ninguém mudar). Todos que jogaram ganham +1 partida seguida. Aí a fila é refeita:
+        </p>
         <ol>
           <li>Quem estava esperando zera e continua na frente, na ordem em que estava.</li>
           <li>Atrás vêm os jogadores da partida, com menos partidas seguidas primeiro.</li>

@@ -1,6 +1,9 @@
+import { useState } from 'react';
+
 import { createFinalBlocked, createMatchBlocked, useActions } from '../actions';
 import type { Camp, CampSummary, Guild, Me } from '../api';
 import { campStatusLabel, formatLabel } from '../camp';
+import { CreateMatchDialog } from './CreateMatchDialog';
 
 interface HeaderProps {
   me: Me;
@@ -56,7 +59,8 @@ function GuildPicker({ guilds, value, onChange }: { guilds: Guild[]; value: stri
 }
 
 function CampButtons({ camp }: { camp: Camp }) {
-  const { run, busy } = useActions();
+  const { busy } = useActions();
+  const [creating, setCreating] = useState<'match' | 'final' | null>(null);
   const matchBlocked = createMatchBlocked(camp);
   const finalBlocked = createFinalBlocked(camp);
   return (
@@ -66,7 +70,7 @@ function CampButtons({ camp }: { camp: Camp }) {
         className="button"
         disabled={busy || matchBlocked !== undefined}
         title={matchBlocked}
-        onClick={() => run({ type: 'create_match' })}
+        onClick={() => setCreating('match')}
       >
         Criar partida
       </button>
@@ -75,22 +79,16 @@ function CampButtons({ camp }: { camp: Camp }) {
         className="button"
         disabled={busy || finalBlocked !== undefined}
         title={finalBlocked}
-        onClick={() =>
-          run(
-            { type: 'create_final' },
-            {
-              confirm: {
-                title: 'Criar a partida final?',
-                message: 'Os jogadores de maior pontuação jogam a final, com times equilibrados por pontos.',
-                note: 'Depois dela não dá para criar outras partidas.',
-                action: 'Criar partida final',
-              },
-            },
-          )
-        }
+        onClick={() => setCreating('final')}
       >
         Partida final
       </button>
+      <CreateMatchDialog
+        camp={camp}
+        final={creating === 'final'}
+        open={creating !== null}
+        onClose={() => setCreating(null)}
+      />
     </>
   );
 }

@@ -26,8 +26,8 @@ pub async fn run(
     }
     let camp_id = camp.camp.id.as_str();
     match action {
-        CampAction::CreateMatch => create_match(discord, data, guild_id, camp_id).await,
-        CampAction::CreateFinal => create_final(discord, data, guild_id, camp_id).await,
+        CampAction::CreateMatch { points } => create_match(discord, data, guild_id, camp_id, *points).await,
+        CampAction::CreateFinal { points } => create_final(discord, data, guild_id, camp_id, *points).await,
         CampAction::CloseVote { match_id } => close_vote(discord, data, camp_id, &normalize(match_id)).await,
         CampAction::RefreshTeams { match_id } => {
             refresh_teams(discord, data, guild_id, camp_id, &normalize(match_id)).await
@@ -205,8 +205,14 @@ fn channel(state: &CampState) -> ChannelId {
     ChannelId::new(state.camp.channel_id as u64)
 }
 
-async fn create_match(discord: &Discord, data: &Data, guild_id: GuildId, camp_id: &str) -> Result<()> {
-    let (camp_id, match_id) = db::create_match(&data.db, camp_id, guild_id.get() as i64).await?;
+async fn create_match(
+    discord: &Discord,
+    data: &Data,
+    guild_id: GuildId,
+    camp_id: &str,
+    points: db::MatchPoints,
+) -> Result<()> {
+    let (camp_id, match_id) = db::create_match(&data.db, camp_id, guild_id.get() as i64, points).await?;
     let state = load(data, &camp_id).await?;
     sync::redraw_all(discord, &data.db, &state).await?;
     if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
@@ -219,8 +225,14 @@ async fn create_match(discord: &Discord, data: &Data, guild_id: GuildId, camp_id
     Ok(())
 }
 
-async fn create_final(discord: &Discord, data: &Data, guild_id: GuildId, camp_id: &str) -> Result<()> {
-    let (camp_id, match_id) = db::create_final_match(&data.db, camp_id, guild_id.get() as i64).await?;
+async fn create_final(
+    discord: &Discord,
+    data: &Data,
+    guild_id: GuildId,
+    camp_id: &str,
+    points: db::MatchPoints,
+) -> Result<()> {
+    let (camp_id, match_id) = db::create_final_match(&data.db, camp_id, guild_id.get() as i64, points).await?;
     let state = load(data, &camp_id).await?;
     sync::redraw_all(discord, &data.db, &state).await?;
     if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
@@ -512,6 +524,7 @@ async fn report_winner(
     let old_message = finished.and_then(|m| m.row.message_id);
     let is_final = finished.map(|m| m.row.is_final).unwrap_or(false);
     let party_code = finished.and_then(|m| m.row.party_code.clone());
+    let points = finished.map(|m| m.row.points()).unwrap_or_default();
 
     db::report_winner(&data.db, camp_id, match_id, side, mvp_user_id).await?;
 
@@ -553,7 +566,10 @@ async fn report_winner(
     let _ = channel
         .say(
             &discord.http,
-            format!("{winner} vence. +1 ponto para esse time.{mvp} Os jogadores voltaram para a fila."),
+            format!(
+                "{winner} vence. {}{mvp} Os jogadores voltaram para a fila.",
+                ui::result_points(points)
+            ),
         )
         .await;
     Ok(())

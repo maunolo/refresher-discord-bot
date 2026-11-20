@@ -179,6 +179,7 @@ mod tests {
     use axum::body::{to_bytes, Body};
     use axum::http::{Request, StatusCode};
     use futures_util::StreamExt;
+    use refresher_core::db::MatchPoints;
     use refresher_core::link::{BoxFuture, CampAction, Changes, Channel, Profile};
     use refresher_core::queue::{CampSize, Role};
     use sqlx::sqlite::SqlitePoolOptions;
@@ -499,7 +500,7 @@ data: 111
         db::set_s_rank(pool, &camp.id, &[1]).await.unwrap();
         db::set_player_role(pool, &camp.id, 1, Some(Role::Tank)).await.unwrap();
         db::start_queue(pool, &camp.id).await.unwrap();
-        let (_, match_id) = db::create_match(pool, &camp.id, 111).await.unwrap();
+        let (_, match_id) = db::create_match(pool, &camp.id, 111, db::MatchPoints::default()).await.unwrap();
         db::vote_refresh_choice(pool, &match_id, 1, true).await.unwrap();
         let path = format!("/api/overlay/{}/votes", db::overlay_token(pool, 111).await.unwrap());
 
@@ -536,7 +537,7 @@ data: 111
     /// Plays the next match of a 1v1 test camp, Hiddenking winning. Returns (match, winner, loser).
     async fn play_1v1(pool: &SqlitePool, camp_id: &str, winner_mvp: bool) -> (String, i64, i64) {
         use refresher_core::db;
-        let (_, match_id) = db::create_match(pool, camp_id, 111).await.unwrap();
+        let (_, match_id) = db::create_match(pool, camp_id, 111, db::MatchPoints::default()).await.unwrap();
         db::close_voting(pool, camp_id, &match_id).await.unwrap();
         db::start_live_match(pool, &match_id, None, None).await.unwrap();
         let info = db::load_match_info(pool, &match_id, 111).await.unwrap();
@@ -696,6 +697,8 @@ data: 111
 
         let (status, _) = post(&state, &path, Some(&token), r#"{"type": "create_match"}"#).await;
         assert_eq!(status, StatusCode::OK);
+        let worth_more = r#"{"type": "create_final", "win_points": 3, "loss_points": 1}"#;
+        assert_eq!(post(&state, &path, Some(&token), worth_more).await.0, StatusCode::OK);
         let close = r#"{"type": "close_vote", "match_id": "R4T8WN"}"#;
         assert_eq!(post(&state, &path, Some(&token), close).await.0, StatusCode::OK);
         let refresh = r#"{"type": "refresh_teams", "match_id": "r4t8wn"}"#;
@@ -714,7 +717,20 @@ data: 111
                         mvp_user_id: None,
                     }
                 ),
-                (111, camp.id.clone(), CampAction::CreateMatch),
+                (
+                    111,
+                    camp.id.clone(),
+                    CampAction::CreateMatch {
+                        points: MatchPoints { win: 1, loss: 0 }
+                    }
+                ),
+                (
+                    111,
+                    camp.id.clone(),
+                    CampAction::CreateFinal {
+                        points: MatchPoints { win: 3, loss: 1 }
+                    }
+                ),
                 (
                     111,
                     camp.id.clone(),
@@ -763,6 +779,10 @@ data: 111
             .await
             .0
             .is_client_error());
+        for points in [r#""win_points": 11"#, r#""loss_points": -1"#] {
+            let body = format!(r#"{{"type": "create_match", {points}}}"#);
+            assert_eq!(post(&state, &path, Some(&token), &body).await.0, StatusCode::BAD_REQUEST);
+        }
         assert!(link.actions.lock().unwrap().is_empty());
     }
 
@@ -930,7 +950,7 @@ data: 111
         let camp = refresher_core::db::create_camp(db, 111, 900, 4, 4).await.unwrap();
         refresher_core::db::add_players(db, &camp.id, &[1, 2, 3, 4]).await.unwrap();
         refresher_core::db::start_queue(db, &camp.id).await.unwrap();
-        let (_, first) = refresher_core::db::create_match(db, &camp.id, 111).await.unwrap();
+        let (_, first) = refresher_core::db::create_match(db, &camp.id, 111, refresher_core::db::MatchPoints::default()).await.unwrap();
         refresher_core::db::set_match_message_id(db, &first, 555).await.unwrap();
         refresher_core::db::close_voting(db, &camp.id, &first).await.unwrap();
         refresher_core::db::start_live_match(db, &first, None, None).await.unwrap();
@@ -942,7 +962,7 @@ data: 111
             .find(|p| p.side == "archmother")
             .map(|p| p.user_id);
         refresher_core::db::report_winner(db, &camp.id, &first, "archmother", mvp).await.unwrap();
-        let (_, second) = refresher_core::db::create_match(db, &camp.id, 111).await.unwrap();
+        let (_, second) = refresher_core::db::create_match(db, &camp.id, 111, refresher_core::db::MatchPoints::default()).await.unwrap();
         let token = sign_in(&state, &[111]).await;
 
         let (status, body) = get(&state, &format!("/api/camps/{}/matches", camp.id), Some(&token)).await;

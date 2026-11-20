@@ -10,6 +10,7 @@ import {
   playerById,
   playerName,
   points,
+  pointsWord,
   stage,
   voteCount,
   voteSummary,
@@ -17,7 +18,7 @@ import {
 import { pollEvery, useLive } from '../live';
 import { matchHref, routeHref } from '../route';
 import { usePolling } from '../usePolling';
-import { Captain, CopyButton, DiscordLink, MvpTag, RoleChip, SRankChip } from './common';
+import { Captain, CopyButton, DiscordLink, MatchWorth, MvpTag, RoleChip, SRankChip } from './common';
 import { DraftLinks, ManualDraftNote, StagePill, Stepper } from './MatchCard';
 import { MatchStatsCard } from './MatchStatsCard';
 import { Corrections } from './Panels';
@@ -261,8 +262,9 @@ function NextStep({ camp, match }: { camp: Camp; match: Match }) {
         </h2>
         {match.winner_side && (
           <p>
-            <span className={`tag tag-${match.winner_side}`}>{SIDE_LABEL[match.winner_side]}</span> venceu. +1 ponto para
-            cada jogador do time.
+            <span className={`tag tag-${match.winner_side}`}>{SIDE_LABEL[match.winner_side]}</span> venceu: +
+            {pointsWord(match.points.win)} para cada jogador do time
+            {match.points.loss > 0 && <>, +{pointsWord(match.points.loss)} para cada um do outro</>}.
           </p>
         )}
         <p className="small">
@@ -298,7 +300,9 @@ function NextStep({ camp, match }: { camp: Camp; match: Match }) {
           </button>
         </div>
         <span className="muted small">
-          Os vencedores ganham 1 ponto e todos voltam para a fila e para o canal Queue. Você escolhe o MVP em seguida.
+          Os vencedores ganham {pointsWord(match.points.win)}
+          {match.points.loss > 0 && <>, os perdedores {pointsWord(match.points.loss)}</>}, e todos voltam para a fila e
+          para o canal Queue. Você escolhe o MVP em seguida.
         </span>
         <WinnerDialog camp={camp} match={match} side={winner} onClose={() => setWinner(null)} />
       </section>
@@ -439,6 +443,7 @@ function MatchDetail({ camp, match }: { camp: Camp; match: Match }) {
           </p>
         </section>
         <aside className="split-aside" aria-label="Ações da partida">
+          <MatchWorth points={match.points} />
           <NextStep camp={camp} match={match} />
           {match.draft && <DraftLinks camp={camp} match={match} draft={match.draft} />}
           {match.draft_manual && <ManualDraftNote camp={camp} match={match} />}

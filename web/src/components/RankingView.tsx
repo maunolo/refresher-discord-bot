@@ -106,7 +106,8 @@ export function RankingView({ camp }: { camp: Camp }) {
         </div>
       )}
       <p className="muted small">
-        Cada vitória vale 1 ponto; ajustes manuais aparecem entre parênteses. Empate em pontos é desfeito pelo número de
+        Cada partida vale o que o admin escolheu ao criá-la (1 ponto por vitória, se ninguém mudou); ajustes manuais
+        aparecem entre parênteses. Empate em pontos é desfeito pelo número de
         MVPs; empatados nos dois dividem o lugar. Aproveitamento conta só partidas terminadas; correções de resultado entram
         na hora.
       </p>

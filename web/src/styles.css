@@ -1886,3 +1886,56 @@ h3,
 .history td .inline-actions .button {
   white-space: nowrap;
 }
+
+/* What a match gives: on its card, its page and the result dialog */
+.worth {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 12px;
+}
+.worth strong {
+  font-size: 15px;
+}
+.points-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.points-split .inset {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.points-split strong {
+  font-size: 22px;
+}
+.eyebrow.team-hiddenking {
+  color: var(--hk);
+}
+.eyebrow.team-archmother {
+  color: var(--am);
+}
+
+/* Criar partida */
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.presets .preset-on {
+  border-color: var(--jade);
+  background: var(--active);
+  color: var(--mint);
+}
+.points-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.field-label {
+  font-size: 13px;
+  font-weight: 600;
+}
