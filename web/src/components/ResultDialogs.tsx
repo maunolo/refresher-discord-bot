@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { useActions } from '../actions';
 import type { Camp, Match, MatchPlayer, RecentMatch, Side } from '../api';
-import { SIDES, SIDE_LABEL, matchName, playerById, playerName } from '../camp';
+import { SIDES, SIDE_LABEL, matchName, playerById, playerName, pointsWord } from '../camp';
 import { Captain, SRankChip } from './common';
 import { Modal } from './Modal';
 
@@ -92,9 +92,21 @@ export function WinnerDialog({
           <h2 id="winner-title">
             {SIDE_LABEL[side]} venceu a {matchName(match)}?
           </h2>
+          <div className="points-split" aria-label="Pontos de cada jogador">
+            {[side, side === 'hiddenking' ? 'archmother' : 'hiddenking'].map((s) => (
+              <div key={s} className="inset">
+                <span className={`eyebrow team-${s}`}>{SIDE_LABEL[s as Side]}</span>
+                <strong className="mono">+{s === side ? match.points.win : match.points.loss}</strong>
+                <span className="muted small">
+                  {s === side ? 'venceu' : 'perdeu'} · para cada um dos {match.players.filter((p) => p.side === s).length}
+                </span>
+              </div>
+            ))}
+          </div>
           <p id="winner-help" className="text-2">
-            Os vencedores ganham 1 ponto e todos voltam para a fila. Escolha o MVP: no ranking final, quem empatar em pontos
-            fica na frente com mais MVPs.
+            Os vencedores ganham {pointsWord(match.points.win)}
+            {match.points.loss > 0 && <>, os perdedores {pointsWord(match.points.loss)}</>}, e todos voltam para a fila.
+            Escolha o MVP: no ranking final, quem empatar em pontos fica na frente com mais MVPs.
           </p>
           <MvpPicker camp={camp} players={match.players} first={side} value={mvp} onChange={setMvp} />
           <p className="muted small">Se errar, dá para trocar o vencedor ou o MVP desta partida enquanto ela for a última.</p>

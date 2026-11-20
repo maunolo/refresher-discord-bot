@@ -793,7 +793,7 @@ mod tests {
         let camp = db::create_camp(pool, 1, 10, 4, 2).await.unwrap();
         db::add_players(pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
         db::start_queue(pool, &camp.id).await.unwrap();
-        let (_, match_id) = db::create_match(pool, &camp.id, 1).await.unwrap();
+        let (_, match_id) = db::create_match(pool, &camp.id, 1, db::MatchPoints::default()).await.unwrap();
         db::close_voting(pool, &camp.id, &match_id).await.unwrap();
         db::start_live_match(pool, &match_id, party.map(str::to_string), party.map(|_| "CODE".to_string()))
             .await

@@ -51,11 +51,11 @@ impl DemoLink {
         let pool = &self.db;
         let guild = GUILD as i64;
         match action {
-            CampAction::CreateMatch => {
-                db::create_match(pool, camp_id, guild).await?;
+            CampAction::CreateMatch { points } => {
+                db::create_match(pool, camp_id, guild, points).await?;
             }
-            CampAction::CreateFinal => {
-                db::create_final_match(pool, camp_id, guild).await?;
+            CampAction::CreateFinal { points } => {
+                db::create_final_match(pool, camp_id, guild, points).await?;
             }
             CampAction::CloseVote { match_id } => {
                 db::close_voting(pool, camp_id, &match_id).await?;
@@ -255,7 +255,7 @@ async fn seed(pool: &SqlitePool) -> Result<()> {
 
     // Six finished matches, for points and history.
     for round in 0..6 {
-        let (_, match_id) = db::create_match(pool, &camp.id, GUILD as i64).await?;
+        let (_, match_id) = db::create_match(pool, &camp.id, GUILD as i64, db::MatchPoints::default()).await?;
         keep_teams(pool, &match_id).await?;
         db::set_draft(pool, &match_id, &fake_draft(&match_id)).await?;
         db::start_live_match(pool, &match_id, None, None).await?;
@@ -271,7 +271,7 @@ async fn seed(pool: &SqlitePool) -> Result<()> {
     }
 
     // Match 1: voting, half the players in. Match 2: drafted and live.
-    let (_, voting) = db::create_match(pool, &camp.id, GUILD as i64).await?;
+    let (_, voting) = db::create_match(pool, &camp.id, GUILD as i64, db::MatchPoints::default()).await?;
     let players = roster(pool, &voting).await?;
     let hk: Vec<i64> = players.iter().filter(|p| p.1 == "hiddenking").map(|p| p.0).collect();
     let am: Vec<i64> = players.iter().filter(|p| p.1 == "archmother").map(|p| p.0).collect();
@@ -279,7 +279,7 @@ async fn seed(pool: &SqlitePool) -> Result<()> {
         db::vote_refresh_choice(pool, &voting, user_id, refresh).await?;
     }
 
-    let (_, live) = db::create_match(pool, &camp.id, GUILD as i64).await?;
+    let (_, live) = db::create_match(pool, &camp.id, GUILD as i64, db::MatchPoints::default()).await?;
     keep_teams(pool, &live).await?;
     db::set_draft(pool, &live, &fake_draft(&live)).await?;
     db::start_live_match(pool, &live, None, None).await?;

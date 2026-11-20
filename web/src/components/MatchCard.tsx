@@ -14,7 +14,7 @@ import {
   voteSummary,
   type Stage,
 } from '../camp';
-import { CardLink, Captain, CopyButton, DiscordLink, RoleChip, SRankChip } from './common';
+import { CardLink, Captain, CopyButton, DiscordLink, MatchWorth, RoleChip, SRankChip } from './common';
 import { WinnerDialog } from './ResultDialogs';
 import { OBS_OVERLAY_CSS } from '../obs';
 import { matchHref } from '../route';
@@ -247,6 +247,7 @@ export function MatchCard({ camp, match }: { camp: Camp; match: Match }) {
           <CardLink href={matchHref(match.id)} label="Detalhes" />
         </div>
       </div>
+      <MatchWorth points={match.points} />
       <Stepper match={match} />
       <p className="muted small">{voteSummary(camp, match)}</p>
       <div className="teams">

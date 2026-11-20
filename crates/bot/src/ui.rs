@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use serenity::all::{ButtonStyle, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedFooter, Mentionable, UserId};
 
-use crate::db::{CampState, MatchPlayerRow, OpenMatch, PlayerRow};
+use crate::db::{CampState, MatchPlayerRow, MatchPoints, OpenMatch, PlayerRow};
 use crate::queue::{self, Role};
 use crate::ranking::{self, Standing};
 
@@ -311,6 +311,12 @@ pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
     } else {
         "Partida ao vivo. Entre com o código da party e escolha os heróis no Deadlock.".to_string()
     };
+    let points = open.row.points();
+    desc.push_str(&format!(
+        "\n\nVale **{}** para quem vencer e **{}** para quem perder.",
+        points_label(points.win),
+        points_label(points.loss)
+    ));
     if let Some(url) = &open.row.draft_url {
         desc.push_str(&format!("\n\n**Assistir ao draft:** {url}"));
     }
@@ -361,6 +367,16 @@ pub fn match_components(state: &CampState, open: &OpenMatch) -> Vec<CreateAction
         Vec::new()
     } else {
         vec![CreateActionRow::Buttons(buttons)]
+    }
+}
+
+/// What a result gives: `+1 ponto para esse time.`, or with the losers' points when there are any.
+pub fn result_points(points: MatchPoints) -> String {
+    let win = format!("+{}", points_label(points.win));
+    if points.loss == 0 {
+        format!("{win} para esse time.")
+    } else {
+        format!("{win} para esse time e +{} para quem perdeu.", points_label(points.loss))
     }
 }
 

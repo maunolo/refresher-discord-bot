@@ -1,8 +1,24 @@
 import { useState, type ReactNode } from 'react';
 
-import type { Role } from '../api';
+import type { MatchPoints, Role } from '../api';
 import { ROLE_LABEL, roleShort } from '../camp';
 import { ArrowRightIcon, CheckIcon, CopyIcon, CrownIcon, ExternalIcon, StarIcon } from './Icons';
+
+/** What a match gives each player, for a win and for a loss. */
+export function MatchWorth({ points }: { points: MatchPoints }) {
+  return (
+    <div className="inset worth" title="Pontos de cada jogador quando a partida termina">
+      <span className="eyebrow">Vale</span>
+      <strong className="mono">+{points.win}</strong>
+      <span className="muted small">vitória</span>
+      <span className="faint" aria-hidden="true">
+        ·
+      </span>
+      <strong className="mono">+{points.loss}</strong>
+      <span className="muted small">derrota</span>
+    </div>
+  );
+}
 
 export function SRankChip() {
   return (

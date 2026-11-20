@@ -53,6 +53,14 @@ export interface Camp {
   draft_tool: boolean;
   /** Captains get the draft's invite link by DM; either way it's on their match message button. */
   dm_captains: boolean;
+  /** What the newest match gives, the starting values for the next one. */
+  next_points: MatchPoints;
+}
+
+/** What a match gives each player: `win` to the winning side, `loss` to the losing one. */
+export interface MatchPoints {
+  win: number;
+  loss: number;
 }
 
 export interface Channel {
@@ -103,6 +111,8 @@ export interface Match {
   refreshed_by_admin: boolean;
   winner_side: Side | null;
   mvp_user_id: string | null;
+  /** What each player earns when it ends. */
+  points: MatchPoints;
   party_code: string | null;
   draft: Draft | null;
   players: MatchPlayer[];
@@ -140,6 +150,7 @@ export interface RecentMatch {
   winner_side: Side;
   is_final: boolean;
   completed_at: number;
+  points: MatchPoints;
   captains: { user_id: string; side: Side }[];
   players: MatchPlayer[];
   mvp_user_id: string | null;
@@ -155,8 +166,8 @@ export interface Member {
 
 /** An admin action; the bot makes the change and does its Discord side. */
 export type CampAction =
-  | { type: 'create_match' }
-  | { type: 'create_final' }
+  | { type: 'create_match'; win_points: number; loss_points: number }
+  | { type: 'create_final'; win_points: number; loss_points: number }
   | { type: 'close_vote'; match_id: string }
   | { type: 'refresh_teams'; match_id: string }
   | { type: 'start_draft'; match_id: string }

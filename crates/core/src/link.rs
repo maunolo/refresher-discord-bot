@@ -4,6 +4,7 @@ use std::pin::Pin;
 
 use tokio::sync::broadcast;
 
+use crate::db::MatchPoints;
 use crate::queue::{CampSize, Role};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
@@ -54,8 +55,9 @@ pub struct Profile {
 /// An admin action on a camp, from the admin page. The bot makes the change and updates Discord.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CampAction {
-    CreateMatch,
-    CreateFinal,
+    /// `points` go to each player when the match ends: `win` to the winners, `loss` to the losers.
+    CreateMatch { points: MatchPoints },
+    CreateFinal { points: MatchPoints },
     /// Ends the refresh vote now and keeps the teams.
     CloseVote { match_id: String },
     /// Ends the refresh vote now by re-sorting the teams, as if the refresh had passed.
