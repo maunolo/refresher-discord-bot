@@ -20,11 +20,12 @@
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=20261118a">
   <link rel="preload" href="assets/fonts/VALVEOracle-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/VALVEOracle-Medium.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=20261118j">
+  <link rel="stylesheet" href="style.css?v=20261119b">
 </head>
 <body>
   <!-- Patronos fixos nas bordas da tela (metade de cada um aparece): Hidden King à esquerda e
        Arch Mother à direita. Cada patrono é um vídeo com fundo transparente (render do Blender/Cycles). -->
+  <div class="backdrop" aria-hidden="true"></div>
   <div class="stage stage-king" aria-hidden="true">
     <video class="stage-patron" src="assets/patronos/hidden_king_idle_transparente.webm?v=20261118b" autoplay loop muted playsinline preload="auto"></video>
   </div>
@@ -76,7 +77,7 @@
       });
       const section = document.getElementById("info");
       section.querySelectorAll("[data-card]").forEach((c) => { c.hidden = !defined(I[c.dataset.card]); });
-      section.querySelectorAll("[data-pending]").forEach((s) => { s.hidden = s.dataset.pending !== "regras" && defined(I[s.dataset.pending]); });
+      section.querySelectorAll("[data-pending]").forEach((s) => { s.hidden = s.dataset.pending === "regras" || defined(I[s.dataset.pending]); // regras já estão na seção #regras });
       section.querySelector(".info-cards").hidden = !section.querySelector("[data-card]:not([hidden])");
       section.querySelector(".info-pending").hidden = !section.querySelector("[data-pending]:not([hidden])");
     })();
@@ -345,6 +346,60 @@
     })();
   </script>
 
+  <!-- Regras, formato e premiação: texto fixo, editado direto aqui.
+       Para preencher, troque o "A definir" de cada bloco (e as traduções rules.* em i18n.js). -->
+  <section id="regras" class="rules" aria-labelledby="rules-title">
+    <h2 id="rules-title" class="section-title" data-i18n="rules.title">Regras, formato e premiação</h2>
+    <div class="rules-grid">
+      <article class="rules-block rules-main">
+        <h3 data-i18n="info.rules">Regras</h3>
+        <div class="rules-sections">
+          <div>
+            <h4 data-i18n="rules.s1">1. Presença e horários</h4>
+            <ul>
+              <li data-i18n="rules.s1.1">Cada jogador deve confirmar sua presença no canal oficial 15 minutos antes do horário marcado.</li>
+              <li data-i18n="rules.s1.2">A tolerância é de 10 minutos após o horário marcado. Depois desse prazo, a arbitragem registra a ausência e aplica a regra prevista no formato divulgado.</li>
+              <li data-i18n="rules.s1.3">Cada participante deve jogar na própria conta Steam e comunicar diretamente à arbitragem qualquer problema.</li>
+            </ul>
+          </div>
+          <div>
+            <h4 data-i18n="rules.s2">2. Partidas e problemas técnicos</h4>
+            <ul>
+              <li data-i18n="rules.s2.1">As partidas serão disputadas em lobby privado. A organização divulgará a região do servidor e as regras de escolha de lado e de heróis antes do campeonato.</li>
+              <li data-i18n="rules.s2.2">Pausas são permitidas em caso de problema técnico. O jogador afetado deve avisar a arbitragem, que decide quando retomar a partida, respeitando os limites do jogo.</li>
+              <li data-i18n="rules.s2.3">Em caso de desconexão, o jogador pode tentar retornar durante a pausa. Se a falha afetar vários participantes ou impedir a continuidade, a arbitragem pode reiniciar ou remarcar a partida.</li>
+            </ul>
+          </div>
+          <div>
+            <h4 data-i18n="rules.s3">3. Conduta</h4>
+            <ul>
+              <li data-i18n="rules.s3.1">São proibidos cheats, automação de ações por scripts ou macros, abuso deliberado de bugs e combinação de resultados.</li>
+              <li data-i18n="rules.s3.2">Jogadores não podem consultar a transmissão da própria partida nem receber informações de espectadores enquanto ela estiver em andamento, inclusive durante pausas.</li>
+              <li data-i18n="rules.s3.3">Assédio, discriminação, ameaças e ofensas estão sujeitos a punição.</li>
+              <li data-i18n="rules.s3.4">Somente espectadores autorizados podem entrar no lobby. Transmissões autorizadas devem ter pelo menos 3 minutos de atraso.</li>
+            </ul>
+          </div>
+          <div>
+            <h4 data-i18n="rules.s4">4. Resultados, protestos e punições</h4>
+            <ul>
+              <li data-i18n="rules.s4.1">A organização registra os resultados de cada partida e atualiza a classificação individual conforme o sistema de pontuação divulgado.</li>
+              <li data-i18n="rules.s4.2">Qualquer jogador pode contestar um resultado ou relatar uma infração diretamente à arbitragem em até 15 minutos após o fim da partida. O relato deve incluir o ID da partida e as evidências, quando disponíveis. Em suspeita de trapaça, o prazo começa quando a evidência é encontrada.</li>
+              <li data-i18n="rules.s4.3">A arbitragem pode aplicar advertência, perda de pontos ou desclassificação, conforme a gravidade e a reincidência. A decisão e o motivo serão comunicados ao jogador afetado.</li>
+            </ul>
+          </div>
+        </div>
+      </article>
+      <article class="rules-block">
+        <h3 data-i18n="info.format">Formato</h3>
+        <p data-i18n="rules.formatText">A definir</p>
+      </article>
+      <article class="rules-block">
+        <h3 data-i18n="info.prize">Premiação</h3>
+        <p data-i18n="rules.prizeText">A definir</p>
+      </article>
+    </div>
+  </section>
+
   <footer class="footer">
     <!-- Botão discreto da equipe: abre o login da staff -->
     <a href="staff/" class="staff-link" rel="nofollow">Staff</a>
@@ -352,6 +407,6 @@
     <p class="small" data-i18n="footer.small">Evento independente, sem vínculo com a Valve.</p>
   </footer>
 
-  <script src="i18n.js?v=20261118h"></script>
+  <script src="i18n.js?v=20261119b"></script>
 </body>
 </html>
