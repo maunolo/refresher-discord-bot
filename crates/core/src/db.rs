@@ -2358,6 +2358,27 @@ pub async fn change_mvp(
     })
 }
 
+/// Moves a player's points when a result is corrected or reopened. Refuses instead of stopping at
+/// zero: a points adjustment made after the match would otherwise be lost or turned into points.
+async fn add_match_points(tx: &mut Transaction<'_, Sqlite>, camp_id: &str, user_id: i64, delta: i64) -> Result<()> {
+    let changed = sqlx::query(
+        "UPDATE camp_players SET points = points + ? WHERE camp_id = ? AND user_id = ? AND points + ? >= 0",
+    )
+    .bind(delta)
+    .bind(camp_id)
+    .bind(user_id)
+    .bind(delta)
+    .execute(&mut **tx)
+    .await?
+    .rows_affected();
+    if changed == 0 {
+        return Err(anyhow!(
+            "um jogador desta partida ficaria com pontos negativos, por um ajuste de pontos feito depois dela; devolva esses pontos em Ajustar pontos antes de corrigir"
+        ));
+    }
+    Ok(())
+}
+
 pub async fn correct_winner(
     pool: &SqlitePool,
     camp_id: &str,
@@ -2372,12 +2393,7 @@ pub async fn correct_winner(
         // What the old result gave is taken back, and the new result's points given.
         let won_before = side == &old_side;
         let delta = current.points.for_side(!won_before) - current.points.for_side(won_before);
-        sqlx::query("UPDATE camp_players SET points = MAX(0, points + ?) WHERE camp_id = ? AND user_id = ?")
-            .bind(delta)
-            .bind(camp_id)
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
+        add_match_points(&mut tx, camp_id, *user_id, delta).await?;
         let points: i64 =
             sqlx::query_scalar("SELECT points FROM camp_players WHERE camp_id = ? AND user_id = ?")
                 .bind(camp_id)
@@ -2457,12 +2473,7 @@ pub async fn reopen_match(pool: &SqlitePool, camp_id: &str, match_id: &str) -> R
     let location = slot_location(current.slot);
 
     for (user_id, side) in &current.roster {
-        sqlx::query("UPDATE camp_players SET points = MAX(0, points - ?) WHERE camp_id = ? AND user_id = ?")
-            .bind(current.points.for_side(side == &current.winner_side))
-            .bind(camp_id)
-            .bind(user_id)
-            .execute(&mut *tx)
-            .await?;
+        add_match_points(&mut tx, camp_id, *user_id, -current.points.for_side(side == &current.winner_side)).await?;
         sqlx::query(
             "UPDATE camp_players SET consecutive_matches = MAX(0, consecutive_matches - 1),
              location = ?, queue_position = NULL
@@ -3025,6 +3036,28 @@ mod tests {
         assert_eq!(restored_queue(Some("3,1,2,4"), &[1, 3], &[2, 4]), [3, 1, 2, 4]);
         assert_eq!(restored_queue(Some("3,1,2,4"), &[1], &[5, 2]), [1, 2, 5], "3 and 4 moved on, 5 came back");
         assert_eq!(restored_queue(None, &[1, 3], &[2, 4]), [1, 3, 2, 4]);
+    }
+
+    #[tokio::test]
+    async fn corrections_never_hide_a_later_penalty() {
+        let pool = memory_db().await;
+        let camp = create_camp(&pool, 1, 10, 4, 4).await.unwrap();
+        add_players(&pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
+        start_queue(&pool, &camp.id).await.unwrap();
+        let (_, id) = create_match(&pool, &camp.id, 1, MatchPoints { win: 3, loss: 0 }).await.unwrap();
+        close_voting(&pool, &camp.id, &id).await.unwrap();
+        start_live_match(&pool, &id, None, None).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        let winner = *sides(&state).iter().find(|(_, side)| side.as_str() == "hiddenking").unwrap().0;
+        report_winner(&pool, &camp.id, &id, "hiddenking", None).await.unwrap();
+
+        // The winner's 3 points are taken back as a penalty, so the result can't be undone without them.
+        adjust_points(&pool, &camp.id, winner, -3).await.unwrap();
+        assert!(correct_winner(&pool, &camp.id, &id).await.is_err());
+        assert!(reopen_match(&pool, &camp.id, &id).await.is_err());
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        let points: i64 = state.players.iter().map(|p| p.points).sum();
+        assert_eq!(points, 3, "a refused correction changes nobody's points");
     }
 
     #[tokio::test]
