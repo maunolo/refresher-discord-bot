@@ -333,7 +333,7 @@ h1 {
 
 .ov-rank-row {
   display: grid;
-  grid-template-columns: 30px 34px 1fr 32px 48px;
+  grid-template-columns: 30px 34px 1fr 48px;
   align-items: center;
   gap: 8px;
   height: 54px;
@@ -383,43 +383,15 @@ h1 {
   font-size: 12.5px;
 }
 
-.ov-mvp,
-.ov-plus {
+.ov-mvp {
   flex: none;
   padding: 0 6px;
   border-radius: 3px;
   font-size: 11px;
   font-weight: 700;
   line-height: 17px;
-}
-
-.ov-mvp {
   background: rgba(193, 141, 82, 0.18);
   color: #e2b366;
-}
-
-.ov-plus {
-  background: var(--gold);
-  color: #081b1b;
-  animation: ov-pop 0.35s ease;
-}
-
-.ov-move {
-  font-size: 12px;
-  font-weight: 700;
-  text-align: center;
-}
-
-.ov-up {
-  color: var(--ok);
-}
-
-.ov-down {
-  color: #ff8589;
-}
-
-.ov-same {
-  color: #5a8f76;
 }
 
 .ov-pts {
@@ -476,8 +448,7 @@ h1 {
   .ov-panel,
   .ov-ok,
   .ov-wait::before,
-  .ov-rank-row,
-  .ov-plus {
+  .ov-rank-row {
     animation: none;
   }
 }

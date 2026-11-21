@@ -45,7 +45,7 @@ function CampOverlays({ links, onReset }: { links: OverlayLinks; onReset: () => 
       </p>
       <OverlayLink title="Ranking" url={links.ranking_url} label="Copiar o link do overlay do ranking" />
       <p className="muted small">
-        O top 10 por pontos e MVPs, com vitórias e jogos, quem pontuou na última partida e quem subiu ou desceu com ela.
+        O top 10 por pontos e MVPs, com vitórias e derrotas.
         Quando o camp acaba, mostra o ranking final até o próximo começar. Tamanho sugerido: 440 × 700; para mostrar mais
         jogadores, termine o link com <span className="mono">?top=15</span>.
       </p>
