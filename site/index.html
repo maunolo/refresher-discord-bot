@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=20261118a">
   <link rel="preload" href="assets/fonts/VALVEOracle-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/VALVEOracle-Medium.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=20261121c">
+  <link rel="stylesheet" href="style.css?v=20261121e">
 </head>
 <body>
   <!-- Patronos fixos nas bordas da tela (metade de cada um aparece): Hidden King à esquerda e
@@ -404,8 +404,14 @@
     <!-- Botão discreto da equipe: abre o login da staff -->
     <a href="staff/" class="staff-link" rel="nofollow">Staff</a>
     <p data-i18n="footer.main">Refresher League</p>
+    <!-- Faixa de colaboradores: a lista fica em colaboradores.js -->
+    <section id="colaboradores" class="collab-strip" aria-labelledby="collab-title">
+      <h2 id="collab-title" class="collab-title" data-i18n="collab.title">Colaboradores</h2>
+      <ul class="collab-list"></ul>
+    </section>
     <p class="small" data-i18n="footer.small">Evento independente, sem vínculo com a Valve.</p>
   </footer>
+  <script src="colaboradores.js?v=20261121g"></script>
 
   <script src="i18n.js?v=20261121b"></script>
 </body>

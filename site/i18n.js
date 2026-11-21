@@ -81,6 +81,7 @@ const translations = {
     "rules.s4.3": "The referees may issue a warning, a point deduction or disqualification, depending on severity and repeat offenses. The decision and its reason will be communicated to the affected player.",
     "rules.formatText": "TBD",
     "rules.prizeText": "TBD",
+    "collab.title": "Contributors",
     "footer.main": "Refresher League",
     "footer.small": "Independent event, not affiliated with Valve."
   },
@@ -165,6 +166,7 @@ const translations = {
     "rules.s4.3": "El arbitraje puede aplicar una advertencia, pérdida de puntos o descalificación, según la gravedad y la reincidencia. La decisión y el motivo se comunicarán al jugador afectado.",
     "rules.formatText": "Por definir",
     "rules.prizeText": "Por definir",
+    "collab.title": "Colaboradores",
     "footer.main": "Refresher League",
     "footer.small": "Evento independiente, sin vínculo con Valve."
   }
