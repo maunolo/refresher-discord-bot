@@ -1,0 +1,923 @@
+{
+    "name": "OVERLAY CAMP FARINHA TESTE v2",
+    "DesktopAudioDevice1": {
+        "prev_ver": 537001986,
+        "name": "Desktop Audio",
+        "uuid": "f355cbca-73b3-40e2-99cc-74dc3ba85f4d",
+        "id": "wasapi_output_capture",
+        "versioned_id": "wasapi_output_capture",
+        "settings": {
+            "device_id": "default"
+        },
+        "mixers": 192,
+        "sync": 0,
+        "flags": 0,
+        "volume": 1.0,
+        "balance": 0.5,
+        "enabled": true,
+        "muted": true,
+        "push-to-mute": false,
+        "push-to-mute-delay": 0,
+        "push-to-talk": false,
+        "push-to-talk-delay": 0,
+        "hotkeys": {
+            "libobs.mute": [],
+            "libobs.unmute": [],
+            "libobs.push-to-mute": [],
+            "libobs.push-to-talk": []
+        },
+        "deinterlace_mode": 0,
+        "deinterlace_field_order": 0,
+        "monitoring_type": 0,
+        "private_settings": {}
+    },
+    "AuxAudioDevice1": {
+        "prev_ver": 537001986,
+        "name": "Mic/Aux",
+        "uuid": "4b9e4c1a-9c26-4f14-a163-3fcc8b33edb2",
+        "id": "wasapi_input_capture",
+        "versioned_id": "wasapi_input_capture",
+        "settings": {
+            "device_id": "{0.0.1.00000000}.{eea5b975-30ef-4045-a89f-4ddd7f61e7f9}"
+        },
+        "mixers": 192,
+        "sync": 0,
+        "flags": 0,
+        "volume": 1.0,
+        "balance": 0.5,
+        "enabled": true,
+        "muted": true,
+        "push-to-mute": false,
+        "push-to-mute-delay": 0,
+        "push-to-talk": false,
+        "push-to-talk-delay": 0,
+        "hotkeys": {
+            "libobs.mute": [],
+            "libobs.unmute": [],
+            "libobs.push-to-mute": [],
+            "libobs.push-to-talk": []
+        },
+        "deinterlace_mode": 0,
+        "deinterlace_field_order": 0,
+        "monitoring_type": 0,
+        "private_settings": {
+            "volume_locked": false
+        }
+    },
+    "groups": [],
+    "scene_order": [
+        {
+            "name": "COMEÇANDO"
+        },
+        {
+            "name": "COMENTARISTAS"
+        },
+        {
+            "name": "TIMES"
+        },
+        {
+            "name": "DRAFT"
+        },
+        {
+            "name": "PARTIDA"
+        },
+        {
+            "name": "VITÓRIA"
+        },
+        {
+            "name": "RESULTADOS"
+        },
+        {
+            "name": "OBRIGADO POR ASSISTIR"
+        }
+    ],
+    "current_scene": "DRAFT",
+    "current_program_scene": "DRAFT",
+    "canvases": [],
+    "current_transition": "Stinger",
+    "transition_duration": 300,
+    "transitions": [
+        {
+            "name": "Stinger",
+            "id": "obs_stinger_transition",
+            "settings": {
+                "tp_type": 0,
+                "audio_fade_style": 0,
+                "path": "D:/Projects/REFRESHER LEAGUE/Overlay/TRANSIÇÃO.mov",
+                "transition_point": 1000
+            }
+        }
+    ],
+    "quick_transitions": [
+        {
+            "name": "Cut",
+            "duration": 300,
+            "hotkeys": [],
+            "id": 1,
+            "fade_to_black": false
+        },
+        {
+            "name": "Fade",
+            "duration": 300,
+            "hotkeys": [],
+            "id": 2,
+            "fade_to_black": false
+        },
+        {
+            "name": "Fade",
+            "duration": 300,
+            "hotkeys": [],
+            "id": 3,
+            "fade_to_black": true
+        }
+    ],
+    "saved_projectors": [],
+    "preview_locked": false,
+    "scaling_enabled": false,
+    "scaling_level": -10,
+    "scaling_off_x": 0.0,
+    "scaling_off_y": 0.0,
+    "virtual-camera": {
+        "type2": 3
+    },
+    "modules": {
+        "auto-scene-switcher": {
+            "interval": 300,
+            "non_matching_scene": "",
+            "switch_if_not_matching": false,
+            "active": false,
+            "switches": []
+        },
+        "captions": {
+            "source": "",
+            "enabled": false,
+            "lang_id": 1033,
+            "provider": "mssapi"
+        },
+        "output-timer": {
+            "streamTimerHours": 0,
+            "streamTimerMinutes": 0,
+            "streamTimerSeconds": 30,
+            "recordTimerHours": 0,
+            "recordTimerMinutes": 0,
+            "recordTimerSeconds": 30,
+            "autoStartStreamTimer": false,
+            "autoStartRecordTimer": false,
+            "pauseRecordTimer": true
+        },
+        "scripts-tool": []
+    },
+    "resolution": {
+        "x": 1920,
+        "y": 1080
+    },
+    "version": 2,
+    "sources": [
+        {
+            "prev_ver": 537001986,
+            "name": "Browser",
+            "uuid": "1aa2783d-d96e-4f67-a5c5-9b332d7e8244",
+            "id": "browser_source",
+            "versioned_id": "browser_source",
+            "settings": {
+                "undo_uuid": "1aa2783d-d96e-4f67-a5c5-9b332d7e8244",
+                "url": "https://www.deadchaps.gg/draft/AQSLM2UB/obs",
+                "width": 1920,
+                "height": 1080,
+                "css": "body { background-color: rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden; }\n/* Refresher draft scene: bans and picks laid out in the scene. */\n.draft-obs { position: relative !important; display: block !important; width: 1920px !important; height: 1080px !important; padding: 0 !important; }\n.obs-heroes-section, .obs-team-column, .obs-team-header, .obs-team-content, .obs-picks-container, .obs-header-bans, .obs-bans-minimap-container { display: contents !important; }\n.obs-team-identity, .obs-bans-label { display: none !important; }\n.obs-minimap-ban { position: absolute !important; top: 587px; width: 143px !important; height: 182px !important; margin: 0 !important; border: none !important; border-radius: 0 !important; background: none !important; box-shadow: none !important; display: flex !important; align-items: center; justify-content: center; overflow: hidden; transition: none !important; animation: none !important; }\n.obs-minimap-ban.empty::after { font: 800 64px/1 Geist, 'Segoe UI', system-ui, sans-serif; color: rgba(255, 255, 255, 0.34); }\n.obs-minimap-ban img { object-fit: cover !important; object-position: 50% 0%; filter: brightness(0.85); animation: refresher-reveal 0.35s ease-out; }\n.obs-hero-slot { position: absolute !important; top: 848px; height: 200px !important; margin: 0 !important; border-radius: 0 !important; background: none !important; overflow: hidden !important; transition: none !important; animation: none !important; }\n.obs-hero-slot img { object-fit: cover !important; object-position: 50% 0%; animation: refresher-reveal 0.35s ease-out; }\n@keyframes refresher-reveal { from { opacity: 0; transform: scale(1.08); } to { opacity: 1; transform: none; } }\n.obs-timer-bar { position: absolute !important; left: 20px; top: 1060px; width: 1880px !important; height: 4px !important; margin: 0 !important; }\n.obs-timer-line.amber, .obs-timer-line.sapphire { background: #e4fbf3 !important; box-shadow: 0 0 8px rgba(140, 245, 210, 0.8), 0 0 20px rgba(52, 211, 166, 0.45) !important; }\n.obs-minimap-ban.empty:nth-child(1)::after { content: \"1\"; }\n.obs-minimap-ban.empty:nth-child(2)::after { content: \"2\"; }\n.obs-minimap-ban.empty:nth-child(3)::after { content: \"3\"; }\n.obs-team-column:nth-child(1) .obs-minimap-ban:nth-child(1) { left: 390px; }\n.obs-team-column:nth-child(1) .obs-minimap-ban:nth-child(2) { left: 549px; }\n.obs-team-column:nth-child(1) .obs-minimap-ban:nth-child(3) { left: 709px; }\n.obs-team-column:nth-child(1) .obs-hero-slot:nth-child(1) { left: 21px; width: 152px !important; }\n.obs-team-column:nth-child(1) .obs-hero-slot:nth-child(2) { left: 175px; width: 152px !important; }\n.obs-team-column:nth-child(1) .obs-hero-slot:nth-child(3) { left: 329px; width: 152px !important; }\n.obs-team-column:nth-child(1) .obs-hero-slot:nth-child(4) { left: 482px; width: 152px !important; }\n.obs-team-column:nth-child(1) .obs-hero-slot:nth-child(5) { left: 636px; width: 152px !important; }\n.obs-team-column:nth-child(1) .obs-hero-slot:nth-child(6) { left: 790px; width: 152px !important; }\n.obs-team-column:nth-child(2) .obs-minimap-ban:nth-child(1) { left: 1387px; }\n.obs-team-column:nth-child(2) .obs-minimap-ban:nth-child(2) { left: 1228px; }\n.obs-team-column:nth-child(2) .obs-minimap-ban:nth-child(3) { left: 1068px; }\n.obs-team-column:nth-child(2) .obs-hero-slot:nth-child(1) { left: 1748px; width: 152px !important; }\n.obs-team-column:nth-child(2) .obs-hero-slot:nth-child(2) { left: 1594px; width: 152px !important; }\n.obs-team-column:nth-child(2) .obs-hero-slot:nth-child(3) { left: 1440px; width: 152px !important; }\n.obs-team-column:nth-child(2) .obs-hero-slot:nth-child(4) { left: 1287px; width: 152px !important; }\n.obs-team-column:nth-child(2) .obs-hero-slot:nth-child(5) { left: 1133px; width: 152px !important; }\n.obs-team-column:nth-child(2) .obs-hero-slot:nth-child(6) { left: 979px; width: 152px !important; }\n/* Picks as card art, bans as the battered card. */\n.obs-hero-slot img[alt=\"Abrams\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bull_card.webp\"); }\n.obs-minimap-ban img[alt=\"Abrams\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bull_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Apollo\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/fencer_card.webp\"); }\n.obs-minimap-ban img[alt=\"Apollo\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/fencer_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Baba\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/baba_card.webp\"); }\n.obs-minimap-ban img[alt=\"Baba\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/baba_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Bebop\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bebop_card.webp\"); }\n.obs-minimap-ban img[alt=\"Bebop\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bebop_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Billy\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/punkgoat_card.webp\"); }\n.obs-minimap-ban img[alt=\"Billy\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/punkgoat_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Calico\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/nano_card.webp\"); }\n.obs-minimap-ban img[alt=\"Calico\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/nano_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Celeste\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/unicorn_card.webp\"); }\n.obs-minimap-ban img[alt=\"Celeste\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/unicorn_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Deadman Danny\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/deadpack_card.webp\"); }\n.obs-minimap-ban img[alt=\"Deadman Danny\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/deadpack_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Drifter\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/drifter_card.webp\"); }\n.obs-minimap-ban img[alt=\"Drifter\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/drifter_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Dynamo\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/sumo_card.webp\"); }\n.obs-minimap-ban img[alt=\"Dynamo\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/sumo_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Graves\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/necro_card.webp\"); }\n.obs-minimap-ban img[alt=\"Graves\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/necro_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Grey Talon\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/archer_card.webp\"); }\n.obs-minimap-ban img[alt=\"Grey Talon\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/archer_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Haze\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/haze_card.webp\"); }\n.obs-minimap-ban img[alt=\"Haze\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/haze_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Holliday\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/astro_card.webp\"); }\n.obs-minimap-ban img[alt=\"Holliday\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/astro_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Infernus\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/inferno_card.webp\"); }\n.obs-minimap-ban img[alt=\"Infernus\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/inferno_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Ivy\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/tengu_card.webp\"); }\n.obs-minimap-ban img[alt=\"Ivy\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/tengu_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Kelvin\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/kelvin_card.webp\"); }\n.obs-minimap-ban img[alt=\"Kelvin\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/kelvin_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Lady Geist\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/spectre_card.webp\"); }\n.obs-minimap-ban img[alt=\"Lady Geist\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/spectre_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Lash\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/lash_card.webp\"); }\n.obs-minimap-ban img[alt=\"Lash\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/lash_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"McGinnis\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/engineer_card.webp\"); }\n.obs-minimap-ban img[alt=\"McGinnis\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/engineer_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Mina\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/vampirebat_card.webp\"); }\n.obs-minimap-ban img[alt=\"Mina\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/vampirebat_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Mirage\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/mirage_card.webp\"); }\n.obs-minimap-ban img[alt=\"Mirage\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/mirage_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Mo & Krill\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/digger_card.webp\"); }\n.obs-minimap-ban img[alt=\"Mo & Krill\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/digger_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Nurse Harrow\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/nurse_card.webp\"); }\n.obs-minimap-ban img[alt=\"Nurse Harrow\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/nurse_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Paige\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bookworm_card.webp\"); }\n.obs-minimap-ban img[alt=\"Paige\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bookworm_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Paradox\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/chrono_card.webp\"); }\n.obs-minimap-ban img[alt=\"Paradox\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/chrono_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Pocket\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/synth_card.webp\"); }\n.obs-minimap-ban img[alt=\"Pocket\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/synth_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Rat King\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/ratking_card.webp\"); }\n.obs-minimap-ban img[alt=\"Rat King\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/ratking_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Rem\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/familiar_card.webp\"); }\n.obs-minimap-ban img[alt=\"Rem\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/familiar_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Seven\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/gigawatt_card.webp\"); }\n.obs-minimap-ban img[alt=\"Seven\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/gigawatt_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Shiv\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/shiv_card.webp\"); }\n.obs-minimap-ban img[alt=\"Shiv\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/shiv_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Silver\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/werewolf_card.webp\"); }\n.obs-minimap-ban img[alt=\"Silver\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/werewolf_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Sinclair\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/magician_card.webp\"); }\n.obs-minimap-ban img[alt=\"Sinclair\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/magician_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Solomon\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/chessmaster_card.webp\"); }\n.obs-minimap-ban img[alt=\"Solomon\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/chessmaster_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"The Doorman\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/doorman_card.webp\"); }\n.obs-minimap-ban img[alt=\"The Doorman\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/doorman_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Venator\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/priest_card.webp\"); }\n.obs-minimap-ban img[alt=\"Venator\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/priest_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Victor\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/frank_card.webp\"); }\n.obs-minimap-ban img[alt=\"Victor\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/frank_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Vindicta\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/hornet_card.webp\"); }\n.obs-minimap-ban img[alt=\"Vindicta\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/hornet_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Violet\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/artist_card.webp\"); }\n.obs-minimap-ban img[alt=\"Violet\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/artist_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Viscous\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/viscous_card.webp\"); }\n.obs-minimap-ban img[alt=\"Viscous\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/viscous_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Vyper\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/kali_card.webp\"); }\n.obs-minimap-ban img[alt=\"Vyper\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/kali_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Warden\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/warden_card.webp\"); }\n.obs-minimap-ban img[alt=\"Warden\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/warden_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Wraith\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/wraith_card.webp\"); }\n.obs-minimap-ban img[alt=\"Wraith\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/wraith_card_critical.webp\"); }\n.obs-hero-slot img[alt=\"Yamato\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/yamato_card.webp\"); }\n.obs-minimap-ban img[alt=\"Yamato\"] { content: url(\"https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/yamato_card_critical.webp\"); }"
+            },
+            "mixers": 255,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "libobs.mute": [],
+                "libobs.unmute": [],
+                "libobs.push-to-mute": [],
+                "libobs.push-to-talk": [],
+                "ObsBrowser.Refresh": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 537001986,
+            "name": "COMEÇANDO",
+            "uuid": "46eb9622-8010-4093-82d6-637f94fd9863",
+            "id": "scene",
+            "versioned_id": "scene",
+            "settings": {
+                "id_counter": 0,
+                "custom_size": false,
+                "items": []
+            },
+            "mixers": 0,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "OBSBasic.SelectScene": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 537001986,
+            "name": "COMENTARISTAS",
+            "uuid": "daa4b5bb-5cb0-4ad1-97dd-e8c39916a326",
+            "id": "scene",
+            "versioned_id": "scene",
+            "settings": {
+                "id_counter": 4,
+                "custom_size": false,
+                "items": [
+                    {
+                        "name": "pirulito_farinha.gif",
+                        "source_uuid": "a000c54c-5a46-4a44-94ed-c531822b8bd7",
+                        "visible": false,
+                        "locked": false,
+                        "rot": 0.0,
+                        "scale_ref": {
+                            "x": 1920.0,
+                            "y": 1080.0
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 2,
+                        "group_item_backup": false,
+                        "pos": {
+                            "x": 19.0,
+                            "y": 122.0
+                        },
+                        "pos_rel": {
+                            "x": -1.7425925731658936,
+                            "y": -0.7740740776062012
+                        },
+                        "scale": {
+                            "x": 3.0374999046325684,
+                            "y": 3.0374999046325684
+                        },
+                        "scale_rel": {
+                            "x": 3.0374999046325684,
+                            "y": 3.0374999046325684
+                        },
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "bounds_rel": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "pirulito_farinha.gif",
+                        "source_uuid": "a000c54c-5a46-4a44-94ed-c531822b8bd7",
+                        "visible": false,
+                        "locked": false,
+                        "rot": 0.0,
+                        "scale_ref": {
+                            "x": 1920.0,
+                            "y": 1080.0
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 3,
+                        "group_item_backup": false,
+                        "pos": {
+                            "x": 948.0,
+                            "y": 109.0
+                        },
+                        "pos_rel": {
+                            "x": -0.02222222276031971,
+                            "y": -0.7981481552124023
+                        },
+                        "scale": {
+                            "x": 3.0374999046325684,
+                            "y": 3.0374999046325684
+                        },
+                        "scale_rel": {
+                            "x": 3.0374999046325684,
+                            "y": 3.0374999046325684
+                        },
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "bounds_rel": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "overlay dois comentaristas refresher league.png",
+                        "source_uuid": "58906703-2861-4c44-bcd7-e3ce343ba96f",
+                        "visible": false,
+                        "locked": false,
+                        "rot": 0.0,
+                        "scale_ref": {
+                            "x": 1920.0,
+                            "y": 1080.0
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 1,
+                        "group_item_backup": false,
+                        "pos": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "pos_rel": {
+                            "x": -1.7777777910232544,
+                            "y": -1.0
+                        },
+                        "scale": {
+                            "x": 1.0,
+                            "y": 1.0
+                        },
+                        "scale_rel": {
+                            "x": 1.0,
+                            "y": 1.0
+                        },
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "bounds_rel": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "CAMS COMENTARISTAS",
+                        "source_uuid": "8172fde2-5484-4a3b-b6db-d0dc8894fd06",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "scale_ref": {
+                            "x": 1920.0,
+                            "y": 1080.0
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 4,
+                        "group_item_backup": false,
+                        "pos": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "pos_rel": {
+                            "x": -1.7777777910232544,
+                            "y": -1.0
+                        },
+                        "scale": {
+                            "x": 1.0,
+                            "y": 1.0
+                        },
+                        "scale_rel": {
+                            "x": 1.0,
+                            "y": 1.0
+                        },
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "bounds_rel": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 0
+                        },
+                        "hide_transition": {
+                            "duration": 0
+                        },
+                        "private_settings": {}
+                    }
+                ]
+            },
+            "mixers": 0,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "OBSBasic.SelectScene": [],
+                "libobs.show_scene_item.1": [],
+                "libobs.hide_scene_item.1": [],
+                "libobs.show_scene_item.2": [],
+                "libobs.hide_scene_item.2": [],
+                "libobs.show_scene_item.3": [],
+                "libobs.hide_scene_item.3": [],
+                "libobs.show_scene_item.4": [],
+                "libobs.hide_scene_item.4": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 537001986,
+            "name": "DRAFT",
+            "uuid": "ce9ab62c-f808-4239-9aa9-cd0946f87202",
+            "id": "scene",
+            "versioned_id": "scene",
+            "settings": {
+                "id_counter": 4,
+                "custom_size": false,
+                "items": [
+                    {
+                        "name": "Image",
+                        "source_uuid": "26ba4743-b868-40ca-a310-d35a5e6015e3",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "scale_ref": {
+                            "x": 1920.0,
+                            "y": 1080.0
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 3,
+                        "group_item_backup": false,
+                        "pos": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "pos_rel": {
+                            "x": -1.7777777910232544,
+                            "y": -1.0
+                        },
+                        "scale": {
+                            "x": 1.0,
+                            "y": 1.0
+                        },
+                        "scale_rel": {
+                            "x": 1.0,
+                            "y": 1.0
+                        },
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "bounds_rel": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 300
+                        },
+                        "hide_transition": {
+                            "duration": 300
+                        },
+                        "private_settings": {}
+                    },
+                    {
+                        "name": "Browser",
+                        "source_uuid": "1aa2783d-d96e-4f67-a5c5-9b332d7e8244",
+                        "visible": true,
+                        "locked": false,
+                        "rot": 0.0,
+                        "scale_ref": {
+                            "x": 1920.0,
+                            "y": 1080.0
+                        },
+                        "align": 5,
+                        "bounds_type": 0,
+                        "bounds_align": 0,
+                        "bounds_crop": false,
+                        "crop_left": 0,
+                        "crop_top": 0,
+                        "crop_right": 0,
+                        "crop_bottom": 0,
+                        "id": 2,
+                        "group_item_backup": false,
+                        "pos": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "pos_rel": {
+                            "x": -1.7777777910232544,
+                            "y": -1.0
+                        },
+                        "scale": {
+                            "x": 1.0,
+                            "y": 1.0
+                        },
+                        "scale_rel": {
+                            "x": 1.0,
+                            "y": 1.0
+                        },
+                        "bounds": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "bounds_rel": {
+                            "x": 0.0,
+                            "y": 0.0
+                        },
+                        "scale_filter": "disable",
+                        "blend_method": "default",
+                        "blend_type": "normal",
+                        "show_transition": {
+                            "duration": 300
+                        },
+                        "hide_transition": {
+                            "duration": 300
+                        },
+                        "private_settings": {}
+                    }
+                ]
+            },
+            "mixers": 0,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "OBSBasic.SelectScene": [],
+                "libobs.show_scene_item.3": [],
+                "libobs.hide_scene_item.3": [],
+                "libobs.show_scene_item.2": [],
+                "libobs.hide_scene_item.2": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 537001986,
+            "name": "Image",
+            "uuid": "26ba4743-b868-40ca-a310-d35a5e6015e3",
+            "id": "image_source",
+            "versioned_id": "image_source",
+            "settings": {
+                "file": "D:/Projects/REFRESHER LEAGUE/Overlay/overlay draft refresher league.png"
+            },
+            "mixers": 0,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {},
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 537001986,
+            "name": "OBRIGADO POR ASSISTIR",
+            "uuid": "460e0d35-20d6-444e-a16a-8a68a939c6a2",
+            "id": "scene",
+            "versioned_id": "scene",
+            "settings": {
+                "id_counter": 0,
+                "custom_size": false,
+                "items": []
+            },
+            "mixers": 0,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "OBSBasic.SelectScene": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 537001986,
+            "name": "overlay dois comentaristas refresher league.png",
+            "uuid": "58906703-2861-4c44-bcd7-e3ce343ba96f",
+            "id": "image_source",
+            "versioned_id": "image_source",
+            "settings": {
+                "file": "D:/Projects/REFRESHER LEAGUE/Overlay/overlay dois comentaristas refresher league.png"
+            },
+            "mixers": 0,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {},
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 537001986,
+            "name": "PARTIDA",
+            "uuid": "e184ca3d-96b5-4bac-8080-259ea8ca26fd",
+            "id": "scene",
+            "versioned_id": "scene",
+            "settings": {
+                "custom_size": false,
+                "id_counter": 3,
+                "items": []
+            },
+            "mixers": 0,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "OBSBasic.SelectScene": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 537001986,
+            "name": "pirulito_farinha.gif",
+            "uuid": "a000c54c-5a46-4a44-94ed-c531822b8bd7",
+            "id": "image_source",
+            "versioned_id": "image_source",
+            "settings": {
+                "file": "D:/Projects/REFRESHER LEAGUE/Overlay/teste resenha/pirulito_farinha.gif"
+            },
+            "mixers": 0,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {},
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 537001986,
+            "name": "RESULTADOS",
+            "uuid": "d52adf0b-729d-4d98-b2b9-971ebbf8b6ec",
+            "id": "scene",
+            "versioned_id": "scene",
+            "settings": {
+                "id_counter": 0,
+                "custom_size": false,
+                "items": []
+            },
+            "mixers": 0,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "OBSBasic.SelectScene": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 537001986,
+            "name": "TIMES",
+            "uuid": "6385af2b-def7-453e-85b6-e2c2ebc7c6c1",
+            "id": "scene",
+            "versioned_id": "scene",
+            "settings": {
+                "id_counter": 0,
+                "custom_size": false,
+                "items": []
+            },
+            "mixers": 0,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "OBSBasic.SelectScene": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 537001986,
+            "name": "VITÓRIA",
+            "uuid": "62385037-43ac-438a-b34a-216eb9577c73",
+            "id": "scene",
+            "versioned_id": "scene",
+            "settings": {
+                "id_counter": 0,
+                "custom_size": false,
+                "items": []
+            },
+            "mixers": 0,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "OBSBasic.SelectScene": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "canvas_uuid": "6c69626f-6273-4c00-9d88-c5136d61696e",
+            "private_settings": {}
+        },
+        {
+            "prev_ver": 537001986,
+            "name": "CAMS COMENTARISTAS",
+            "uuid": "8172fde2-5484-4a3b-b6db-d0dc8894fd06",
+            "id": "browser_source",
+            "versioned_id": "browser_source",
+            "settings": {
+                "is_local_file": true,
+                "local_file": "D:/Projects/REFRESHER LEAGUE/Overlay/comentaristas.html",
+                "width": 1920,
+                "height": 1080,
+                "fps": 60,
+                "reroute_audio": true,
+                "restart_when_active": false,
+                "shutdown": false,
+                "css": "body { background-color: rgba(0,0,0,0); margin: 0; overflow: hidden; }"
+            },
+            "mixers": 255,
+            "sync": 0,
+            "flags": 0,
+            "volume": 1.0,
+            "balance": 0.5,
+            "enabled": true,
+            "muted": false,
+            "push-to-mute": false,
+            "push-to-mute-delay": 0,
+            "push-to-talk": false,
+            "push-to-talk-delay": 0,
+            "hotkeys": {
+                "libobs.mute": [],
+                "libobs.unmute": [],
+                "libobs.push-to-mute": [],
+                "libobs.push-to-talk": [],
+                "ObsBrowser.Refresh": []
+            },
+            "deinterlace_mode": 0,
+            "deinterlace_field_order": 0,
+            "monitoring_type": 0,
+            "private_settings": {}
+        }
+    ]
+}

@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Configurar comentaristas - VDO.Ninja</title>
+<style>
+  :root {
+    --bg: #07110e; --card: #0d1c18; --line: #1d3a32; --mint: #34d3a6; --mint-dim: #1f7d63;
+    --txt: #e4fbf3; --sub: #8fb5a9; --ok: #4ade80; --erro: #f87171; --aviso: #fbbf24;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--txt); font: 15px/1.45 'Segoe UI', system-ui, sans-serif; }
+  main { max-width: 1040px; margin: 0 auto; padding: 28px 20px 60px; }
+  h1 { font-size: 24px; margin: 0 0 4px; letter-spacing: .02em; }
+  .sub { color: var(--sub); margin: 0 0 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 15px; text-transform: uppercase; letter-spacing: .12em; color: var(--mint); margin: 0 0 14px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
+  label { display: block; font-size: 13px; color: var(--sub); margin: 12px 0 5px; }
+  label:first-of-type { margin-top: 0; }
+  .linha { display: flex; gap: 8px; }
+  .linha > input { flex: 1; min-width: 0; }
+  input {
+    width: 100%; background: #06100d; color: var(--txt); border: 1px solid var(--line); border-radius: 6px;
+    padding: 9px 11px; font: 15px Consolas, 'Cascadia Mono', monospace;
+  }
+  input:focus { outline: 2px solid var(--mint); outline-offset: -1px; border-color: transparent; }
+  input[readonly] { color: var(--sub); font-size: 13px; }
+  button {
+    background: #12302a; color: var(--txt); border: 1px solid var(--mint-dim); border-radius: 6px;
+    padding: 8px 12px; font: 600 13px 'Segoe UI', system-ui, sans-serif; cursor: pointer; white-space: nowrap;
+  }
+  button:hover { background: #18403a; }
+  button.principal { background: var(--mint); color: #04120d; border-color: var(--mint); font-size: 15px; padding: 11px 26px; }
+  button.principal:hover { background: #5fe3bd; }
+  .dica { font-size: 12.5px; color: var(--sub); margin-top: 6px; }
+  .estado { font-size: 13px; margin-top: 6px; min-height: 18px; }
+  .ok { color: var(--ok); } .erro { color: var(--erro); } .aviso { color: var(--aviso); }
+  .barra { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; position: sticky; bottom: 0;
+    background: linear-gradient(180deg, transparent, var(--bg) 30%); padding: 18px 0 6px; }
+  #msgSalvar { font-size: 14px; }
+  .cam-titulo { display: flex; align-items: center; justify-content: space-between; }
+  .previa-caixa { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 6px; overflow: hidden; display: none; margin-top: 12px; }
+  .previa-caixa iframe { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; border: 0; transform-origin: 0 0; }
+  .previa-caixa img { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  code { background: #06100d; border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; font-size: 13px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Comentaristas · VDO.Ninja</h1>
+  <p class="sub">Preencha, clique em <b>Salvar</b> e o overlay no OBS recarrega sozinho em até 3 segundos.</p>
+
+  <section class="card">
+    <h2>Sala</h2>
+    <label for="linkSala">Colar link da sala (opcional, preenche a sala sozinho)</label>
+    <input id="linkSala" placeholder="https://vdo.ninja/?room=minha_sala&hash=1a2b">
+    <div class="grid2" style="margin-top:12px">
+      <div>
+        <label for="room">Nome da sala</label>
+        <input id="room" autocomplete="off" spellcheck="false">
+      </div>
+      <div>
+        <label for="pw">Senha da sala</label>
+        <div class="linha">
+          <input id="pw" type="password" autocomplete="off" spellcheck="false">
+          <button type="button" id="verSenha">Mostrar</button>
+        </div>
+        <div class="estado" id="estadoHash"></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid2">
+    <section class="card" data-cam="1">
+      <div class="cam-titulo"><h2>Câmera 1 · esquerda</h2></div>
+      <label>Nome que aparece na tela</label>
+      <input class="nome" autocomplete="off">
+      <label>ID do VDO.Ninja <span style="opacity:.7">(pode colar o link inteiro do comentarista)</span></label>
+      <div class="linha">
+        <input class="id" autocomplete="off" spellcheck="false">
+        <button type="button" class="gerar">Gerar ID</button>
+      </div>
+      <label>Link para mandar ao comentarista</label>
+      <div class="linha">
+        <input class="link" readonly>
+        <button type="button" class="copiar">Copiar</button>
+      </div>
+      <div class="dica">Ele abre esse link, permite a câmera e entra na sala. O ID fica fixo.</div>
+    </section>
+
+    <section class="card" data-cam="2">
+      <div class="cam-titulo"><h2>Câmera 2 · direita</h2></div>
+      <label>Nome que aparece na tela</label>
+      <input class="nome" autocomplete="off">
+      <label>ID do VDO.Ninja <span style="opacity:.7">(pode colar o link inteiro do comentarista)</span></label>
+      <div class="linha">
+        <input class="id" autocomplete="off" spellcheck="false">
+        <button type="button" class="gerar">Gerar ID</button>
+      </div>
+      <label>Link para mandar ao comentarista</label>
+      <div class="linha">
+        <input class="link" readonly>
+        <button type="button" class="copiar">Copiar</button>
+      </div>
+      <div class="dica">Ele abre esse link, permite a câmera e entra na sala. O ID fica fixo.</div>
+    </section>
+  </div>
+
+  <section class="card">
+    <h2>OBS</h2>
+    <label>URL da fonte Navegador (sem "Arquivo local", 1920×1080)</label>
+    <div class="linha">
+      <input id="urlObs" readonly>
+      <button type="button" id="copiarObs">Copiar</button>
+    </div>
+    <div class="dica">O overlay desenha só as câmeras, molduras e nomes, com fundo transparente, e troca sozinho entre 2 câmeras e 1 câmera no meio. Coloque a arte de fundo no OBS <b>abaixo</b> desta fonte.</div>
+    <div style="margin-top:14px"><button type="button" id="btnPrevia">Mostrar prévia</button></div>
+    <div class="previa-caixa" id="previa">
+      <iframe id="previaFrame" allow="autoplay"></iframe>
+    </div>
+  </section>
+
+  <div class="barra">
+    <button type="button" class="principal" id="salvar">Salvar</button>
+    <span id="msgSalvar"></span>
+  </div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const campos = { room: $('#room'), pw: $('#pw') };
+const cams = [1, 2].map(i => {
+  const c = document.querySelector(`[data-cam="${i}"]`);
+  return { i, nome: c.querySelector('.nome'), id: c.querySelector('.id'), link: c.querySelector('.link'),
+           gerar: c.querySelector('.gerar'), copiar: c.querySelector('.copiar') };
+});
+const msg = $('#msgSalvar');
+let salvo = '';
+
+// VDO.Ninja troca qualquer caractere que não seja letra, número ou _ por _
+const limpar = s => (s || '').trim().replace(/\W+/g, '_');
+
+function extrairId(v) {
+  v = (v || '').trim();
+  if (!/^https?:\/\//i.test(v) && !v.includes('?')) return v;
+  try {
+    const u = new URL(v, 'https://vdo.ninja/');
+    for (const k of ['push', 'view', 'id', 'permaid']) { const x = u.searchParams.get(k); if (x) return x; }
+  } catch (_) {}
+  return v;
+}
+
+async function hashSala(pw) {
+  if (!pw || !crypto.subtle) return '';
+  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw.trim() + 'vdo.ninja'));
+  return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('').slice(0, 4);
+}
+
+let hashEsperado = '';   // hash vindo do link da sala colado, para conferir a senha
+
+async function atualizar() {
+  const room = limpar(campos.room.value);
+  const h = await hashSala(campos.pw.value);
+  for (const c of cams) {
+    const id = limpar(c.id.value);
+    if (!room || !id) { c.link.value = ''; continue; }
+    let l = `https://vdo.ninja/?room=${encodeURIComponent(room)}`;
+    if (h) l += `&hash=${h}`;
+    l += `&push=${encodeURIComponent(id)}`;
+    if (c.nome.value.trim()) l += `&label=${encodeURIComponent(c.nome.value.trim())}`;
+    c.link.value = l;
+  }
+  const e = $('#estadoHash');
+  if (hashEsperado && campos.pw.value) {
+    e.className = 'estado ' + (h === hashEsperado ? 'ok' : 'erro');
+    e.textContent = h === hashEsperado ? `✓ Senha confere com o link da sala (hash ${h})` : `✗ Senha não confere com o link da sala (esperado ${hashEsperado}, essa senha dá ${h})`;
+  } else if (h) {
+    e.className = 'estado'; e.textContent = `hash desta senha: ${h}`;
+  } else { e.textContent = ''; }
+  marcarAlterado();
+}
+
+function dados() {
+  return {
+    room: limpar(campos.room.value), pw: campos.pw.value.trim(),
+    cam1: limpar(cams[0].id.value), nome1: cams[0].nome.value.trim(),
+    cam2: limpar(cams[1].id.value), nome2: cams[1].nome.value.trim(),
+  };
+}
+function marcarAlterado() {
+  if (salvo && JSON.stringify(dados()) !== salvo) { msg.className = 'aviso'; msg.textContent = 'Alterações não salvas'; }
+}
+
+// ---- eventos ----
+$('#linkSala').addEventListener('input', e => {
+  try {
+    const u = new URL(e.target.value.trim());
+    const r = u.searchParams.get('room') || u.searchParams.get('r') || u.searchParams.get('director') || u.searchParams.get('dir');
+    if (r) campos.room.value = r;
+    const pw = u.searchParams.get('password') || u.searchParams.get('pw') || u.searchParams.get('p');
+    if (pw) campos.pw.value = pw;
+    hashEsperado = (u.searchParams.get('hash') || '').slice(0, 4).toLowerCase();
+  } catch (_) {}
+  atualizar();
+});
+$('#verSenha').onclick = () => {
+  const v = campos.pw.type === 'password';
+  campos.pw.type = v ? 'text' : 'password';
+  $('#verSenha').textContent = v ? 'Esconder' : 'Mostrar';
+};
+for (const el of [campos.room, campos.pw]) el.addEventListener('input', atualizar);
+for (const c of cams) {
+  c.nome.addEventListener('input', atualizar);
+  c.id.addEventListener('input', () => {
+    const x = extrairId(c.id.value);
+    if (x !== c.id.value) c.id.value = x;
+    atualizar();
+  });
+  c.gerar.onclick = () => {
+    const abc = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+    c.id.value = Array.from(crypto.getRandomValues(new Uint8Array(7)), b => abc[b % abc.length]).join('');
+    atualizar();
+  };
+  c.copiar.onclick = () => copiar(c.link.value, c.copiar);
+}
+
+async function copiar(txt, btn) {
+  if (!txt) return;
+  try { await navigator.clipboard.writeText(txt); } catch (_) {
+    const t = document.createElement('textarea'); t.value = txt; document.body.appendChild(t); t.select();
+    document.execCommand('copy'); t.remove();
+  }
+  const o = btn.textContent; btn.textContent = 'Copiado!'; setTimeout(() => btn.textContent = o, 1200);
+}
+
+const urlObs = location.origin + '/comentaristas.html';
+$('#urlObs').value = urlObs;
+$('#copiarObs').onclick = () => copiar(urlObs, $('#copiarObs'));
+
+// prévia em escala
+function escalarPrevia() {
+  const caixa = $('#previa');
+  $('#previaFrame').style.transform = `scale(${caixa.clientWidth / 1920})`;
+}
+addEventListener('resize', escalarPrevia);
+$('#btnPrevia').onclick = () => {
+  const caixa = $('#previa'), f = $('#previaFrame');
+  const abrir = caixa.style.display !== 'block';
+  caixa.style.display = abrir ? 'block' : 'none';
+  f.src = abrir ? 'comentaristas.html' : 'about:blank';
+  $('#btnPrevia').textContent = abrir ? 'Esconder prévia' : 'Mostrar prévia';
+  if (abrir) escalarPrevia();
+};
+
+$('#salvar').onclick = async () => {
+  const d = dados();
+  if (!d.room || !d.cam1 || !d.cam2) { msg.className = 'erro'; msg.textContent = 'Preencha a sala e os dois IDs.'; return; }
+  if (d.cam1 === d.cam2) { msg.className = 'erro'; msg.textContent = 'Os dois IDs estão iguais.'; return; }
+  msg.className = ''; msg.textContent = 'Salvando…';
+  try {
+    const r = await fetch('/salvar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(d, null, 2) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    salvo = JSON.stringify(d);
+    msg.className = 'ok'; msg.textContent = `✓ Salvo às ${new Date().toLocaleTimeString()} · o OBS atualiza em até 3 s`;
+    if ($('#previa').style.display === 'block') $('#previaFrame').src = 'comentaristas.html';
+  } catch (e) {
+    msg.className = 'erro'; msg.textContent = 'Não consegui salvar. O INICIAR OVERLAY.bat está aberto? (' + e.message + ')';
+  }
+};
+addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); $('#salvar').click(); } });
+
+// ---- carrega o que está salvo ----
+(async () => {
+  try {
+    const r = await fetch('config.json?t=' + Date.now(), { cache: 'no-store' });
+    if (r.ok) {
+      const j = await r.json();
+      campos.room.value = j.room || ''; campos.pw.value = j.pw || '';
+      cams[0].id.value = j.cam1 || ''; cams[0].nome.value = j.nome1 || '';
+      cams[1].id.value = j.cam2 || ''; cams[1].nome.value = j.nome2 || '';
+    }
+  } catch (_) {
+    msg.className = 'erro'; msg.textContent = 'Abra esta página pelo INICIAR OVERLAY.bat (não dá para salvar abrindo o arquivo direto).';
+  }
+  salvo = JSON.stringify(dados());
+  await atualizar();
+})();
+</script>
+</body>
+</html>
