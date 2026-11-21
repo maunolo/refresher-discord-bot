@@ -56,6 +56,8 @@ pub fn router(state: AppState) -> Router {
         .route("/guilds/{guild_id}/overlays", get(api::guild_overlays).post(api::reset_guild_overlays))
         .route("/overlay/{token}/votes", get(api::overlay_votes))
         .route("/overlay/{token}/ranking", get(api::overlay_ranking))
+        .route("/overlay/{token}/cameras/{stream}", get(api::overlay_cameras))
+        .route("/guilds/{guild_id}/cameras", get(api::guild_cameras).put(api::save_guild_cameras))
         .route("/overlay/{token}/events", get(api::overlay_events))
         .route("/camps/{camp_id}", get(api::camp))
         .route("/camps/{camp_id}/matches", get(api::camp_matches))
@@ -483,6 +485,44 @@ data: 111
         );
         let response = router(state.clone()).oneshot(events(&secret)).await.unwrap();
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn camera_overlays_show_what_admins_pick() {
+        let state = test_state(FakeLink {
+            guilds: vec![111, 222],
+            ..FakeLink::default()
+        })
+        .await;
+        let token = sign_in(&state, &[111]).await;
+        let config = r#"{
+            "room": "camp farinha", "password": "segredo",
+            "sources": [{"id": "QJSe8uW", "name": "haunter"}, {"id": "8hqFUc5", "name": "Farinha"}],
+            "streams": [{"label": "Farinha", "left": "QJSe8uW", "right": "8hqFUc5"}, {"left": null, "right": "QJSe8uW"}]
+        }"#;
+        assert_eq!(put(&state, "/api/guilds/111/cameras", None, config).await.0, StatusCode::UNAUTHORIZED);
+        assert_eq!(put(&state, "/api/guilds/222/cameras", Some(&token), config).await.0, StatusCode::NOT_FOUND);
+        let (status, body) = put(&state, "/api/guilds/111/cameras", Some(&token), config).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["room"], "camp_farinha");
+        assert_eq!(get(&state, "/api/guilds/111/cameras", Some(&token)).await.1, body);
+        let bad = r#"{"sources": [{"id": "a"}], "streams": [{"left": "a", "right": "a"}, {}]}"#;
+        assert_eq!(put(&state, "/api/guilds/111/cameras", Some(&token), bad).await.0, StatusCode::BAD_REQUEST);
+
+        let (_, links) = get(&state, "/api/guilds/111/overlays", Some(&token)).await;
+        let second = links["camera_urls"][1].as_str().unwrap();
+        let secret = second
+            .strip_prefix("http://localhost:8080/overlay/")
+            .and_then(|rest| rest.strip_suffix("/cameras2"))
+            .unwrap();
+        let (status, body) = get(&state, &format!("/api/overlay/{secret}/cameras/1"), None).await;
+        assert_eq!(status, StatusCode::OK, "no login needed");
+        assert_eq!(body["password"], "segredo");
+        assert_eq!(body["cameras"][0]["name"], "haunter");
+        assert_eq!(body["cameras"][1]["id"], "8hqFUc5");
+        let (_, body) = get(&state, &format!("/api/overlay/{secret}/cameras/2"), None).await;
+        assert_eq!(body["cameras"], serde_json::json!([{"id": "QJSe8uW", "name": "haunter"}]));
+        assert_eq!(get(&state, &format!("/api/overlay/{secret}/cameras/3"), None).await.0, StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

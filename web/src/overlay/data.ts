@@ -39,7 +39,7 @@ export interface OverlayVote {
 
 /** The secret and the overlay from the page's path: `/overlay/{secret}/{overlay}`. */
 export function overlayPath(): { token: string; overlay: string } | null {
-  const match = /^\/overlay\/([0-9a-f]+)\/([a-z]+)\/?$/.exec(window.location.pathname);
+  const match = /^\/overlay\/([0-9a-f]+)\/([a-z0-9]+)\/?$/.exec(window.location.pathname);
   return match ? { token: match[1], overlay: match[2] } : null;
 }
 
@@ -113,6 +113,24 @@ function useOverlayData<T>(token: string, endpoint: string): T | null {
 /** The camp's refresh votes, from each match's creation until its draft starts. */
 export function useVotes(token: string): OverlayVote[] | null {
   return useOverlayData<{ votes: OverlayVote[] }>(token, 'votes')?.votes ?? null;
+}
+
+/** A commentator's VDO.Ninja camera: the ID they push and the name shown under it. */
+export interface OverlayCamera {
+  id: string;
+  name: string;
+}
+
+/** One stream's cameras, left then right, and the room they're in. */
+export interface OverlayCameras {
+  room: string;
+  password: string;
+  cameras: OverlayCamera[];
+}
+
+/** Stream `stream`'s cameras (1 or 2), as admins pick them on the Overlays page. */
+export function useCameras(token: string, stream: number): OverlayCameras | null {
+  return useOverlayData<OverlayCameras>(token, `cameras/${stream}`);
 }
 
 /** The camp's ranking; after a camp ends, its final ranking until another starts. */

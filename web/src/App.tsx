@@ -14,6 +14,7 @@ import { PlayersView } from './components/PlayersView';
 import { QueueView } from './components/QueueView';
 import { RankingView } from './components/RankingView';
 import { RulesView } from './components/RulesView';
+import { OverlaysView } from './components/OverlaysView';
 import { SettingsView } from './components/SettingsView';
 import { SiteView } from './components/SiteView';
 import { LiveContext, pollEvery, useLiveUpdates } from './live';
@@ -147,6 +148,8 @@ function Admin({ me }: { me: Me }) {
         }}
       />
     );
+  } else if (route === 'overlays') {
+    content = <OverlaysView guildId={guildId} />;
   } else if (route === 'settings') {
     content = <SettingsView guildId={guildId} guildName={me.guilds.find((g) => g.id === guildId)?.name ?? ''} />;
   } else if (route === 'site' && guildId !== me.site?.guild_id) {

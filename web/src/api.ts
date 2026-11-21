@@ -229,6 +229,30 @@ export interface Settings extends SettingsForm {
 export interface OverlayLinks {
   vote_url: string;
   ranking_url: string;
+  /** The commentators' cameras: stream 1, then stream 2. */
+  camera_urls: string[];
+}
+
+/** A commentator's VDO.Ninja camera: the ID they push (`&push=`) and the name shown under it. */
+export interface CameraSource {
+  id: string;
+  name: string;
+}
+
+/** The cameras one stream shows, by ID; `null` for none. */
+export interface StreamCameras {
+  /** Who streams it. */
+  label: string;
+  left: string | null;
+  right: string | null;
+}
+
+/** The server's commentator cameras (crates/core/src/cameras.rs). */
+export interface CameraConfig {
+  room: string;
+  password: string;
+  sources: CameraSource[];
+  streams: [StreamCameras, StreamCameras];
 }
 
 // The public league site (crates/web/src/site.rs): staff write its info cards; its ranking and
@@ -309,6 +333,10 @@ export const api = {
   overlays: (guildId: string) => request<OverlayLinks>(`/api/guilds/${guildId}/overlays`),
   /** New links; the old ones stop working. */
   resetOverlays: (guildId: string) => send<OverlayLinks>('POST', `/api/guilds/${guildId}/overlays`, {}),
+  cameras: (guildId: string) => request<CameraConfig>(`/api/guilds/${guildId}/cameras`),
+  /** Comes back cleaned up: IDs and the room as VDO.Ninja writes them. */
+  saveCameras: (guildId: string, config: CameraConfig) =>
+    send<CameraConfig>('PUT', `/api/guilds/${guildId}/cameras`, config),
   saveSettings: (guildId: string, form: SettingsForm) =>
     send<Settings>('PUT', `/api/guilds/${guildId}/settings`, form),
   channels: (guildId: string) => request<Channel[]>(`/api/guilds/${guildId}/channels`),

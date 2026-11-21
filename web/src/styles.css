@@ -1965,3 +1965,82 @@ h3,
 .table td .inline-actions .button {
   white-space: nowrap;
 }
+
+/* Overlays: the commentators' cameras */
+.overlays-page {
+  max-width: 1100px;
+}
+.section-title {
+  margin: 8px 0 0;
+  font-size: 18px;
+}
+.input-with-button {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.input-with-button .input {
+  flex: 1;
+  min-width: 0;
+}
+.ok-text {
+  color: var(--mint);
+}
+.camera-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.camera-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(220px, 2fr) auto;
+  gap: 12px;
+  align-items: end;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line, rgba(255, 255, 255, 0.08));
+}
+.camera-row-end {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  min-height: 36px;
+}
+.streams-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 16px;
+}
+.overlay-preview {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: 6px;
+  /* Haunter's commentators scene, as OBS puts it below the overlay */
+  background: #000 url('/cameras/fundo-comentaristas.webp') center / cover no-repeat;
+}
+.overlay-preview iframe {
+  /* The overlay page's light scheme, so Chrome keeps the frame transparent */
+  color-scheme: light;
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1920px;
+  height: 1080px;
+  border: 0;
+  transform-origin: 0 0;
+}
+.sticky-actions {
+  position: sticky;
+  bottom: 0;
+  padding: 12px 0;
+  background: linear-gradient(180deg, transparent, var(--bg, #07110e) 35%);
+}
+@media (max-width: 760px) {
+  .camera-row {
+    grid-template-columns: 1fr;
+  }
+}

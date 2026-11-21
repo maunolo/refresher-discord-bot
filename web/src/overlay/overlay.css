@@ -481,3 +481,170 @@ h1 {
     animation: none;
   }
 }
+
+/* The commentators' cameras (CamerasOverlay.tsx), 1920×1080: Haunter's gold frame
+   (rebuttal.png) over each VDO.Ninja camera, cut to the frame's inside (rebuttal-mascara.png). */
+.cams-stage {
+  position: relative;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+}
+
+.cam {
+  position: absolute;
+  z-index: 1;
+  opacity: 0;
+  transform: scale(0.85);
+  transition:
+    left 650ms cubic-bezier(0.65, 0, 0.25, 1),
+    top 650ms cubic-bezier(0.65, 0, 0.25, 1),
+    opacity 450ms ease,
+    transform 650ms cubic-bezier(0.65, 0, 0.25, 1);
+}
+
+.cam.on {
+  opacity: 1;
+  transform: none;
+}
+
+.cam-frame {
+  position: absolute;
+  inset: 0;
+  -webkit-mask: url('/cameras/rebuttal-mascara.png') 0 0 / 100% 100% no-repeat;
+  mask: url('/cameras/rebuttal-mascara.png') 0 0 / 100% 100% no-repeat;
+}
+
+/* The frame's inside, in % of rebuttal.png (3595×2075) */
+.cam-area {
+  position: absolute;
+  left: 1.446%;
+  top: 2.651%;
+  width: 97.079%;
+  height: 86.313%;
+  overflow: hidden;
+  background: rgba(6, 16, 14, 0.72);
+}
+
+.cam-area iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
+}
+
+.cam-border {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.55));
+}
+
+.cam-wait {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  font-weight: 500;
+  font-size: 30px;
+  letter-spacing: 0.2em;
+  color: rgba(238, 232, 178, 0.55);
+  pointer-events: none;
+  transition: opacity 400ms ease;
+}
+
+.cam.live .cam-wait {
+  opacity: 0;
+}
+
+.cam-pulse {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--gold);
+  animation: cam-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes cam-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.8);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+/* The name under the frame */
+.cam-name {
+  position: absolute;
+  left: 50%;
+  top: calc(100% + 12px);
+  transform: translateX(-50%);
+  white-space: nowrap;
+  font-weight: 600;
+  font-size: 42px;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gold);
+  text-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.8),
+    0 0 18px rgba(0, 0, 0, 0.6);
+}
+
+.cam-demo {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 64px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  opacity: 0;
+  transition: opacity 400ms;
+}
+
+.cam.live .cam-demo {
+  opacity: 1;
+}
+
+.cam-debug {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 99;
+  width: 620px;
+  max-height: 360px;
+  overflow: hidden;
+  padding: 10px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #9ff;
+  font: 13px/1.35 Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.cam-mode {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 99;
+  padding: 6px 10px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #ff6;
+  font: 700 14px Consolas, monospace;
+}

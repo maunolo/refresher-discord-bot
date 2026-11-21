@@ -5,34 +5,39 @@
 const OBS_DEFAULT_CSS = 'body { background-color: rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden; }';
 
 /**
- * The draft scene at 1920×1080, measured on the streamer's background image, which draws the ban boxes and pick
- * tables. Measured on the left side; the right side mirrors it.
+ * The draft scene at 1920×1080, measured on the streamer's background image (overlay/draft-overlay.css), which
+ * draws the ban boxes and pick tables. The art isn't quite symmetric, so each side has its own numbers, from the
+ * outer edge in.
  */
 const DRAFT_SCENE = {
   width: 1920,
   height: 1080,
-  /** Ban boxes: each one's left edge, from the outer edge in. */
-  ban: { x: [390, 549, 709], y: 587, width: 143, height: 182 },
-  /** A pick table's outer lines across, split evenly into a column per pick; its cells, below the row of names. */
-  table: { x: 20, width: 922, cellTop: 848, cellBottom: 1048 },
-  /** DeadChaps' turn timer, along the bottom. */
-  timer: { x: 20, y: 1060, height: 4 },
+  /** Ban boxes: each one's left edge, inside the gold band. */
+  ban: { left: [331, 442, 553], right: [1489, 1378, 1267], y: 604, width: 103, height: 131 },
+  /** Pick cells in the bottom panel: each one's left edge and width. */
+  pick: {
+    left: [
+      [22, 145],
+      [167, 155],
+      [322, 155],
+      [477, 155],
+      [632, 155],
+      [787, 155],
+    ],
+    right: [
+      [1753, 147],
+      [1598, 155],
+      [1443, 155],
+      [1288, 155],
+      [1133, 155],
+      [978, 155],
+    ],
+    y: 847,
+    height: 201,
+  },
+  /** DeadChaps' turn timer, in the gap between the two gold lines at the bottom. */
+  timer: { x: 22, y: 1057, width: 1878, height: 4 },
 } as const;
-
-/** Where a box `width` wide that sits at `x` on the left side sits on `right`'s side. */
-function mirrored(x: number, width: number, right: boolean): number {
-  return right ? DRAFT_SCENE.width - x - width : x;
-}
-
-/**
- * Column `index` of the pick table starting at `x`, counted from its left: the pixels between its two lines, so
- * the art doesn't cover them. The lines are drawn about 1.5px wide, on fractional pixels.
- */
-function tableColumn(x: number, index: number): { left: number; width: number } {
-  const line = (i: number) => x + (i * DRAFT_SCENE.table.width) / MAX_PICKS;
-  const left = Math.ceil(line(index) + 1);
-  return { left, width: Math.floor(line(index + 1)) - left };
-}
 
 /**
  * Each hero's card art on the Deadlock API's asset server, keyed by the name DeadChaps puts in a pick's or ban's
@@ -89,16 +94,15 @@ const HERO_CARDS: Record<string, string> = {
 
 const HERO_CARD_URL = 'https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes';
 
-/** Bans and picks per side DeadChaps can show: 3 bans, 6 picks. */
+/** Bans per side DeadChaps can show. */
 const MAX_BANS = 3;
-const MAX_PICKS = 6;
 
 /** How a ban's or pick's art comes in: fading up while it settles into its box. */
 const REVEAL = 'refresher-reveal 0.35s ease-out';
 
 /** DeadChaps' overlay laid out as the scene: its own boxes and names hidden, bans and picks in the scene's boxes. */
 function sceneCss(): string[] {
-  const { width, height, ban, table, timer } = DRAFT_SCENE;
+  const { width, height, ban, pick, timer } = DRAFT_SCENE;
   const rules = [
     `.draft-obs { position: relative !important; display: block !important; width: ${width}px !important; height: ${height}px !important; padding: 0 !important; }`,
     // Their rows and columns stop laying things out: every box below is placed on the scene.
@@ -108,30 +112,30 @@ function sceneCss(): string[] {
     // A ban or pick is a new box in front of the empty ones, which each move a place along. DeadChaps' transition
     // would slide them over and its entrance pops the whole box in, so boxes stay put and only the art fades in.
     `.obs-minimap-ban { position: absolute !important; top: ${ban.y}px; width: ${ban.width}px !important; height: ${ban.height}px !important; margin: 0 !important; border: none !important; border-radius: 0 !important; background: none !important; box-shadow: none !important; display: flex !important; align-items: center; justify-content: center; overflow: hidden; transition: none !important; animation: none !important; }`,
-    `.obs-minimap-ban.empty::after { font: 800 64px/1 Geist, 'Segoe UI', system-ui, sans-serif; color: rgba(255, 255, 255, 0.34); }`,
-    `.obs-minimap-ban img { object-fit: cover !important; object-position: 50% 0%; filter: brightness(0.85); animation: ${REVEAL}; }`,
-    `.obs-hero-slot { position: absolute !important; top: ${table.cellTop}px; height: ${table.cellBottom - table.cellTop}px !important; margin: 0 !important; border-radius: 0 !important; background: none !important; overflow: hidden !important; transition: none !important; animation: none !important; }`,
-    `.obs-hero-slot img { object-fit: cover !important; object-position: 50% 0%; animation: ${REVEAL}; }`,
+    `.obs-minimap-ban.empty::after { font: 800 54px/1 Geist, 'Segoe UI', system-ui, sans-serif; color: rgba(255, 255, 255, 0.34); }`,
+    // A ban is the hero's battered card, greyed out.
+    `.obs-minimap-ban img { width: 100% !important; height: 100% !important; object-fit: cover !important; object-position: 50% 0%; filter: grayscale(0.9) saturate(0.4) brightness(0.8) contrast(1.05); animation: ${REVEAL}; }`,
+    `.obs-hero-slot { position: absolute !important; top: ${pick.y}px; height: ${pick.height}px !important; margin: 0 !important; border-radius: 0 !important; background: none !important; overflow: hidden !important; transition: none !important; animation: none !important; }`,
+    `.obs-hero-slot img { width: 100% !important; height: 100% !important; object-fit: cover !important; object-position: 50% 0%; animation: ${REVEAL}; }`,
     '@keyframes refresher-reveal { from { opacity: 0; transform: scale(1.08); } to { opacity: 1; transform: none; } }',
-    `.obs-timer-bar { position: absolute !important; left: ${timer.x}px; top: ${timer.y}px; width: ${width - 2 * timer.x}px !important; height: ${timer.height}px !important; margin: 0 !important; }`,
-    '.obs-timer-line.amber, .obs-timer-line.sapphire { background: #eee8b2 !important; box-shadow: 0 0 8px rgba(214, 168, 115, 0.85), 0 0 20px rgba(193, 141, 82, 0.5) !important; }',
+    `.obs-timer-bar { position: absolute !important; left: ${timer.x}px; top: ${timer.y}px; width: ${timer.width}px !important; height: ${timer.height}px !important; margin: 0 !important; }`,
+    '.obs-timer-line.amber, .obs-timer-line.sapphire { background: #e4fbf3 !important; box-shadow: 0 0 8px rgba(140, 245, 210, 0.8), 0 0 20px rgba(52, 211, 166, 0.45) !important; }',
   ];
   for (let i = 1; i <= MAX_BANS; i++) {
     rules.push(`.obs-minimap-ban.empty:nth-child(${i})::after { content: "${i}"; }`);
   }
   // Column 1 is Hiddenking, on the left; column 2 is Archmother, mirrored on the right. Both fill in from the
   // outer edge.
-  for (const column of [1, 2]) {
-    const right = column === 2;
-    ban.x.forEach((x, i) => {
-      const left = mirrored(x, ban.width, right);
+  for (const [column, side] of [
+    [1, 'left'],
+    [2, 'right'],
+  ] as const) {
+    ban[side].forEach((left, i) => {
       rules.push(`.obs-team-column:nth-child(${column}) .obs-minimap-ban:nth-child(${i + 1}) { left: ${left}px; }`);
     });
-    const tableX = mirrored(table.x, table.width, right);
-    for (let i = 0; i < MAX_PICKS; i++) {
-      const cell = tableColumn(tableX, right ? MAX_PICKS - 1 - i : i);
-      rules.push(`.obs-team-column:nth-child(${column}) .obs-hero-slot:nth-child(${i + 1}) { left: ${cell.left}px; width: ${cell.width}px !important; }`);
-    }
+    pick[side].forEach(([left, cellWidth], i) => {
+      rules.push(`.obs-team-column:nth-child(${column}) .obs-hero-slot:nth-child(${i + 1}) { left: ${left}px; width: ${cellWidth}px !important; }`);
+    });
   }
   return rules;
 }
