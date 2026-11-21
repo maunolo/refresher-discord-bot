@@ -766,8 +766,10 @@ struct OverlayRankDto {
     /// Places moved with the latest result, up positive. `null` until there's a result before
     /// it to compare with.
     moved: Option<i64>,
-    /// On the winning side of the latest result.
+    /// Got points from the latest result.
     scored_last: bool,
+    /// The points the latest result gave this player: the match's win or loss points.
+    last_points: i64,
 }
 
 /// The camp whose ranking the overlay shows: the active one, else the latest that got going.
@@ -811,12 +813,12 @@ pub async fn overlay_ranking(
             mvps: stats.get(&p.user_id).map_or(0, |s| s.mvps),
         })
         .collect();
-    let winners: Vec<i64> = recent
+    let gained: Vec<(i64, i64)> = recent
         .first()
-        .map(|m| m.players.iter().filter(|p| p.side == m.winner_side).map(|p| p.user_id).collect())
+        .map(|m| m.players.iter().map(|p| (p.user_id, m.points.for_side(p.side == m.winner_side))).collect())
         .unwrap_or_default();
     let latest = LatestResult {
-        winners: &winners,
+        gained: &gained,
         mvp: recent.first().and_then(|m| m.mvp_user_id),
     };
     let user_ids: Vec<u64> = camp.players.iter().map(|p| p.user_id as u64).collect();
@@ -837,7 +839,8 @@ pub async fn overlay_ranking(
                 wins: player_stats.wins,
                 played: player_stats.played,
                 moved: (recent.len() >= 2).then_some(moved),
-                scored_last: winners.contains(&id),
+                last_points: gained.iter().find(|(user, _)| *user == id).map_or(0, |(_, p)| *p),
+                scored_last: gained.iter().any(|(user, p)| *user == id && *p > 0),
             }
         })
         .collect();

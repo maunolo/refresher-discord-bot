@@ -19,7 +19,7 @@ function Row({ player }: { player: OverlayRank }) {
         <div className="ov-rank-name">
           <span className="ov-name">{player.name}</span>
           {player.mvps > 0 && <span className="ov-mvp">{player.mvps} MVP</span>}
-          {player.scored_last && <span className="ov-plus">+1</span>}
+          {player.scored_last && <span className="ov-plus">+{player.last_points}</span>}
         </div>
         <div className="ov-rank-sub">
           {player.wins} V · {player.played} J
@@ -36,7 +36,7 @@ function Row({ player }: { player: OverlayRank }) {
 
 /**
  * The camp's top `top` by points, then MVPs, on a transparent background for OBS: wins and
- * matches played, who scored in the latest result (+1) and who moved since it (▲ ▼).
+ * matches played, who scored in the latest result (+points) and who moved since it (▲ ▼).
  */
 export function RankingOverlay({ token, top }: { token: string; top: number }) {
   const ranking = useRanking(token);

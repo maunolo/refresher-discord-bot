@@ -32,9 +32,10 @@ pub fn rank(players: &[Standing]) -> Vec<(Standing, usize)> {
         .collect()
 }
 
-/// What the latest result gave: a point to each winner and an MVP to its MVP.
+/// What the latest result gave: each of its players' points (the match's win or loss points) and
+/// an MVP to its MVP.
 pub struct LatestResult<'a> {
-    pub winners: &'a [i64],
+    pub gained: &'a [(i64, i64)],
     pub mvp: Option<i64>,
 }
 
@@ -44,7 +45,7 @@ pub fn rank_with_movement(players: &[Standing], latest: &LatestResult) -> Vec<(S
     let before: Vec<Standing> = players
         .iter()
         .map(|s| Standing {
-            points: s.points - i64::from(latest.winners.contains(&s.user_id)),
+            points: s.points - latest.gained.iter().find(|(id, _)| *id == s.user_id).map_or(0, |(_, p)| *p),
             mvps: s.mvps - i64::from(latest.mvp == Some(s.user_id)),
             ..*s
         })
@@ -88,9 +89,18 @@ mod tests {
         // Before it: 1 led with 2 points, 2 and 3 shared second with 1, 4 had none.
         // The latest result: 2 and 4 won, and 4 was MVP.
         let now = [standing(1, 2, 0), standing(2, 2, 0), standing(3, 1, 0), standing(4, 1, 1)];
-        let ranked = rank_with_movement(&now, &LatestResult { winners: &[2, 4], mvp: Some(4) });
+        let ranked = rank_with_movement(&now, &LatestResult { gained: &[(2, 1), (4, 1)], mvp: Some(4) });
         let moves: Vec<(i64, usize, i64)> = ranked.iter().map(|(s, place, moved)| (s.user_id, *place, *moved)).collect();
         // 1 keeps first (now shared), 2 climbs to it, 4 jumps over 3 with the MVP, 3 drops.
         assert_eq!(moves, [(1, 1, 0), (2, 1, 1), (4, 2, 1), (3, 3, -1)]);
+    }
+
+    #[test]
+    fn movement_takes_back_what_the_match_was_worth() {
+        // Before: 1 led with 6, 2 had 5. A match worth 3 to win and 1 to lose: 2 won, 1 lost.
+        let now = [standing(1, 7, 0), standing(2, 8, 0)];
+        let ranked = rank_with_movement(&now, &LatestResult { gained: &[(1, 1), (2, 3)], mvp: None });
+        let moves: Vec<(i64, usize, i64)> = ranked.iter().map(|(s, place, moved)| (s.user_id, *place, *moved)).collect();
+        assert_eq!(moves, [(2, 1, 1), (1, 2, -1)]);
     }
 }

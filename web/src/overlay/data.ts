@@ -56,8 +56,10 @@ export interface OverlayRank {
   played: number;
   /** Places moved with the latest result, up positive; `null` until there's an earlier one. */
   moved: number | null;
-  /** On the winning side of the latest result. */
+  /** Got points from the latest result. */
   scored_last: boolean;
+  /** The points the latest result gave: the match's win or loss points. */
+  last_points: number;
 }
 
 export interface OverlayRanking {
