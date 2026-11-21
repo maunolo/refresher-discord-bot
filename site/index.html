@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=20261118a">
   <link rel="preload" href="assets/fonts/VALVEOracle-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/VALVEOracle-Medium.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=20261119b">
+  <link rel="stylesheet" href="style.css?v=20261121c">
 </head>
 <body>
   <!-- Patronos fixos nas bordas da tela (metade de cada um aparece): Hidden King à esquerda e
@@ -239,6 +239,7 @@
   </section>
   <script src="jogadores.js?v=20261117v"></script>
   <script src="partida.js?v=20261117v"></script>
+  <script src="partidas-render.js?v=20261121b"></script>
   <script>
     (() => {
       // MVPs: o bot manda a contagem em jogadores.js (p.mvps); sem ela, conta o campo "mvp" de cada partida em partida.js
@@ -250,10 +251,8 @@
         .sort((a, b) => b.pontos - a.pontos || b.mvp - a.mvp || a.nome.localeCompare(b.nome));
       const body = document.getElementById("players-body");
       if (!list.length) { document.getElementById("players-empty").hidden = false; document.getElementById("players-note").hidden = true; body.closest("table").hidden = true; return; }
-      let rank = 0;
       list.forEach((p, i) => {
-        const prev = list[i - 1];
-        if (i === 0 || p.pontos !== prev.pontos || p.mvp !== prev.mvp) rank = i + 1;   // só divide a posição se empatar nos pontos E nos MVPs
+        const rank = i + 1;   // posições sempre em sequência: 1, 2, 3, 4, 5...
         const tr = document.createElement("tr");
         if (rank <= 3) tr.className = "top top-" + rank;
         else { tr.className = "extra"; tr.hidden = true; }   // fora do pódio: só aparece com "Ver mais"
@@ -302,7 +301,8 @@
         const card = el("article", "summary");
         const head = el("div", "summary-head");
         const h3 = el("h3", "match-label");
-        h3.append(t("span", "match.label", "Partida"), " " + n);
+        // Mesmo nome do histórico: a contagem recomeça em cada dia e nas finais ("Final 1" a "Final 3")
+        h3.append(...window.nomePartida(n));
         const ico = () => { const s = document.createElement("span"); s.className = "ico-time"; s.setAttribute("role", "img"); s.setAttribute("aria-label", "Duração"); s.dataset.i18nLabel = "match.duration"; return s; };
         const d = new Date(P.inicio * 1000);
         const dur = Math.floor(P.duracao / 60) + ":" + String(P.duracao % 60).padStart(2, "0");
@@ -407,6 +407,6 @@
     <p class="small" data-i18n="footer.small">Evento independente, sem vínculo com a Valve.</p>
   </footer>
 
-  <script src="i18n.js?v=20261119b"></script>
+  <script src="i18n.js?v=20261121b"></script>
 </body>
 </html>
