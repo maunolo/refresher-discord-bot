@@ -1,6 +1,20 @@
 // Monta o placar de uma partida (moldura dourada, os dois times, itens e heróis).
 // Usado pela página inicial (últimas partidas) e pelo histórico (janela da partida).
 // Precisa de partida.js carregado antes (window.PARTIDAS).
+// Etapas do campeonato: [chave de tradução, texto em PT, primeira partida, última partida].
+// Usado pelo histórico (blocos) e pelo nome de cada partida. Mude aqui para redividir os dias.
+window.ETAPAS = [["hist.day1", "Dia 1", 1, 9], ["hist.day2", "Dia 2", 10, 18], ["hist.final", "Final", 19, 21]];
+
+// Nome mostrado de cada partida: a contagem recomeça em cada etapa (Dia 1: 1 a 9, Dia 2: 1 a 9,
+// Final: 1 a 3). Nas finais vira "Final 1", "Final 2"... Devolve os nós para um título ou botão.
+window.nomePartida = (n) => {
+  const s = (key, text) => { const e = document.createElement("span"); e.dataset.i18n = key; e.textContent = text; return e; };
+  const etapa = window.ETAPAS.find(([, , a, b]) => n >= a && n <= b);
+  if (!etapa) return [s("match.label", "Partida"), " " + n];
+  const num = " " + (n - etapa[2] + 1);
+  return etapa[0] === "hist.final" ? [s("hist.final", "Final"), num] : [s("match.label", "Partida"), num];
+};
+
 window.renderPartida = (P, numero, titleTag = "h3") => {
   const D = window.PARTIDAS || { itens: {} };
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
@@ -12,7 +26,7 @@ window.renderPartida = (P, numero, titleTag = "h3") => {
   const board = el("article", "match-board");
   const mh = el("div", "match-head");
   const label = el(titleTag, "match-label");
-  label.append(t("span", "match.label", "Partida"), " " + numero);
+  label.append(...window.nomePartida(numero));
   const d = new Date(P.inicio * 1000);
   const dur = Math.floor(P.duracao / 60) + ":" + String(P.duracao % 60).padStart(2, "0");
   const when = el("span", null, d.toLocaleDateString("pt-BR") + " · " + d.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }));
