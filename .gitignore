@@ -4,5 +4,4 @@
 /web/node_modules
 /web/dist
 .cloudflare/
-/overlay/config.json
 /overlay/*.mov
