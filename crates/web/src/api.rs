@@ -174,6 +174,9 @@ struct PlayerDto {
     points_adjusted: i64,
     /// Finished matches as MVP: the tie-breaker for equal points.
     mvps: i64,
+    /// An admin took them out of the camp: no queue, no new matches. In an open match, they
+    /// leave once it ends.
+    removed: bool,
 }
 
 #[derive(Serialize)]
@@ -302,11 +305,12 @@ fn up_next(state: &CampState) -> Vec<String> {
 }
 
 fn recent_dto(state: &CampState, recent: &[RecentMatch]) -> Vec<RecentMatchDto> {
+    // Removed players are out of the queue but in no other match either.
     let queued = |user_id: i64| {
         state
             .players
             .iter()
-            .any(|p| p.user_id == user_id && p.location == "queued")
+            .any(|p| p.user_id == user_id && (p.location == "queued" || p.location == "removed"))
     };
     recent
         .iter()
@@ -375,6 +379,7 @@ fn camp_dto(
                     wins: stats.wins,
                     points_adjusted: stats.adjusted,
                     mvps: stats.mvps,
+                    removed: p.removed,
                 }
             })
             .collect(),
@@ -963,8 +968,10 @@ pub enum ActionRequest {
     CorrectWinner { match_id: String },
     ChangeMvp { match_id: String, user_id: String },
     ReopenMatch { match_id: String },
+    CancelMatch { match_id: String },
     AddPlayers { user_ids: Vec<String> },
     RemovePlayer { user_id: String },
+    RestorePlayer { user_id: String },
     SetSRank { user_id: String, s_rank: bool },
     /// `tank`, `carry`, `support`, or `null` to clear it.
     SetRole { user_id: String, role: Option<String> },
@@ -1024,10 +1031,12 @@ impl TryFrom<ActionRequest> for CampAction {
                 user_id: user_id(&id)?,
             },
             ActionRequest::ReopenMatch { match_id } => CampAction::ReopenMatch { match_id },
+            ActionRequest::CancelMatch { match_id } => CampAction::CancelMatch { match_id },
             ActionRequest::AddPlayers { user_ids } => CampAction::AddPlayers {
                 user_ids: user_ids.iter().map(|id| user_id(id)).collect::<Result<_, _>>()?,
             },
             ActionRequest::RemovePlayer { user_id: id } => CampAction::RemovePlayer { user_id: user_id(&id)? },
+            ActionRequest::RestorePlayer { user_id: id } => CampAction::RestorePlayer { user_id: user_id(&id)? },
             ActionRequest::SetSRank { user_id: id, s_rank } => CampAction::SetSRank {
                 user_id: user_id(&id)?,
                 s_rank,

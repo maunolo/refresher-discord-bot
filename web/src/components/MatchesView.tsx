@@ -18,8 +18,8 @@ import {
 import { pollEvery, useLive } from '../live';
 import { matchHref, routeHref } from '../route';
 import { usePolling } from '../usePolling';
-import { Captain, CopyButton, DiscordLink, MatchWorth, MvpTag, RoleChip, SRankChip } from './common';
-import { DraftLinks, ManualDraftNote, StagePill, Stepper } from './MatchCard';
+import { Captain, CopyButton, DiscordLink, MatchWorth, MvpTag, RemovedChip, RoleChip, SRankChip } from './common';
+import { CancelMatchButton, DraftLinks, ManualDraftNote, StagePill, Stepper } from './MatchCard';
 import { MatchStatsCard } from './MatchStatsCard';
 import { Corrections } from './Panels';
 import { WinnerDialog } from './ResultDialogs';
@@ -229,6 +229,7 @@ function TeamVotes({ camp, match, side }: { camp: Camp; match: Match; side: Side
             <li key={p.user_id} className="row row-tall">
               <span className="ellipsis">{playerName(camp, p.user_id)}</span>
               {player?.s_rank && <SRankChip />}
+              {player?.removed && <RemovedChip />}
               <RoleChip role={player?.role ?? null} />
               {p.is_captain && <Captain />}
               {match.mvp_user_id === p.user_id && <MvpTag />}
@@ -465,6 +466,24 @@ function MatchDetail({ camp, match }: { camp: Camp; match: Match }) {
             </p>
             <DiscordLink url={match.discord_url} label="Abrir a mensagem no Discord" />
           </section>
+          {match.status !== 'completed' && (
+            <section className="card card-dashed" aria-labelledby="cancel-title">
+              <h2 id="cancel-title" className="small-title">
+                Cancelar a partida
+              </h2>
+              <p className="small text-2">
+                Para quando um jogador escolhido não pode jogar: remova ele em Jogadores e cancele a partida. Os outros
+                voltam para a fila nos lugares de antes, e a próxima partida sai da fila sem ele.
+              </p>
+              <CancelMatchButton
+                camp={camp}
+                match={match}
+                onCancelled={() => {
+                  window.location.hash = routeHref('live');
+                }}
+              />
+            </section>
+          )}
         </aside>
       </div>
       {match.status === 'completed' && <MatchStatsCard camp={camp} match={match} />}

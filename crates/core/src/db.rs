@@ -39,6 +39,9 @@ pub struct PlayerRow {
     pub s_rank: bool,
     /// Set per server, so it carries over from earlier camps.
     pub role: Option<Role>,
+    /// Taken out of the camp by an admin: never queued or picked again. Still in their match if
+    /// they were in one (location `match_N`), `removed` once it ends.
+    pub removed: bool,
 }
 
 impl PlayerRow {
@@ -200,7 +203,12 @@ impl CampState {
             && !self.has_final
             && self.open_matches.is_empty()
             && self.camp.match_count >= 1
-            && self.players.len() >= self.camp.layout().match_size
+            && self.active_players().count() >= self.camp.layout().match_size
+    }
+
+    /// Everyone but the players an admin removed.
+    pub fn active_players(&self) -> impl Iterator<Item = &PlayerRow> {
+        self.players.iter().filter(|p| !p.removed)
     }
 }
 
@@ -926,8 +934,10 @@ async fn assemble_state(
         status: c.6,
         match_count: c.7,
     };
-    let player_rows = sqlx::query_as::<_, (i64, i64, String, Option<i64>, i64, i64, Option<String>)>(
-        "SELECT p.user_id, p.points, p.location, p.queue_position, p.consecutive_matches, p.is_s_rank, r.role
+    #[allow(clippy::type_complexity)]
+    let player_rows = sqlx::query_as::<_, (i64, i64, String, Option<i64>, i64, i64, Option<String>, bool)>(
+        "SELECT p.user_id, p.points, p.location, p.queue_position, p.consecutive_matches, p.is_s_rank, r.role,
+                p.removed_at IS NOT NULL
          FROM camp_players p
          LEFT JOIN guild_player_roles r ON r.guild_id = ? AND r.user_id = p.user_id
          WHERE p.camp_id = ?
@@ -947,6 +957,7 @@ async fn assemble_state(
             consecutive_matches: p.4,
             s_rank: p.5 != 0,
             role: p.6.as_deref().and_then(Role::parse),
+            removed: p.7,
         })
         .collect();
 
@@ -1078,12 +1089,28 @@ async fn count_players(tx: &mut Transaction<'_, Sqlite>, camp_id: &str) -> Resul
     Ok(n)
 }
 
-pub async fn remove_player(pool: &SqlitePool, camp_id: &str, user_id: i64) -> Result<()> {
+/// What taking a player out of a camp did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Removal {
+    /// Before the queue started: off the roster, as if they never signed up.
+    Deleted,
+    /// Out of the queue now.
+    Removed,
+    /// In an open match: they play it out, then stay out of the queue.
+    AfterMatch,
+}
+
+/// Before the queue starts, takes the player off the roster. While the camp runs, takes them out
+/// of the queue and of every new match, the final included, keeping their points and matches; a
+/// player in an open match leaves once it ends. `restore_player` brings them back.
+pub async fn remove_player(pool: &SqlitePool, camp_id: &str, user_id: i64) -> Result<Removal> {
     let state = load_camp(pool, camp_id)
         .await?
         .ok_or_else(|| anyhow!("camp não encontrado"))?;
-    if state.camp.status != "signup" {
-        return Err(anyhow!("jogadores só podem ser removidos antes de iniciar a fila"));
+    match state.camp.status.as_str() {
+        "signup" => {}
+        "running" => return remove_from_running_camp(pool, &state, user_id).await,
+        _ => return Err(anyhow!("o camp não está em andamento")),
     }
     let mut tx = pool.begin().await?;
     let deleted = sqlx::query("DELETE FROM camp_players WHERE camp_id = ? AND user_id = ?")
@@ -1102,7 +1129,120 @@ pub async fn remove_player(pool: &SqlitePool, camp_id: &str, user_id: i64) -> Re
         .execute(&mut *tx)
         .await?;
     tx.commit().await?;
+    Ok(Removal::Deleted)
+}
+
+async fn remove_from_running_camp(pool: &SqlitePool, state: &CampState, user_id: i64) -> Result<Removal> {
+    let camp_id = state.camp.id.as_str();
+    let player = state
+        .players
+        .iter()
+        .find(|p| p.user_id == user_id)
+        .ok_or_else(|| anyhow!("esse jogador não está no elenco"))?;
+    if player.removed {
+        return Err(anyhow!("esse jogador já foi removido do camp"));
+    }
+    let queued = player.location == "queued";
+    let ts = now();
+    let mut tx = pool.begin().await?;
+    if queued {
+        sqlx::query(
+            "UPDATE camp_players SET removed_at = ?, location = 'removed', queue_position = NULL
+             WHERE camp_id = ? AND user_id = ?",
+        )
+        .bind(ts)
+        .bind(camp_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+        reindex_queued(&mut tx, camp_id).await?;
+    } else {
+        sqlx::query("UPDATE camp_players SET removed_at = ? WHERE camp_id = ? AND user_id = ?")
+            .bind(ts)
+            .bind(camp_id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    sqlx::query("UPDATE camps SET updated_at = ? WHERE id = ?")
+        .bind(ts)
+        .bind(camp_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(if queued { Removal::Removed } else { Removal::AfterMatch })
+}
+
+/// Undoes `remove_player` while the camp runs: back at the end of the queue, or, still in their
+/// match, back to the queue when it ends like everyone else.
+pub async fn restore_player(pool: &SqlitePool, camp_id: &str, user_id: i64) -> Result<()> {
+    let state = load_camp(pool, camp_id)
+        .await?
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
+    if state.camp.status != "running" {
+        return Err(anyhow!("o camp não está em andamento"));
+    }
+    let player = state
+        .players
+        .iter()
+        .find(|p| p.user_id == user_id)
+        .ok_or_else(|| anyhow!("esse jogador não está no elenco"))?;
+    if !player.removed {
+        return Err(anyhow!("esse jogador não foi removido do camp"));
+    }
+    let ts = now();
+    let mut tx = pool.begin().await?;
+    if player.location == "removed" {
+        sqlx::query(
+            "UPDATE camp_players SET removed_at = NULL, location = 'queued', queue_position = ?,
+             consecutive_matches = 0
+             WHERE camp_id = ? AND user_id = ?",
+        )
+        .bind(state.queued_count() as i64)
+        .bind(camp_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query("UPDATE camp_players SET removed_at = NULL WHERE camp_id = ? AND user_id = ?")
+            .bind(camp_id)
+            .bind(user_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    sqlx::query("UPDATE camps SET updated_at = ? WHERE id = ?")
+        .bind(ts)
+        .bind(camp_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
     Ok(())
+}
+
+/// Players an admin removed while they were in a match leave it for good: no queue place.
+async fn set_aside_removed(tx: &mut Transaction<'_, Sqlite>, camp_id: &str, user_ids: &[i64]) -> Result<Vec<i64>> {
+    let mut removed = Vec::new();
+    for user_id in user_ids {
+        let is_removed: bool = sqlx::query_scalar(
+            "SELECT removed_at IS NOT NULL FROM camp_players WHERE camp_id = ? AND user_id = ?",
+        )
+        .bind(camp_id)
+        .bind(user_id)
+        .fetch_one(&mut **tx)
+        .await?;
+        if is_removed {
+            sqlx::query(
+                "UPDATE camp_players SET location = 'removed', queue_position = NULL
+                 WHERE camp_id = ? AND user_id = ?",
+            )
+            .bind(camp_id)
+            .bind(user_id)
+            .execute(&mut **tx)
+            .await?;
+            removed.push(*user_id);
+        }
+    }
+    Ok(removed)
 }
 
 /// Replace the camp's S-rank list. Returns the selected users who are not on the roster.
@@ -1322,16 +1462,18 @@ async fn pull_match_in_tx(
     let seats = queue::pick_match_seats(&queued, layout.match_size);
     let split = queue::split_match(&seats, false, &mut rand::thread_rng());
     let match_id = generate_unique_match_id(tx).await?;
+    let queue_before = queue_snapshot(queued.iter().map(|s| s.user_id));
 
     sqlx::query(
-        "INSERT INTO camp_matches (id, camp_id, slot, status, refresh_used, is_final, win_points, loss_points)
-         VALUES (?, ?, ?, 'voting', 0, 0, ?, ?)",
+        "INSERT INTO camp_matches (id, camp_id, slot, status, refresh_used, is_final, win_points, loss_points, queue_before)
+         VALUES (?, ?, ?, 'voting', 0, 0, ?, ?, ?)",
     )
     .bind(&match_id)
     .bind(camp_id)
     .bind(slot)
     .bind(points.win)
     .bind(points.loss)
+    .bind(&queue_before)
     .execute(&mut **tx)
     .await?;
     insert_match_players(tx, &match_id, &split).await?;
@@ -1515,7 +1657,7 @@ pub async fn create_final_match(
 
     let camp_id = state.camp.id.clone();
     let need = state.camp.layout().match_size;
-    let scored: Vec<(i64, i64)> = state.players.iter().map(|p| (p.user_id, p.points)).collect();
+    let scored: Vec<(i64, i64)> = state.active_players().map(|p| (p.user_id, p.points)).collect();
     let mut rng = StdRng::from_entropy();
     let batch = queue::select_finalists(&scored, need, &mut rng);
     if batch.len() < need {
@@ -1538,16 +1680,25 @@ pub async fn create_final_match(
         .ok_or_else(|| anyhow!("não há vaga livre para partida"))?;
 
     let match_id = generate_unique_match_id(&mut tx).await?;
+    // `players` is in queue order.
+    let queue_before = queue_snapshot(
+        state
+            .players
+            .iter()
+            .filter(|p| p.location == "queued")
+            .map(|p| p.user_id),
+    );
 
     sqlx::query(
-        "INSERT INTO camp_matches (id, camp_id, slot, status, refresh_used, is_final, win_points, loss_points)
-         VALUES (?, ?, ?, 'voting', 0, 1, ?, ?)",
+        "INSERT INTO camp_matches (id, camp_id, slot, status, refresh_used, is_final, win_points, loss_points, queue_before)
+         VALUES (?, ?, ?, 'voting', 0, 1, ?, ?, ?)",
     )
     .bind(&match_id)
     .bind(&camp_id)
     .bind(slot)
     .bind(points.win)
     .bind(points.loss)
+    .bind(&queue_before)
     .execute(&mut *tx)
     .await?;
     insert_match_players(&mut tx, &match_id, &split).await?;
@@ -1795,11 +1946,13 @@ async fn resort_teams(
         .await?;
     }
     if !change.left.is_empty() {
+        let removed = set_aside_removed(tx, camp_id, &change.left).await?;
         let waiting = queued
             .iter()
             .map(|c| c.seat.user_id)
             .filter(|id| !change.joined.contains(id));
-        for (i, user_id) in change.left.iter().copied().chain(waiting).enumerate() {
+        let back = change.left.iter().copied().filter(|id| !removed.contains(id));
+        for (i, user_id) in back.chain(waiting).enumerate() {
             sqlx::query(
                 "UPDATE camp_players SET location = 'queued', queue_position = ? WHERE camp_id = ? AND user_id = ?",
             )
@@ -2000,6 +2153,9 @@ pub async fn report_winner(
         .await?;
     crate::stats::queue_in_tx(&mut tx, match_id).await?;
 
+    let roster_ids: Vec<i64> = roster.iter().map(|(id, _)| *id).collect();
+    let removed = set_aside_removed(&mut tx, camp_id, &roster_ids).await?;
+    finished.retain(|p| !removed.contains(&p.user_id));
     let ordered = queue::requeue(waiters, finished, &mut rand::thread_rng());
     write_queue_order(&mut tx, camp_id, &ordered).await?;
 
@@ -2088,7 +2244,7 @@ async fn require_correctable_match(
         .bind(user_id)
         .fetch_optional(&mut **tx)
         .await?;
-        if location.as_deref() != Some("queued") {
+        if !matches!(location.as_deref(), Some("queued" | "removed")) {
             return Err(anyhow!(
                 "não é mais possível corrigir esta partida (os jogadores já foram para outra partida)"
             ));
@@ -2282,6 +2438,8 @@ pub async fn correct_winner(
             just_won: Some(side == new_side),
         });
     }
+    let removed = set_aside_removed(&mut tx, camp_id, &roster_ids).await?;
+    finished.retain(|p| !removed.contains(&p.user_id));
 
     let ordered = queue::requeue(waiters, finished, &mut rand::thread_rng());
     write_queue_order(&mut tx, camp_id, &ordered).await?;
@@ -2333,6 +2491,102 @@ pub async fn reopen_match(pool: &SqlitePool, camp_id: &str, match_id: &str) -> R
     .await?;
 
     reindex_queued(&mut tx, camp_id).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+/// `camp_matches.queue_before`: user IDs in queue order.
+fn queue_snapshot(ids: impl Iterator<Item = i64>) -> String {
+    ids.map(|id| id.to_string()).collect::<Vec<_>>().join(",")
+}
+
+/// The queue once a match is cancelled: whoever was in it when the match was made (`before`) and
+/// is back or still waiting, in that order, then anyone else, the match's players first. Without
+/// a snapshot (matches from before it was kept), the match's players go to the front.
+fn restored_queue(before: Option<&str>, returning: &[i64], waiting: &[i64]) -> Vec<i64> {
+    let here = |id: &i64| returning.contains(id) || waiting.contains(id);
+    let mut order: Vec<i64> = before
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|id| id.parse().ok())
+        .filter(here)
+        .collect();
+    for id in returning.iter().chain(waiting) {
+        if !order.contains(id) {
+            order.push(*id);
+        }
+    }
+    order
+}
+
+/// Cancels an open match as if it was never created: its players go back to the queue where they
+/// were before it, refreshes included, and the match is deleted. Players an admin removed stay
+/// out. Cancelling the final lets a new final be created.
+pub async fn cancel_match(pool: &SqlitePool, camp_id: &str, match_id: &str) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    let camp_status: Option<String> = sqlx::query_scalar("SELECT status FROM camps WHERE id = ?")
+        .bind(camp_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    match camp_status.as_deref() {
+        Some("running") => {}
+        Some(_) => return Err(anyhow!("o camp não está em andamento")),
+        None => return Err(anyhow!("camp não encontrado")),
+    }
+    let found: Option<(String, Option<String>)> =
+        sqlx::query_as("SELECT status, queue_before FROM camp_matches WHERE id = ? AND camp_id = ?")
+            .bind(match_id)
+            .bind(camp_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+    let Some((status, queue_before)) = found else {
+        return Err(anyhow!("partida não encontrada"));
+    };
+    if status != "voting" && status != "live" {
+        return Err(anyhow!("só partidas em andamento podem ser canceladas"));
+    }
+
+    let roster: Vec<i64> = sqlx::query_scalar("SELECT user_id FROM camp_match_players WHERE match_id = ?")
+        .bind(match_id)
+        .fetch_all(&mut *tx)
+        .await?;
+    let removed = set_aside_removed(&mut tx, camp_id, &roster).await?;
+    let returning: Vec<i64> = roster.into_iter().filter(|id| !removed.contains(id)).collect();
+    let waiting: Vec<i64> = sqlx::query_scalar(
+        "SELECT user_id FROM camp_players WHERE camp_id = ? AND location = 'queued' ORDER BY queue_position",
+    )
+    .bind(camp_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    for (i, user_id) in restored_queue(queue_before.as_deref(), &returning, &waiting)
+        .into_iter()
+        .enumerate()
+    {
+        sqlx::query(
+            "UPDATE camp_players SET location = 'queued', queue_position = ? WHERE camp_id = ? AND user_id = ?",
+        )
+        .bind(i as i64)
+        .bind(camp_id)
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    for table in ["camp_refresh_votes", "match_stats", "camp_match_players"] {
+        sqlx::query(&format!("DELETE FROM {table} WHERE match_id = ?"))
+            .bind(match_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    sqlx::query("DELETE FROM camp_matches WHERE id = ?")
+        .bind(match_id)
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("UPDATE camps SET updated_at = ? WHERE id = ?")
+        .bind(now())
+        .bind(camp_id)
+        .execute(&mut *tx)
+        .await?;
     tx.commit().await?;
     Ok(())
 }
@@ -2647,6 +2901,130 @@ mod tests {
         reopen_match(&pool, &camp.id, &id).await.unwrap();
         let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
         assert!(state.players.iter().all(|p| p.points == 0), "reopening takes both sides' points back");
+    }
+
+    #[tokio::test]
+    async fn removed_players_leave_the_queue_and_new_matches() {
+        let pool = memory_db().await;
+        let camp = create_camp(&pool, 1, 10, 4, 2).await.unwrap();
+        add_players(&pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
+        start_queue(&pool, &camp.id).await.unwrap();
+        let (_, first) = create_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        let playing: Vec<(i64, String)> =
+            state.open_matches[0].players.iter().map(|p| (p.user_id, p.side.clone())).collect();
+        let waiting: Vec<i64> = state.players.iter().filter(|p| p.location == "queued").map(|p| p.user_id).collect();
+        let player = |state: &CampState, id: i64| state.players.iter().find(|p| p.user_id == id).unwrap().clone();
+        let queued = |state: &CampState| -> Vec<i64> {
+            let mut ids: Vec<i64> = state.players.iter().filter(|p| p.location == "queued").map(|p| p.user_id).collect();
+            ids.sort();
+            ids
+        };
+
+        assert_eq!(remove_player(&pool, &camp.id, waiting[0]).await.unwrap(), Removal::Removed);
+        assert!(remove_player(&pool, &camp.id, waiting[0]).await.is_err(), "already removed");
+        let (leaving, leaving_side) = playing[0].clone();
+        assert_eq!(remove_player(&pool, &camp.id, leaving).await.unwrap(), Removal::AfterMatch);
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert_eq!(player(&state, waiting[0]).location, "removed");
+        assert!(player(&state, leaving).removed);
+        assert_eq!(player(&state, leaving).location, "match_1", "plays their match out");
+        assert_eq!(player(&state, waiting[1]).queue_position, Some(0), "the queue closes up");
+        assert!(!state.can_create_match(), "one player queued for a 1v1");
+
+        close_voting(&pool, &camp.id, &first).await.unwrap();
+        start_live_match(&pool, &first, None, None).await.unwrap();
+        report_winner(&pool, &camp.id, &first, &leaving_side, None).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert_eq!(player(&state, leaving).location, "removed", "not back to the queue");
+        assert_eq!(player(&state, leaving).points, 1, "keeps what the match gave");
+        let mut back = vec![waiting[1], playing[1].0];
+        back.sort();
+        assert_eq!(queued(&state), back);
+
+        correct_winner(&pool, &camp.id, &first).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert_eq!(player(&state, leaving).location, "removed", "a correction leaves them out");
+        assert_eq!(player(&state, leaving).points, 0);
+        assert_eq!(queued(&state), back);
+
+        let (_, second) = create_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
+        restore_player(&pool, &camp.id, waiting[0]).await.unwrap();
+        assert!(restore_player(&pool, &camp.id, waiting[1]).await.is_err(), "never removed");
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        let mut in_match: Vec<i64> = state.open_matches[0].players.iter().map(|p| p.user_id).collect();
+        in_match.sort();
+        assert_eq!(in_match, back);
+        let restored = player(&state, waiting[0]);
+        assert!(!restored.removed);
+        assert_eq!((restored.location.as_str(), restored.queue_position), ("queued", Some(0)));
+
+        close_voting(&pool, &camp.id, &second).await.unwrap();
+        start_live_match(&pool, &second, None, None).await.unwrap();
+        report_winner(&pool, &camp.id, &second, "hiddenking", None).await.unwrap();
+        create_final_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert!(
+            state.open_matches[0].players.iter().all(|p| p.user_id != leaving),
+            "the final leaves removed players out"
+        );
+    }
+
+    #[tokio::test]
+    async fn cancelling_a_match_puts_the_queue_back() {
+        let pool = memory_db().await;
+        let camp = create_camp(&pool, 1, 10, 4, 2).await.unwrap();
+        add_players(&pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
+        let order = start_queue(&pool, &camp.id).await.unwrap();
+        let queue = |state: &CampState| -> Vec<i64> {
+            state.players.iter().filter(|p| p.location == "queued").map(|p| p.user_id).collect()
+        };
+
+        // A refresh can swap players with the queue; cancelling still restores it.
+        let (_, id) = create_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
+        refresh_by_admin(&pool, &camp.id, &id).await.unwrap();
+        cancel_match(&pool, &camp.id, &id).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert!(state.open_matches.is_empty());
+        assert_eq!(queue(&state), order);
+        let gone: Option<i64> = sqlx::query_scalar("SELECT 1 FROM camp_match_players WHERE match_id = ?")
+            .bind(&id)
+            .fetch_optional(&pool)
+            .await
+            .unwrap();
+        assert!(gone.is_none(), "the match is deleted");
+
+        // The usual reason: someone picked has to leave. The rest move up.
+        let (_, id) = create_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
+        assert_eq!(remove_player(&pool, &camp.id, order[0]).await.unwrap(), Removal::AfterMatch);
+        cancel_match(&pool, &camp.id, &id).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert_eq!(queue(&state), order[1..]);
+        assert_eq!(state.players.iter().find(|p| p.user_id == order[0]).unwrap().location, "removed");
+        let (_, id) = create_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        let mut picked: Vec<i64> = state.open_matches[0].players.iter().map(|p| p.user_id).collect();
+        picked.sort();
+        let mut next = order[1..3].to_vec();
+        next.sort();
+        assert_eq!(picked, next);
+
+        close_voting(&pool, &camp.id, &id).await.unwrap();
+        start_live_match(&pool, &id, None, None).await.unwrap();
+        report_winner(&pool, &camp.id, &id, "hiddenking", None).await.unwrap();
+        assert!(cancel_match(&pool, &camp.id, &id).await.is_err(), "finished matches stay");
+
+        let (_, final_id) = create_final_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
+        cancel_match(&pool, &camp.id, &final_id).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert!(!state.has_final && state.can_create_final(), "the final can be made again");
+    }
+
+    #[test]
+    fn restored_queue_keeps_the_old_order_then_newcomers() {
+        assert_eq!(restored_queue(Some("3,1,2,4"), &[1, 3], &[2, 4]), [3, 1, 2, 4]);
+        assert_eq!(restored_queue(Some("3,1,2,4"), &[1], &[5, 2]), [1, 2, 5], "3 and 4 moved on, 5 came back");
+        assert_eq!(restored_queue(None, &[1, 3], &[2, 4]), [1, 3, 2, 4]);
     }
 
     #[tokio::test]

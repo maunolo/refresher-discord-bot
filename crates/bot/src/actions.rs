@@ -51,15 +51,16 @@ pub async fn run(
         CampAction::ReopenMatch { match_id } => {
             reopen_match(discord, data, guild_id, camp_id, &normalize(match_id)).await
         }
+        CampAction::CancelMatch { match_id } => {
+            cancel_match(discord, data, guild_id, camp_id, &normalize(match_id)).await
+        }
         CampAction::AddPlayers { user_ids } => {
             let ids: Vec<i64> = user_ids.iter().map(|id| *id as i64).collect();
             db::add_players(&data.db, camp_id, &ids).await?;
             redraw_board(discord, data, camp_id).await
         }
-        CampAction::RemovePlayer { user_id } => {
-            db::remove_player(&data.db, camp_id, *user_id as i64).await?;
-            redraw_board(discord, data, camp_id).await
-        }
+        CampAction::RemovePlayer { user_id } => remove_player(discord, data, camp_id, *user_id as i64).await,
+        CampAction::RestorePlayer { user_id } => restore_player(discord, data, camp_id, *user_id as i64).await,
         CampAction::SetSRank { user_id, s_rank } => {
             db::set_player_s_rank(&data.db, camp_id, *user_id as i64, *s_rank).await?;
             redraw_board(discord, data, camp_id).await
@@ -311,6 +312,52 @@ async fn adjust_points(discord: &Discord, data: &Data, camp_id: &str, user_id: i
     Ok(())
 }
 
+/// Takes a player off the roster, or, while the camp runs, out of the queue and new matches,
+/// saying so in the camp's channel.
+async fn remove_player(discord: &Discord, data: &Data, camp_id: &str, user_id: i64) -> Result<()> {
+    let removal = db::remove_player(&data.db, camp_id, user_id).await?;
+    let state = load(data, camp_id).await?;
+    if removal == db::Removal::Deleted {
+        return sync::redraw_board(discord, &data.db, &state).await;
+    }
+    sync::redraw_all(discord, &data.db, &state).await?;
+    let then = if removal == db::Removal::AfterMatch {
+        "termina a partida atual e depois não volta para a fila"
+    } else {
+        "saiu da fila e não entra em partidas novas"
+    };
+    let _ = channel(&state)
+        .say(
+            &discord.http,
+            format!("Um admin removeu {} do camp: {then}.", sync::mention_list(&[user_id])),
+        )
+        .await;
+    Ok(())
+}
+
+/// Brings a removed player back to the camp's queue, saying so in its channel.
+async fn restore_player(discord: &Discord, data: &Data, camp_id: &str, user_id: i64) -> Result<()> {
+    db::restore_player(&data.db, camp_id, user_id).await?;
+    let state = load(data, camp_id).await?;
+    sync::redraw_all(discord, &data.db, &state).await?;
+    let in_match = state
+        .players
+        .iter()
+        .any(|p| p.user_id == user_id && p.location != "queued");
+    let then = if in_match {
+        "volta para a fila quando a partida atual terminar"
+    } else {
+        "entrou no fim da fila"
+    };
+    let _ = channel(&state)
+        .say(
+            &discord.http,
+            format!("Um admin devolveu {} ao camp: {then}.", sync::mention_list(&[user_id])),
+        )
+        .await;
+    Ok(())
+}
+
 /// Mentions the match's players who haven't voted, in the camp's channel.
 async fn remind_voters(discord: &Discord, data: &Data, camp_id: &str, match_id: &str) -> Result<()> {
     let state = load(data, camp_id).await?;
@@ -518,8 +565,9 @@ async fn report_winner(
     }
     let before = load(data, camp_id).await?;
     let finished = before.open_matches.iter().find(|m| m.row.id == match_id);
+    let removed = |user_id: i64| before.players.iter().any(|p| p.user_id == user_id && p.removed);
     let finished_ids: Vec<i64> = finished
-        .map(|m| m.players.iter().map(|p| p.user_id).collect())
+        .map(|m| m.players.iter().map(|p| p.user_id).filter(|id| !removed(*id)).collect())
         .unwrap_or_default();
     let old_message = finished.and_then(|m| m.row.message_id);
     let is_final = finished.map(|m| m.row.is_final).unwrap_or(false);
@@ -570,6 +618,56 @@ async fn report_winner(
                 "{winner} vence. {}{mvp} Os jogadores voltaram para a fila.",
                 ui::result_points(points)
             ),
+        )
+        .await;
+    Ok(())
+}
+
+/// Cancels an open match: its message says so, and its players go back to the queue where they
+/// were before it, and to the Queue voice channel. Players an admin removed stay out.
+async fn cancel_match(
+    discord: &Discord,
+    data: &Data,
+    guild_id: GuildId,
+    camp_id: &str,
+    match_id: &str,
+) -> Result<()> {
+    let before = load(data, camp_id).await?;
+    let open = before.open_matches.iter().find(|m| m.row.id == match_id);
+    let message = open.and_then(|m| m.row.message_id);
+    let is_final = open.map(|m| m.row.is_final).unwrap_or(false);
+    let name = match open {
+        Some(m) if m.row.is_final => "a partida final".to_string(),
+        Some(m) => format!("a Partida {}", m.row.slot),
+        None => "a partida".to_string(),
+    };
+    let removed = |user_id: i64| before.players.iter().any(|p| p.user_id == user_id && p.removed);
+    let back: Vec<i64> = open
+        .map(|m| m.players.iter().map(|p| p.user_id).filter(|id| !removed(*id)).collect())
+        .unwrap_or_default();
+
+    db::cancel_match(&data.db, camp_id, match_id).await?;
+
+    let channel = channel(&before);
+    if let Some(msg_id) = message {
+        let _ = channel
+            .edit_message(
+                &discord.http,
+                msg_id as u64,
+                EditMessage::new()
+                    .embed(ui::cancelled_match_embed(camp_id, match_id, is_final))
+                    .components(Vec::new()),
+            )
+            .await;
+    }
+    let settings = data.settings(guild_id.get()).await?;
+    sync::apply_moves(discord, guild_id, &settings, channel, &sync::queue_voice_moves(&back)).await;
+    let state = load(data, camp_id).await?;
+    sync::redraw_all(discord, &data.db, &state).await?;
+    let _ = channel
+        .say(
+            &discord.http,
+            format!("Um admin cancelou {name} (`{match_id}`). Os jogadores voltaram para a fila nos lugares de antes."),
         )
         .await;
     Ok(())

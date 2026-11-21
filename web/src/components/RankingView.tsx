@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useActions } from '../actions';
 import type { Camp, Player } from '../api';
 import { playerName, ranking, signed, whereIs, winRate } from '../camp';
-import { DiscordLink, SRankChip } from './common';
+import { DiscordLink, RemovedChip, SRankChip } from './common';
 import { PointsDialog } from './PointsDialog';
 
 /** Every player by points, with wins and matches; ties share a place, like the bot's medals. */
@@ -71,6 +71,7 @@ export function RankingView({ camp }: { camp: Camp }) {
                     <span className="player-cell">
                       {playerName(camp, player.user_id)}
                       {player.s_rank && <SRankChip />}
+                      {player.removed && <RemovedChip />}
                     </span>
                   </td>
                   <td className="align-end mono">

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { confirmCloseVote, confirmRefreshTeams, useActions } from '../actions';
+import { confirmCancelMatch, confirmCloseVote, confirmRefreshTeams, useActions } from '../actions';
 import type { Camp, Draft, Match, Side } from '../api';
 import {
   SIDES,
@@ -14,7 +14,7 @@ import {
   voteSummary,
   type Stage,
 } from '../camp';
-import { CardLink, Captain, CopyButton, DiscordLink, MatchWorth, RoleChip, SRankChip } from './common';
+import { CardLink, Captain, CopyButton, DiscordLink, MatchWorth, RemovedChip, RoleChip, SRankChip } from './common';
 import { WinnerDialog } from './ResultDialogs';
 import { OBS_OVERLAY_CSS } from '../obs';
 import { matchHref } from '../route';
@@ -75,6 +75,7 @@ function Team({ camp, match, side }: { camp: Camp; match: Match; side: Side }) {
             <li key={p.user_id} className="row">
               <span className="ellipsis">{playerName(camp, p.user_id)}</span>
               {player?.s_rank && <SRankChip />}
+              {player?.removed && <RemovedChip />}
               <RoleChip role={player?.role ?? null} />
               {p.is_captain && <Captain />}
               <span className="row-end mono muted small">{points(player?.points ?? 0)}</span>
@@ -229,6 +230,24 @@ function Actions({ camp, match }: { camp: Camp; match: Match }) {
   );
 }
 
+/** Undoes an open match: its players back in the queue where they were. */
+export function CancelMatchButton({ camp, match, onCancelled }: { camp: Camp; match: Match; onCancelled?: () => void }) {
+  const { run, busy } = useActions();
+  return (
+    <button
+      type="button"
+      className="button button-ghost button-small"
+      disabled={busy}
+      title="Apaga a partida e devolve os jogadores para a fila nos lugares de antes."
+      onClick={() =>
+        run({ type: 'cancel_match', match_id: match.id }, { confirm: confirmCancelMatch(camp, match), then: onCancelled })
+      }
+    >
+      Cancelar partida
+    </button>
+  );
+}
+
 export function MatchCard({ camp, match }: { camp: Camp; match: Match }) {
   const titleId = `match-${match.id}`;
   return (
@@ -265,7 +284,10 @@ export function MatchCard({ camp, match }: { camp: Camp; match: Match }) {
         </div>
       )}
       <Actions camp={camp} match={match} />
-      <DiscordLink url={match.discord_url} label="Abrir a mensagem no Discord" />
+      <div className="card-foot">
+        <DiscordLink url={match.discord_url} label="Abrir a mensagem no Discord" />
+        <CancelMatchButton camp={camp} match={match} />
+      </div>
     </section>
   );
 }

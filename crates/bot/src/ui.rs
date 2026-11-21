@@ -200,9 +200,14 @@ pub fn board_embed(state: &CampState) -> CreateEmbed {
     let mut embed = CreateEmbed::new()
         .title(format!("Camp de Deadlock {}", state.camp.id))
         .description(format!(
-            "Partidas jogadas: **{}** · Elenco: **{}**\nOs próximos times saem da fila quando um admin cria a partida. **→** indica quem entra no próximo sorteio.\nFunções: {ROLE_LEGEND}",
+            "Partidas jogadas: **{}** · Elenco: **{}**{}\nOs próximos times saem da fila quando um admin cria a partida. **→** indica quem entra no próximo sorteio.\nFunções: {ROLE_LEGEND}",
             state.camp.match_count,
-            state.players.len()
+            state.active_players().count(),
+            match state.players.iter().filter(|p| p.removed).count() {
+                0 => String::new(),
+                1 => " (1 removido)".to_string(),
+                n => format!(" ({n} removidos)"),
+            }
         ))
         .footer(footer(&state.camp.id));
     if queue.is_empty() {
@@ -426,6 +431,16 @@ pub fn completed_match_embed(
     CreateEmbed::new()
         .title(title)
         .description(desc)
+        .footer(footer(camp_id))
+}
+
+/// The message of a match an admin cancelled before it ended.
+pub fn cancelled_match_embed(camp_id: &str, match_id: &str, is_final: bool) -> CreateEmbed {
+    CreateEmbed::new()
+        .title(if is_final { "Partida final cancelada" } else { "Partida cancelada" })
+        .description(format!(
+            "Um admin cancelou a partida `{match_id}`. Os jogadores voltaram para a fila nos lugares de antes."
+        ))
         .footer(footer(camp_id))
 }
 
