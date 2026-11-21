@@ -1,3 +1,4 @@
+pub mod cameras;
 pub mod config;
 pub mod db;
 pub mod deadlock;

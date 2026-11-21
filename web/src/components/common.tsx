@@ -65,7 +65,8 @@ export function Captain() {
   );
 }
 
-export function CopyButton({ text, label }: { text: string; label: string }) {
+/** Copies `text`. An icon, or with `caption` a small button that says what it copies. */
+export function CopyButton({ text, label, caption }: { text: string; label: string; caption?: string }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     try {
@@ -76,6 +77,14 @@ export function CopyButton({ text, label }: { text: string; label: string }) {
       // Clipboard can be blocked (http, permissions); the link is still on screen.
     }
   };
+  if (caption) {
+    return (
+      <button type="button" className="button button-small button-ghost" aria-label={label} title={label} onClick={copy}>
+        {copied ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+        {copied ? 'Copiado' : caption}
+      </button>
+    );
+  }
   return (
     <button type="button" className="icon-button" aria-label={label} title={copied ? 'Copiado' : label} onClick={copy}>
       {copied ? <CheckIcon size={15} /> : <CopyIcon size={15} />}

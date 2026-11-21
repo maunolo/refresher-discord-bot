@@ -13,6 +13,7 @@ use refresher_core::db::{
     self, CampRow, CampState, CampSummary, MatchPlayerRow, MatchPoints, MatchRow, PlayerRow, PlayerStats, RecentMatch,
     RefreshVote,
 };
+use refresher_core::cameras::{self, CameraConfig, StreamView};
 use refresher_core::draft::{self, DraftView};
 use refresher_core::link::{CampAction, Channel, Profile};
 use refresher_core::queue::{self, CampSize, Role};
@@ -564,6 +565,8 @@ pub struct OverlayLinksDto {
     vote_url: String,
     /// The ranking overlay.
     ranking_url: String,
+    /// The commentators' cameras, one overlay per stream: stream 1, then stream 2.
+    camera_urls: Vec<String>,
 }
 
 fn overlay_links(state: &AppState, token: &str) -> OverlayLinksDto {
@@ -571,7 +574,46 @@ fn overlay_links(state: &AppState, token: &str) -> OverlayLinksDto {
     OverlayLinksDto {
         vote_url: format!("{base}/overlay/{token}/votacao"),
         ranking_url: format!("{base}/overlay/{token}/ranking"),
+        camera_urls: (1..=cameras::STREAMS)
+            .map(|n| format!("{base}/overlay/{token}/cameras{n}"))
+            .collect(),
     }
+}
+
+/// The server's commentator cameras: the VDO.Ninja room, its sources and each stream's picks.
+pub async fn guild_cameras(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+) -> Result<Json<CameraConfig>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    Ok(Json(cameras::load(&state.db, guild_id as i64).await?))
+}
+
+/// Saves the server's cameras; open camera overlays switch to them within seconds.
+pub async fn save_guild_cameras(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+    Json(config): Json<CameraConfig>,
+) -> Result<Json<CameraConfig>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    let config = config.check().map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    let saved = cameras::save(&state.db, guild_id as i64, config).await?;
+    tracing::info!(user_id = session.user_id, guild_id, "camera overlays saved from the web");
+    state.link.changes().notify(guild_id);
+    Ok(Json(saved))
+}
+
+/// One stream's cameras, for its overlay. Public: the link's secret is the only key, and it
+/// carries the room's password, as the VDO.Ninja links do.
+pub async fn overlay_cameras(
+    State(state): State<AppState>,
+    Path((token, stream)): Path<(String, usize)>,
+) -> Result<Json<StreamView>, ApiError> {
+    let guild_id = overlay_guild(&state, &token).await?;
+    let config = cameras::load(&state.db, guild_id as i64).await?;
+    config.stream(stream).map(Json).ok_or(ApiError::NotFound)
 }
 
 /// The server's OBS overlay links, made on first use.
