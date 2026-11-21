@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 import { useActions } from '../actions';
 import { api, type Camp, type MemberResult, type Player, type Role } from '../api';
 import { formatLabel, playerName, points, ROLE_LABEL, roleCounts, ROLES, signed, whereIs } from '../camp';
+import { RemovedChip } from './common';
 import { CheckIcon } from './Icons';
 import { PointsDialog } from './PointsDialog';
 
@@ -284,23 +285,92 @@ function Signup({ camp }: { camp: Camp }) {
   );
 }
 
+/** Takes a player out of the running camp, or brings a removed one back. */
+function RemoveButton({ camp, player }: { camp: Camp; player: Player }) {
+  const { run, busy } = useActions();
+  const name = playerName(camp, player.user_id);
+  const inMatch = player.location !== 'queued' && player.location !== 'removed';
+  if (player.removed) {
+    return (
+      <button
+        type="button"
+        className="button button-small button-ghost"
+        disabled={busy}
+        aria-label={`Devolver ${name} ao camp`}
+        onClick={() =>
+          run(
+            { type: 'restore_player', user_id: player.user_id },
+            {
+              confirm: {
+                title: `Devolver ${name} ao camp?`,
+                message: inMatch
+                  ? 'Volta para a fila quando a partida atual terminar, como os outros jogadores.'
+                  : 'Entra no fim da fila e volta a ser sorteado nas partidas novas.',
+                action: 'Devolver ao camp',
+              },
+            },
+          )
+        }
+      >
+        Devolver
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="button button-small button-ghost"
+      disabled={busy}
+      aria-label={`Remover ${name} do camp`}
+      onClick={() =>
+        run(
+          { type: 'remove_player', user_id: player.user_id },
+          {
+            confirm: {
+              title: `Remover ${name} do camp?`,
+              message: inMatch
+                ? 'Termina a partida atual e depois não volta para a fila. Não entra em partidas novas nem na final. Para tirar o jogador da partida agora, cancele a partida depois: os outros voltam para a fila nos lugares de antes.'
+                : 'Sai da fila agora e não entra em partidas novas nem na final.',
+              note: 'Os pontos e as partidas jogadas continuam no ranking. O bot avisa no canal do camp, e dá para devolver o jogador depois.',
+              action: 'Remover do camp',
+              tone: 'danger',
+            },
+          },
+        )
+      }
+    >
+      Remover
+    </button>
+  );
+}
+
 function Roster({ camp }: { camp: Camp }) {
   const players = [...camp.players].sort(
-    (a, b) => b.points - a.points || playerName(camp, a.user_id).localeCompare(playerName(camp, b.user_id)),
+    (a, b) =>
+      Number(a.removed) - Number(b.removed) ||
+      b.points - a.points ||
+      playerName(camp, a.user_id).localeCompare(playerName(camp, b.user_id)),
   );
   const running = camp.status === 'running';
   const [adjusting, setAdjusting] = useState<Player | null>(null);
   const { busy } = useActions();
+  const removed = players.filter((p) => p.removed).length;
   return (
     <section className="card" aria-labelledby="roster-table-title">
       <div className="card-head">
         <h2 id="roster-table-title">
-          Elenco <span className="mono muted">{players.length}</span>
+          Elenco <span className="mono muted">{players.length - removed}</span>
+          {removed > 0 && (
+            <span className="muted small">
+              {' '}
+              · {removed} {removed === 1 ? 'removido' : 'removidos'}
+            </span>
+          )}
         </h2>
       </div>
       <p className="muted small">
         {running
-          ? 'O elenco não muda depois que a fila começa. S rank e função valem para os times montados daqui em diante, numa partida nova ou num refresh. Ajustar pontos é para correções e penalidades; o bot anuncia cada ajuste.'
+          ? 'Depois que a fila começa, ninguém entra no elenco, mas dá para remover um jogador: ele sai da fila e não entra em partidas novas nem na final, e os pontos dele continuam no ranking. S rank e função valem para os times montados daqui em diante, numa partida nova ou num refresh. Ajustar pontos é para correções e penalidades; o bot anuncia cada ajuste e cada remoção.'
           : 'Este camp não está em andamento.'}
       </p>
       <p className="muted small">
@@ -320,18 +390,19 @@ function Roster({ camp }: { camp: Camp }) {
               <th scope="col">Onde está</th>
               {running && (
                 <th scope="col" className="align-end">
-                  <span className="visually-hidden">Ajustar pontos</span>
+                  <span className="visually-hidden">Ações</span>
                 </th>
               )}
             </tr>
           </thead>
           <tbody>
             {players.map((p) => (
-              <tr key={p.user_id}>
+              <tr key={p.user_id} className={p.removed ? 'row-removed' : undefined}>
                 <td>
                   <span className="player-cell">
                     <Avatar url={camp.members[p.user_id]?.avatar_url} name={playerName(camp, p.user_id)} />
                     {playerName(camp, p.user_id)}
+                    {p.removed && <RemovedChip />}
                   </span>
                 </td>
                 <td>{running ? <SRankSwitch camp={camp} player={p} /> : p.s_rank ? 'Sim' : '—'}</td>
@@ -349,15 +420,18 @@ function Roster({ camp }: { camp: Camp }) {
                 <td className="muted">{whereIs(camp, p)}</td>
                 {running && (
                   <td className="align-end">
-                    <button
-                      type="button"
-                      className="button button-small button-ghost"
-                      disabled={busy}
-                      aria-label={`Ajustar pontos de ${playerName(camp, p.user_id)}`}
-                      onClick={() => setAdjusting(p)}
-                    >
-                      Ajustar pontos
-                    </button>
+                    <div className="inline-actions">
+                      <button
+                        type="button"
+                        className="button button-small button-ghost"
+                        disabled={busy}
+                        aria-label={`Ajustar pontos de ${playerName(camp, p.user_id)}`}
+                        onClick={() => setAdjusting(p)}
+                      >
+                        Ajustar pontos
+                      </button>
+                      <RemoveButton camp={camp} player={p} />
+                    </div>
                   </td>
                 )}
               </tr>

@@ -64,6 +64,22 @@ export function confirmRefreshTeams(match: Match): Confirm {
   };
 }
 
+/** Before an admin cancels an open match. */
+export function confirmCancelMatch(camp: Camp, match: Match): Confirm {
+  const removed = match.players.filter((p) => camp.players.some((c) => c.user_id === p.user_id && c.removed)).length;
+  const out =
+    removed === 0 ? '' : removed === 1 ? ', menos o jogador removido do camp' : `, menos os ${removed} removidos do camp`;
+  return {
+    title: `Cancelar a ${matchName(match)}?`,
+    message: `A partida é apagada e os jogadores voltam para a fila nos lugares em que estavam antes dela${out}. Ninguém ganha pontos.`,
+    note: `A mensagem da partida no Discord passa a dizer que ela foi cancelada, e quem estiver em voz vai para o canal Queue.${
+      match.is_final ? ' Depois dá para criar a final de novo.' : ''
+    } Não dá para desfazer.`,
+    action: 'Cancelar partida',
+    tone: 'danger',
+  };
+}
+
 /** Why "Criar partida" is off, in the bot's words. */
 export function createMatchBlocked(camp: Camp): string | undefined {
   if (camp.can_create_match) return undefined;

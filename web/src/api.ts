@@ -94,6 +94,8 @@ export interface Player {
   points_adjusted: number;
   /** Finished matches as MVP: breaks ties in points. */
   mvps: number;
+  /** An admin took them out of the camp: no queue, no new matches. In an open match, they leave once it ends. */
+  removed: boolean;
 }
 
 export interface Match {
@@ -176,8 +178,10 @@ export type CampAction =
   | { type: 'correct_winner'; match_id: string }
   | { type: 'change_mvp'; match_id: string; user_id: string }
   | { type: 'reopen_match'; match_id: string }
+  | { type: 'cancel_match'; match_id: string }
   | { type: 'add_players'; user_ids: string[] }
   | { type: 'remove_player'; user_id: string }
+  | { type: 'restore_player'; user_id: string }
   | { type: 'set_s_rank'; user_id: string; s_rank: boolean }
   | { type: 'set_role'; user_id: string; role: Role | null }
   | { type: 'adjust_points'; user_id: string; delta: number }

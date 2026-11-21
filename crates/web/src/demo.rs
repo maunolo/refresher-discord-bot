@@ -86,12 +86,18 @@ impl DemoLink {
             CampAction::ReopenMatch { match_id } => {
                 db::reopen_match(pool, camp_id, &match_id).await?;
             }
+            CampAction::CancelMatch { match_id } => {
+                db::cancel_match(pool, camp_id, &match_id).await?;
+            }
             CampAction::AddPlayers { user_ids } => {
                 let ids: Vec<i64> = user_ids.iter().map(|id| *id as i64).collect();
                 db::add_players(pool, camp_id, &ids).await?;
             }
             CampAction::RemovePlayer { user_id } => {
                 db::remove_player(pool, camp_id, user_id as i64).await?;
+            }
+            CampAction::RestorePlayer { user_id } => {
+                db::restore_player(pool, camp_id, user_id as i64).await?;
             }
             CampAction::SetSRank { user_id, s_rank } => {
                 db::set_player_s_rank(pool, camp_id, user_id as i64, s_rank).await?;

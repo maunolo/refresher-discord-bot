@@ -20,6 +20,15 @@ export function MatchWorth({ points }: { points: MatchPoints }) {
   );
 }
 
+/** An admin took the player out of the camp. */
+export function RemovedChip() {
+  return (
+    <span className="chip chip-removed" title="Removido do camp: não entra na fila nem em partidas novas">
+      Removido
+    </span>
+  );
+}
+
 export function SRankChip() {
   return (
     <span className="chip chip-s" title="S rank">

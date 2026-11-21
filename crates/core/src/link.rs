@@ -71,10 +71,16 @@ pub enum CampAction {
     /// The latest result only, while the camp runs.
     ChangeMvp { match_id: String, user_id: u64 },
     ReopenMatch { match_id: String },
+    /// An open match (voting, draft or live) undone: deleted, its players back in the queue where
+    /// they were before it. Players an admin removed stay out.
+    CancelMatch { match_id: String },
     /// Signup only. Users already on the roster, or past the camp's size, are skipped.
     AddPlayers { user_ids: Vec<u64> },
-    /// Signup only.
+    /// Before the queue starts, off the roster. While the camp runs, out of the queue and of new
+    /// matches (after their open match, if in one); points and matches stay.
     RemovePlayer { user_id: u64 },
+    /// Running only: a removed player back at the end of the queue.
+    RestorePlayer { user_id: u64 },
     /// Signup or running; matches created afterwards use it.
     SetSRank { user_id: u64, s_rank: bool },
     /// Signup or running. The role is kept per server, for later camps too; `None` clears it.

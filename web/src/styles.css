@@ -1939,3 +1939,29 @@ h3,
   font-size: 13px;
   font-weight: 600;
 }
+
+/* The match card's last row: its Discord message and cancelling it */
+.card-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Players an admin took out of the camp */
+.chip-removed {
+  border: 1px solid var(--control);
+  color: var(--text-2);
+  font-weight: 600;
+}
+.row-removed td:not(:last-child) {
+  opacity: 0.6;
+}
+.table td .inline-actions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+.table td .inline-actions .button {
+  white-space: nowrap;
+}

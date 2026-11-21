@@ -879,6 +879,12 @@ data: 111
         assert_eq!(post(&state, &path, Some(&token), bad_role).await.0, StatusCode::BAD_REQUEST);
         let bad = r#"{"type": "remove_player", "user_id": "not-an-id"}"#;
         assert_eq!(post(&state, &path, Some(&token), bad).await.0, StatusCode::BAD_REQUEST);
+        let remove = r#"{"type": "remove_player", "user_id": "5"}"#;
+        assert_eq!(post(&state, &path, Some(&token), remove).await.0, StatusCode::OK);
+        let restore = r#"{"type": "restore_player", "user_id": "5"}"#;
+        assert_eq!(post(&state, &path, Some(&token), restore).await.0, StatusCode::OK);
+        let cancel = r#"{"type": "cancel_match", "match_id": "ABC123"}"#;
+        assert_eq!(post(&state, &path, Some(&token), cancel).await.0, StatusCode::OK);
 
         let actions = link.actions.lock().unwrap();
         assert_eq!(
@@ -890,6 +896,9 @@ data: 111
                 CampAction::SetSRank { user_id: 5, s_rank: true },
                 CampAction::SetRole { user_id: 5, role: Some(Role::Support) },
                 CampAction::SetRole { user_id: 5, role: None },
+                CampAction::RemovePlayer { user_id: 5 },
+                CampAction::RestorePlayer { user_id: 5 },
+                CampAction::CancelMatch { match_id: "ABC123".to_string() },
             ]
         );
     }

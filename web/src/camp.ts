@@ -83,9 +83,12 @@ export function whereIs(camp: Camp, player: Player): string {
   }
   for (const match of camp.open_matches) {
     const seat = match.players.find((p) => p.user_id === player.user_id);
-    if (seat) return `${match.is_final ? 'Final' : `Partida ${match.slot}`} · ${SIDE_LABEL[seat.side]}`;
+    if (seat) {
+      const where = `${match.is_final ? 'Final' : `Partida ${match.slot}`} · ${SIDE_LABEL[seat.side]}`;
+      return player.removed ? `${where} · sai depois` : where;
+    }
   }
-  return '—';
+  return player.removed ? 'Fora do camp' : '—';
 }
 
 /** The draft step happened, on the draft tool or by hand. */
