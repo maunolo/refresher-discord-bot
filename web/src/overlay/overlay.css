@@ -383,17 +383,6 @@ h1 {
   font-size: 12.5px;
 }
 
-.ov-mvp {
-  flex: none;
-  padding: 0 6px;
-  border-radius: 3px;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 17px;
-  background: rgba(193, 141, 82, 0.18);
-  color: #e2b366;
-}
-
 .ov-pts {
   color: var(--jade);
   font-size: 22px;
@@ -408,14 +397,6 @@ h1 {
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.08em;
-}
-
-.ov-rank-foot {
-  margin-top: 8px;
-  padding-top: 10px;
-  border-top: 1px solid rgba(193, 141, 82, 0.35);
-  color: var(--muted);
-  font-size: 12.5px;
 }
 
 .ov-empty {
