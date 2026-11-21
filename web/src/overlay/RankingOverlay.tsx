@@ -10,7 +10,6 @@ function Row({ player }: { player: OverlayRank }) {
       <div className="ov-rank-who">
         <div className="ov-rank-name">
           <span className="ov-name">{player.name}</span>
-          {player.mvps > 0 && <span className="ov-mvp">{player.mvps} MVP</span>}
         </div>
         <div className="ov-rank-sub">
           {player.wins} V · {player.played - player.wins} D
@@ -25,8 +24,8 @@ function Row({ player }: { player: OverlayRank }) {
 }
 
 /**
- * The camp's top `top` by points, then MVPs, on a transparent background for OBS, with wins and
- * losses.
+ * The camp's top `top` on a transparent background for OBS, with wins and losses. The order and
+ * places still break ties in points by MVPs, as the bot's ranking does; the MVPs aren't shown.
  */
 export function RankingOverlay({ token, top }: { token: string; top: number }) {
   const ranking = useRanking(token);
@@ -44,14 +43,11 @@ export function RankingOverlay({ token, top }: { token: string; top: number }) {
         {played === 0 ? (
           <p className="ov-empty">O ranking aparece depois da primeira partida.</p>
         ) : (
-          <>
-            <ol className="ov-rank-list">
-              {ranking.players.slice(0, top).map((p) => (
-                <Row key={p.user_id} player={p} />
-              ))}
-            </ol>
-            <footer className="ov-rank-foot">Empate em pontos: desempata quem tem mais MVPs.</footer>
-          </>
+          <ol className="ov-rank-list">
+            {ranking.players.slice(0, top).map((p) => (
+              <Row key={p.user_id} player={p} />
+            ))}
+          </ol>
         )}
       </section>
     </div>
