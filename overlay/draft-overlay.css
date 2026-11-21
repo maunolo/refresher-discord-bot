@@ -1,0 +1,135 @@
+body { background-color: rgba(0, 0, 0, 0); margin: 0px auto; overflow: hidden; }
+/* Refresher draft scene: bans and picks laid out in the scene (medido no fundo 1920x1080). */
+.draft-obs { position: relative !important; display: block !important; width: 1920px !important; height: 1080px !important; padding: 0 !important; }
+.obs-heroes-section, .obs-team-column, .obs-team-header, .obs-team-content, .obs-picks-container, .obs-header-bans, .obs-bans-minimap-container { display: contents !important; }
+.obs-team-identity, .obs-bans-label { display: none !important; }
+
+/* Bans: 3 caixas por lado na faixa dourada (interior 103x131, topo y=604) */
+.obs-minimap-ban { position: absolute !important; top: 604px; width: 103px !important; height: 131px !important; margin: 0 !important; border: none !important; border-radius: 0 !important; background: none !important; box-shadow: none !important; display: flex !important; align-items: center; justify-content: center; overflow: hidden; transition: none !important; animation: none !important; }
+.obs-minimap-ban.empty::after { font: 800 54px/1 Geist, 'Segoe UI', system-ui, sans-serif; color: rgba(255, 255, 255, 0.34); }
+.obs-minimap-ban img { width: 100% !important; height: 100% !important; object-fit: cover !important; object-position: 50% 0%; filter: grayscale(0.9) saturate(0.4) brightness(0.8) contrast(1.05); animation: refresher-reveal 0.35s ease-out; }
+
+/* Picks: 6 slots por lado no painel inferior (altura 201, topo y=847) */
+.obs-hero-slot { position: absolute !important; top: 847px; height: 201px !important; margin: 0 !important; border-radius: 0 !important; background: none !important; overflow: hidden !important; transition: none !important; animation: none !important; }
+.obs-hero-slot img { width: 100% !important; height: 100% !important; object-fit: cover !important; object-position: 50% 0%; animation: refresher-reveal 0.35s ease-out; }
+@keyframes refresher-reveal { from { opacity: 0; transform: scale(1.08); } to { opacity: 1; transform: none; } }
+
+/* Timer no vão entre as duas linhas douradas de baixo */
+.obs-timer-bar { position: absolute !important; left: 22px; top: 1057px; width: 1878px !important; height: 4px !important; margin: 0 !important; }
+.obs-timer-line.amber, .obs-timer-line.sapphire { background: #e4fbf3 !important; box-shadow: 0 0 8px rgba(140, 245, 210, 0.8), 0 0 20px rgba(52, 211, 166, 0.45) !important; }
+
+.obs-minimap-ban.empty:nth-child(1)::after { content: "1"; }
+.obs-minimap-ban.empty:nth-child(2)::after { content: "2"; }
+.obs-minimap-ban.empty:nth-child(3)::after { content: "3"; }
+
+/* Time 1 (esquerda) */
+.obs-team-column:nth-child(1) .obs-minimap-ban:nth-child(1) { left: 331px; }
+.obs-team-column:nth-child(1) .obs-minimap-ban:nth-child(2) { left: 442px; }
+.obs-team-column:nth-child(1) .obs-minimap-ban:nth-child(3) { left: 553px; }
+.obs-team-column:nth-child(1) .obs-hero-slot:nth-child(1) { left: 22px;  width: 145px !important; }
+.obs-team-column:nth-child(1) .obs-hero-slot:nth-child(2) { left: 167px; width: 155px !important; }
+.obs-team-column:nth-child(1) .obs-hero-slot:nth-child(3) { left: 322px; width: 155px !important; }
+.obs-team-column:nth-child(1) .obs-hero-slot:nth-child(4) { left: 477px; width: 155px !important; }
+.obs-team-column:nth-child(1) .obs-hero-slot:nth-child(5) { left: 632px; width: 155px !important; }
+.obs-team-column:nth-child(1) .obs-hero-slot:nth-child(6) { left: 787px; width: 155px !important; }
+
+/* Time 2 (direita, espelhado) */
+.obs-team-column:nth-child(2) .obs-minimap-ban:nth-child(1) { left: 1489px; }
+.obs-team-column:nth-child(2) .obs-minimap-ban:nth-child(2) { left: 1378px; }
+.obs-team-column:nth-child(2) .obs-minimap-ban:nth-child(3) { left: 1267px; }
+.obs-team-column:nth-child(2) .obs-hero-slot:nth-child(1) { left: 1753px; width: 147px !important; }
+.obs-team-column:nth-child(2) .obs-hero-slot:nth-child(2) { left: 1598px; width: 155px !important; }
+.obs-team-column:nth-child(2) .obs-hero-slot:nth-child(3) { left: 1443px; width: 155px !important; }
+.obs-team-column:nth-child(2) .obs-hero-slot:nth-child(4) { left: 1288px; width: 155px !important; }
+.obs-team-column:nth-child(2) .obs-hero-slot:nth-child(5) { left: 1133px; width: 155px !important; }
+.obs-team-column:nth-child(2) .obs-hero-slot:nth-child(6) { left: 978px;  width: 155px !important; }
+
+/* Picks as card art, bans as the battered card. */
+.obs-hero-slot img[alt="Abrams"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bull_card.webp"); }
+.obs-minimap-ban img[alt="Abrams"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bull_card_critical.webp"); }
+.obs-hero-slot img[alt="Apollo"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/fencer_card.webp"); }
+.obs-minimap-ban img[alt="Apollo"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/fencer_card_critical.webp"); }
+.obs-hero-slot img[alt="Baba"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/baba_card.webp"); }
+.obs-minimap-ban img[alt="Baba"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/baba_card_critical.webp"); }
+.obs-hero-slot img[alt="Bebop"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bebop_card.webp"); }
+.obs-minimap-ban img[alt="Bebop"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bebop_card_critical.webp"); }
+.obs-hero-slot img[alt="Billy"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/punkgoat_card.webp"); }
+.obs-minimap-ban img[alt="Billy"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/punkgoat_card_critical.webp"); }
+.obs-hero-slot img[alt="Calico"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/nano_card.webp"); }
+.obs-minimap-ban img[alt="Calico"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/nano_card_critical.webp"); }
+.obs-hero-slot img[alt="Celeste"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/unicorn_card.webp"); }
+.obs-minimap-ban img[alt="Celeste"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/unicorn_card_critical.webp"); }
+.obs-hero-slot img[alt="Deadman Danny"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/deadpack_card.webp"); }
+.obs-minimap-ban img[alt="Deadman Danny"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/deadpack_card_critical.webp"); }
+.obs-hero-slot img[alt="Drifter"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/drifter_card.webp"); }
+.obs-minimap-ban img[alt="Drifter"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/drifter_card_critical.webp"); }
+.obs-hero-slot img[alt="Dynamo"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/sumo_card.webp"); }
+.obs-minimap-ban img[alt="Dynamo"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/sumo_card_critical.webp"); }
+.obs-hero-slot img[alt="Graves"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/necro_card.webp"); }
+.obs-minimap-ban img[alt="Graves"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/necro_card_critical.webp"); }
+.obs-hero-slot img[alt="Grey Talon"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/archer_card.webp"); }
+.obs-minimap-ban img[alt="Grey Talon"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/archer_card_critical.webp"); }
+.obs-hero-slot img[alt="Haze"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/haze_card.webp"); }
+.obs-minimap-ban img[alt="Haze"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/haze_card_critical.webp"); }
+.obs-hero-slot img[alt="Holliday"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/astro_card.webp"); }
+.obs-minimap-ban img[alt="Holliday"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/astro_card_critical.webp"); }
+.obs-hero-slot img[alt="Infernus"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/inferno_card.webp"); }
+.obs-minimap-ban img[alt="Infernus"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/inferno_card_critical.webp"); }
+.obs-hero-slot img[alt="Ivy"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/tengu_card.webp"); }
+.obs-minimap-ban img[alt="Ivy"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/tengu_card_critical.webp"); }
+.obs-hero-slot img[alt="Kelvin"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/kelvin_card.webp"); }
+.obs-minimap-ban img[alt="Kelvin"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/kelvin_card_critical.webp"); }
+.obs-hero-slot img[alt="Lady Geist"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/spectre_card.webp"); }
+.obs-minimap-ban img[alt="Lady Geist"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/spectre_card_critical.webp"); }
+.obs-hero-slot img[alt="Lash"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/lash_card.webp"); }
+.obs-minimap-ban img[alt="Lash"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/lash_card_critical.webp"); }
+.obs-hero-slot img[alt="McGinnis"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/engineer_card.webp"); }
+.obs-minimap-ban img[alt="McGinnis"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/engineer_card_critical.webp"); }
+.obs-hero-slot img[alt="Mina"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/vampirebat_card.webp"); }
+.obs-minimap-ban img[alt="Mina"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/vampirebat_card_critical.webp"); }
+.obs-hero-slot img[alt="Mirage"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/mirage_card.webp"); }
+.obs-minimap-ban img[alt="Mirage"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/mirage_card_critical.webp"); }
+.obs-hero-slot img[alt="Mo & Krill"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/digger_card.webp"); }
+.obs-minimap-ban img[alt="Mo & Krill"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/digger_card_critical.webp"); }
+.obs-hero-slot img[alt="Nurse Harrow"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/nurse_card.webp"); }
+.obs-minimap-ban img[alt="Nurse Harrow"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/nurse_card_critical.webp"); }
+.obs-hero-slot img[alt="Paige"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bookworm_card.webp"); }
+.obs-minimap-ban img[alt="Paige"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/bookworm_card_critical.webp"); }
+.obs-hero-slot img[alt="Paradox"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/chrono_card.webp"); }
+.obs-minimap-ban img[alt="Paradox"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/chrono_card_critical.webp"); }
+.obs-hero-slot img[alt="Pocket"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/synth_card.webp"); }
+.obs-minimap-ban img[alt="Pocket"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/synth_card_critical.webp"); }
+.obs-hero-slot img[alt="Rat King"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/ratking_card.webp"); }
+.obs-minimap-ban img[alt="Rat King"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/ratking_card_critical.webp"); }
+.obs-hero-slot img[alt="Rem"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/familiar_card.webp"); }
+.obs-minimap-ban img[alt="Rem"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/familiar_card_critical.webp"); }
+.obs-hero-slot img[alt="Seven"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/gigawatt_card.webp"); }
+.obs-minimap-ban img[alt="Seven"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/gigawatt_card_critical.webp"); }
+.obs-hero-slot img[alt="Shiv"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/shiv_card.webp"); }
+.obs-minimap-ban img[alt="Shiv"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/shiv_card_critical.webp"); }
+.obs-hero-slot img[alt="Silver"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/werewolf_card.webp"); }
+.obs-minimap-ban img[alt="Silver"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/werewolf_card_critical.webp"); }
+.obs-hero-slot img[alt="Sinclair"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/magician_card.webp"); }
+.obs-minimap-ban img[alt="Sinclair"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/magician_card_critical.webp"); }
+.obs-hero-slot img[alt="Solomon"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/chessmaster_card.webp"); }
+.obs-minimap-ban img[alt="Solomon"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/chessmaster_card_critical.webp"); }
+.obs-hero-slot img[alt="The Doorman"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/doorman_card.webp"); }
+.obs-minimap-ban img[alt="The Doorman"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/doorman_card_critical.webp"); }
+.obs-hero-slot img[alt="Venator"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/priest_card.webp"); }
+.obs-minimap-ban img[alt="Venator"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/priest_card_critical.webp"); }
+.obs-hero-slot img[alt="Victor"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/frank_card.webp"); }
+.obs-minimap-ban img[alt="Victor"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/frank_card_critical.webp"); }
+.obs-hero-slot img[alt="Vindicta"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/hornet_card.webp"); }
+.obs-minimap-ban img[alt="Vindicta"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/hornet_card_critical.webp"); }
+.obs-hero-slot img[alt="Violet"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/artist_card.webp"); }
+.obs-minimap-ban img[alt="Violet"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/artist_card_critical.webp"); }
+.obs-hero-slot img[alt="Viscous"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/viscous_card.webp"); }
+.obs-minimap-ban img[alt="Viscous"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/viscous_card_critical.webp"); }
+.obs-hero-slot img[alt="Vyper"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/kali_card.webp"); }
+.obs-minimap-ban img[alt="Vyper"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/kali_card_critical.webp"); }
+.obs-hero-slot img[alt="Warden"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/warden_card.webp"); }
+.obs-minimap-ban img[alt="Warden"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/warden_card_critical.webp"); }
+.obs-hero-slot img[alt="Wraith"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/wraith_card.webp"); }
+.obs-minimap-ban img[alt="Wraith"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/wraith_card_critical.webp"); }
+.obs-hero-slot img[alt="Yamato"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/yamato_card.webp"); }
+.obs-minimap-ban img[alt="Yamato"] { content: url("https://assets-bucket.deadlock-api.com/assets-api-res/images/heroes/yamato_card_critical.webp"); }
