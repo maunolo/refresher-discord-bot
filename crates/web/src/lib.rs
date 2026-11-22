@@ -19,6 +19,7 @@ use tower_http::services::{ServeDir, ServeFile};
 
 mod api;
 mod auth;
+mod clips;
 #[cfg(feature = "demo")]
 pub mod demo;
 mod error;
@@ -65,6 +66,7 @@ pub fn router(state: AppState) -> Router {
         .route("/matches/{match_id}", get(api::match_info))
         .merge(site::api_routes())
         .merge(scoreboard::api_routes())
+        .merge(clips::api_routes())
         .fallback(|| async { ApiError::NotFound });
     let app = Router::new()
         .nest("/api", api)
@@ -322,6 +324,7 @@ mod tests {
                 site_hosts: vec!["refresherleague.com.br".to_string()],
                 site_guild_id: Some(111),
                 site_lock: None,
+                r2: None,
             }),
             http: reqwest::Client::new(),
             link,
@@ -523,6 +526,63 @@ data: 111
         let (_, body) = get(&state, &format!("/api/overlay/{secret}/cameras/2"), None).await;
         assert_eq!(body["cameras"], serde_json::json!([{"id": "QJSe8uW", "name": "haunter"}]));
         assert_eq!(get(&state, &format!("/api/overlay/{secret}/cameras/3"), None).await.0, StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn clips_upload_to_the_bucket_and_play_per_stream() {
+        let link = Arc::new(FakeLink {
+            guilds: vec![111],
+            ..FakeLink::default()
+        });
+        let state = test_state_with(link.clone()).await;
+        let token = sign_in(&state, &[111]).await;
+        let (status, body) = get(&state, "/api/guilds/111/clips", Some(&token)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["enabled"], false, "no bucket set up");
+        let new = r#"{"title": "Kashi 1v3", "content_type": "video/mp4", "size_bytes": 1000}"#;
+        assert_eq!(post(&state, "/api/guilds/111/clips", Some(&token), new).await.0, StatusCode::CONFLICT);
+
+        let mut config = (*state.config).clone();
+        config.r2 = Some(refresher_core::r2::R2Config {
+            account_id: "acc".to_string(),
+            access_key_id: "key".to_string(),
+            secret_access_key: "secret".to_string(),
+            bucket: "clips-bucket".to_string(),
+        });
+        let state = AppState { config: Arc::new(config), ..state };
+        let bad = r#"{"title": "x", "content_type": "video/quicktime", "size_bytes": 1000}"#;
+        assert_eq!(post(&state, "/api/guilds/111/clips", Some(&token), bad).await.0, StatusCode::BAD_REQUEST);
+        let (status, body) = post(&state, "/api/guilds/111/clips", Some(&token), new).await;
+        assert_eq!(status, StatusCode::OK);
+        let clip_id = body["clip_id"].as_str().unwrap().to_string();
+        let upload = body["upload_url"].as_str().unwrap();
+        assert!(upload.starts_with(&format!("https://acc.r2.cloudflarestorage.com/clips-bucket/clips/111/{clip_id}.mp4?")), "{upload}");
+        assert!(upload.contains("X-Amz-Signature="));
+
+        // The browser uploads, then the server checks the bucket; here the check is skipped.
+        refresher_core::clips::mark_ready(&state.db, 111, &clip_id, 1000, Some(30_000)).await.unwrap();
+        let (_, body) = get(&state, "/api/guilds/111/clips", Some(&token)).await;
+        assert_eq!(body["clips"][0]["title"], "Kashi 1v3");
+        let play = format!("/api/guilds/111/clips/{clip_id}/play");
+        assert_eq!(post(&state, &play, Some(&token), r#"{"streams": [3]}"#).await.0, StatusCode::BAD_REQUEST);
+        let changes = link.changes().subscribe();
+        let (status, body) = post(&state, &play, Some(&token), r#"{"streams": [2]}"#).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["playing"][0]["stream"], 2);
+        assert_eq!(changes.len(), 1, "open overlays hear about it");
+
+        let secret = refresher_core::db::overlay_token(&state.db, 111).await.unwrap();
+        let (status, body) = get(&state, &format!("/api/overlay/{secret}/replay/2"), None).await;
+        assert_eq!(status, StatusCode::OK, "no login needed");
+        assert_eq!(body["playing"]["title"], "Kashi 1v3");
+        assert!(body["playing"]["url"].as_str().unwrap().contains("X-Amz-Signature="));
+        let (_, body) = get(&state, &format!("/api/overlay/{secret}/replay/1"), None).await;
+        assert_eq!(body["playing"], serde_json::Value::Null);
+        assert_eq!(get(&state, &format!("/api/overlay/{secret}/replay/3"), None).await.0, StatusCode::NOT_FOUND);
+
+        let (status, body) = post(&state, "/api/guilds/111/replay/stop", Some(&token), r#"{"streams": [1, 2]}"#).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["playing"], serde_json::json!([]));
     }
 
     #[tokio::test]

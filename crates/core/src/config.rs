@@ -41,6 +41,8 @@ pub struct WebConfig {
     pub site_guild_id: Option<u64>,
     /// `user:password` the site asks for while it isn't public yet.
     pub site_lock: Option<String>,
+    /// The bucket for replay clips; without it, clips are off.
+    pub r2: Option<crate::r2::R2Config>,
 }
 
 fn optional_var(name: &str) -> Option<String> {
@@ -81,6 +83,7 @@ fn web_from_env() -> Result<WebConfig> {
             .unwrap_or_default(),
         site_guild_id: optional_channel("SITE_GUILD_ID")?,
         site_lock: optional_var("SITE_LOCK"),
+        r2: crate::r2::R2Config::from_env(),
     })
 }
 

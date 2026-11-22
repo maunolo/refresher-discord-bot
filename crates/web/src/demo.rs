@@ -355,6 +355,8 @@ pub async fn run(bind: &str, public_url: &str, static_dir: &str) -> Result<()> {
             site_hosts: Vec::new(),
             site_guild_id: Some(GUILD),
             site_lock: None,
+            // Real clips in the demo when the R2_* variables are set.
+            r2: refresher_core::r2::R2Config::from_env(),
         }),
         http: reqwest::Client::new(),
         link,

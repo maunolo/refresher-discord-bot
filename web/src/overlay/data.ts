@@ -133,6 +133,23 @@ export function useCameras(token: string, stream: number): OverlayCameras | null
   return useOverlayData<OverlayCameras>(token, `cameras/${stream}`);
 }
 
+/** The replay a stream was last told to play. */
+export interface OverlayPlay {
+  /** New each time an admin presses play, even for the same clip. */
+  play_id: string;
+  title: string;
+  /** Signed anew on every load, so the play's first one is kept. */
+  url: string;
+  duration_ms: number | null;
+  /** Since it was started, by the server's clock. */
+  elapsed_ms: number;
+}
+
+/** Stream `stream`'s replay (1 or 2); `playing` is `null` once an admin stops it. */
+export function useReplay(token: string, stream: number): { playing: OverlayPlay | null } | null {
+  return useOverlayData<{ playing: OverlayPlay | null }>(token, `replay/${stream}`);
+}
+
 /** The camp's ranking; after a camp ends, its final ranking until another starts. */
 export function useRanking(token: string): OverlayRanking | null {
   return useOverlayData<OverlayRanking>(token, 'ranking');

@@ -231,6 +231,41 @@ export interface OverlayLinks {
   ranking_url: string;
   /** The commentators' cameras: stream 1, then stream 2. */
   camera_urls: string[];
+  /** The replay clips: stream 1, then stream 2. */
+  replay_urls: string[];
+}
+
+/** A replay clip in the R2 bucket (crates/web/src/clips.rs). */
+export interface Clip {
+  id: string;
+  title: string;
+  content_type: string;
+  size_bytes: number;
+  duration_ms: number | null;
+  /** Unix seconds. */
+  created_at: number;
+  /** Plays the video for a few hours. */
+  url: string;
+}
+
+/** The clip a stream was last told to play. */
+export interface ClipPlay {
+  stream: number;
+  play_id: string;
+  clip_id: string;
+  title: string;
+  duration_ms: number | null;
+  /** Since it was started, when the server answered. */
+  elapsed_ms: number;
+}
+
+export interface ClipsState {
+  /** The server has the R2 bucket set up. */
+  enabled: boolean;
+  max_bytes: number;
+  /** Newest first. */
+  clips: Clip[];
+  playing: ClipPlay[];
 }
 
 /** A commentator's VDO.Ninja camera: the ID they push (`&push=`) and the name shown under it. */
@@ -333,6 +368,17 @@ export const api = {
   overlays: (guildId: string) => request<OverlayLinks>(`/api/guilds/${guildId}/overlays`),
   /** New links; the old ones stop working. */
   resetOverlays: (guildId: string) => send<OverlayLinks>('POST', `/api/guilds/${guildId}/overlays`, {}),
+  clips: (guildId: string) => request<ClipsState>(`/api/guilds/${guildId}/clips`),
+  /** A clip waiting for its file, and the link to `PUT` the file to. */
+  newClip: (guildId: string, clip: { title: string; content_type: string; size_bytes: number }) =>
+    post<{ clip_id: string; upload_url: string }>(`/api/guilds/${guildId}/clips`, clip),
+  /** After the upload: the server checks the bucket and lists the clip. */
+  clipReady: (guildId: string, clipId: string, durationMs: number | null) =>
+    post<ClipsState>(`/api/guilds/${guildId}/clips/${clipId}/ready`, { duration_ms: durationMs }),
+  playClip: (guildId: string, clipId: string, streams: number[]) =>
+    post<ClipsState>(`/api/guilds/${guildId}/clips/${clipId}/play`, { streams }),
+  stopReplay: (guildId: string, streams: number[]) => post<ClipsState>(`/api/guilds/${guildId}/replay/stop`, { streams }),
+  deleteClip: (guildId: string, clipId: string) => post<ClipsState>(`/api/guilds/${guildId}/clips/${clipId}/delete`, {}),
   cameras: (guildId: string) => request<CameraConfig>(`/api/guilds/${guildId}/cameras`),
   /** Comes back cleaned up: IDs and the room as VDO.Ninja writes them. */
   saveCameras: (guildId: string, config: CameraConfig) =>

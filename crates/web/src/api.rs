@@ -567,6 +567,8 @@ pub struct OverlayLinksDto {
     ranking_url: String,
     /// The commentators' cameras, one overlay per stream: stream 1, then stream 2.
     camera_urls: Vec<String>,
+    /// The replay clips, one overlay per stream.
+    replay_urls: Vec<String>,
 }
 
 fn overlay_links(state: &AppState, token: &str) -> OverlayLinksDto {
@@ -576,6 +578,10 @@ fn overlay_links(state: &AppState, token: &str) -> OverlayLinksDto {
         ranking_url: format!("{base}/overlay/{token}/ranking"),
         camera_urls: (1..=cameras::STREAMS)
             .map(|n| format!("{base}/overlay/{token}/cameras{n}"))
+            .collect(),
+        replay_urls: refresher_core::clips::STREAMS
+            .iter()
+            .map(|n| format!("{base}/overlay/{token}/replay{n}"))
             .collect(),
     }
 }
@@ -639,7 +645,7 @@ pub async fn reset_guild_overlays(
 }
 
 /// The server behind an overlay link, or 404.
-async fn overlay_guild(state: &AppState, token: &str) -> Result<u64, ApiError> {
+pub(crate) async fn overlay_guild(state: &AppState, token: &str) -> Result<u64, ApiError> {
     match db::overlay_guild(&state.db, token).await? {
         Some(guild_id) => Ok(guild_id as u64),
         None => Err(ApiError::NotFound),
