@@ -1,10 +1,12 @@
 pub mod cameras;
+pub mod clips;
 pub mod config;
 pub mod db;
 pub mod deadlock;
 pub mod draft;
 pub mod link;
 pub mod queue;
+pub mod r2;
 pub mod ranking;
 pub mod settings;
 pub mod stats;

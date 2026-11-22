@@ -2,25 +2,8 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { api, type CameraConfig, type CameraSource, type OverlayLinks, type StreamCameras } from '../api';
 import { CopyButton } from './common';
-
-/** A link without its secret, for showing on a page that may be on stream. */
-function masked(url: string): string {
-  return url.replace(/^https?:\/\//, '').replace(/\/overlay\/[0-9a-f]+\//, '/overlay/•••/');
-}
-
-function OverlayLink({ title, url, label }: { title: string; url: string; label: string }) {
-  return (
-    <div className="link-row">
-      <span className="small">
-        <strong>{title}</strong>
-      </span>
-      <a href={url} target="_blank" rel="noreferrer" className="mono small ellipsis">
-        {masked(url)}
-      </a>
-      <CopyButton text={url} label={label} />
-    </div>
-  );
-}
+import { Replays } from './Replays';
+import { OverlayLink } from './OverlayLink';
 
 /** The camp overlays' links, and a new secret for all of them if one leaks. */
 function CampOverlays({ links, onReset }: { links: OverlayLinks; onReset: () => Promise<void> }) {
@@ -562,6 +545,7 @@ export function OverlaysView({ guildId }: { guildId: string }) {
       )}
       {links ? <CampOverlays links={links} onReset={reset} /> : !error && <p className="muted small">Carregando…</p>}
       <Cameras guildId={guildId} links={links} />
+      <Replays guildId={guildId} links={links} />
     </div>
   );
 }

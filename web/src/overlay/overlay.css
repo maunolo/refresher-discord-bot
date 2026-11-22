@@ -600,3 +600,54 @@ h1 {
   color: #ff6;
   font: 700 14px Consolas, monospace;
 }
+
+/* Replay clips (ReplayOverlay.tsx), 1920×1080: the clip full screen, fading in and out, with a
+   REPLAY tag. Transparent while nothing plays. */
+.replay {
+  position: relative;
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  background: #000;
+  opacity: 0;
+  transition: opacity 400ms ease;
+}
+
+.replay.on {
+  opacity: 1;
+}
+
+.replay video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.replay-tag {
+  position: absolute;
+  left: 48px;
+  top: 40px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 1200px;
+  padding: 8px 18px;
+  border: 1px solid var(--gold);
+  background: rgba(8, 27, 27, 0.85);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.replay-tag strong {
+  color: var(--gold);
+}
+
+.replay-tag span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

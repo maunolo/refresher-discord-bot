@@ -3085,6 +3085,7 @@ mod tests {
                 site_hosts: Vec::new(),
                 site_guild_id: None,
                 site_lock: None,
+                r2: None,
             },
         };
         let env = GuildSettings::from_config(&config);
