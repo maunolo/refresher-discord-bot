@@ -35,18 +35,54 @@ function readDuration(file: File): Promise<number | null> {
   });
 }
 
-/** `PUT`s the file to the bucket, reporting progress from 0 to 1. */
-function putFile(url: string, file: File, onProgress: (share: number) => void): Promise<void> {
+/** A failed upload; `retry` when trying again may work (R2's own errors, a dropped connection). */
+class UploadError extends Error {
+  constructor(
+    message: string,
+    readonly retry: boolean,
+  ) {
+    super(message);
+  }
+}
+
+/** `PUT`s the file to the bucket once, reporting progress from 0 to 1. */
+function putOnce(url: string, file: File, onProgress: (share: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open('PUT', url);
     request.setRequestHeader('Content-Type', file.type);
     request.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
     request.onload = () =>
-      request.status >= 200 && request.status < 300 ? resolve() : reject(new Error(`o bucket respondeu ${request.status}`));
-    request.onerror = () => reject(new Error('a conexão caiu durante o envio'));
+      request.status >= 200 && request.status < 300
+        ? resolve()
+        : reject(new UploadError(`o armazenamento respondeu ${request.status}`, request.status >= 500 || request.status === 429));
+    request.onerror = () => reject(new UploadError('a conexão caiu durante o envio', true));
     request.send(file);
   });
+}
+
+/** Waits before each retry: R2 sometimes fails for a moment ("InternalError") and then works. */
+const RETRY_DELAYS_MS = [1_000, 3_000, 8_000];
+
+/** `PUT`s the file, trying again after R2's passing errors; `onRetry` says which attempt is next. */
+async function putFile(
+  url: string,
+  file: File,
+  onProgress: (share: number) => void,
+  onRetry: (attempt: number) => void,
+): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await putOnce(url, file, onProgress);
+      return;
+    } catch (err) {
+      const delay = RETRY_DELAYS_MS[attempt];
+      if (!(err instanceof UploadError) || !err.retry || delay === undefined) throw err;
+      onRetry(attempt + 2);
+      onProgress(0);
+      await new Promise((resume) => window.setTimeout(resume, delay));
+    }
+  }
 }
 
 function Upload({ guildId, maxBytes, onDone }: { guildId: string; maxBytes: number; onDone: (state: ClipsState) => void }) {
@@ -56,6 +92,8 @@ function Upload({ guildId, maxBytes, onDone }: { guildId: string; maxBytes: numb
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  /** The attempt under way, from the second one. */
+  const [attempt, setAttempt] = useState<number | null>(null);
   const input = useRef<HTMLInputElement>(null);
 
   const choose = async (picked: File | null) => {
@@ -90,7 +128,7 @@ function Upload({ guildId, maxBytes, onDone }: { guildId: string; maxBytes: numb
         content_type: file.type,
         size_bytes: file.size,
       });
-      await putFile(upload_url, file, setProgress);
+      await putFile(upload_url, file, setProgress, setAttempt);
       onDone(await api.clipReady(guildId, clip_id, duration));
       setFile(null);
       setTitle('');
@@ -100,6 +138,7 @@ function Upload({ guildId, maxBytes, onDone }: { guildId: string; maxBytes: numb
       setError(`Não deu para enviar: ${(err as Error).message}.`);
     } finally {
       setProgress(null);
+      setAttempt(null);
     }
   };
 
@@ -186,7 +225,9 @@ function Upload({ guildId, maxBytes, onDone }: { guildId: string; maxBytes: numb
           disabled={sending || !file || duration === null || !title.trim() || !!error}
           onClick={() => void send()}
         >
-          {sending ? `Enviando… ${Math.round((progress ?? 0) * 100)}%` : 'Enviar replay'}
+          {sending
+            ? `${attempt ? `Tentativa ${attempt} · ` : ''}Enviando… ${Math.round((progress ?? 0) * 100)}%`
+            : 'Enviar replay'}
         </button>
         {sending && (
           <div className="progress clip-progress" role="progressbar" aria-valuenow={Math.round((progress ?? 0) * 100)}>
