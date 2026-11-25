@@ -76,7 +76,8 @@ export function Corrections({ camp, match }: { camp: Camp; match: RecentMatch })
 export function QueuePanel({ camp }: { camp: Camp }) {
   const queue = queuedPlayers(camp);
   const upNext = new Set(camp.up_next);
-  const missing = camp.match_size - queue.length;
+  // In the finals, the top of the ranking plays: the queue's length doesn't matter.
+  const missing = camp.match_size - (camp.finals ? camp.up_next.length : queue.length);
   return (
     <aside className="card queue" aria-labelledby="queue-title">
       <div className="card-head">
@@ -89,9 +90,11 @@ export function QueuePanel({ camp }: { camp: Camp }) {
         <CardLink href={routeHref('queue')} label="Abrir fila" />
       </div>
       <p className="muted small">
-        {missing > 0
-          ? `Uma partida precisa de ${camp.match_size}. Faltam ${missing}; os próximos entram quando uma partida terminar.`
-          : 'Marcados com → entram na próxima partida.'}
+        {camp.finals
+          ? `Final: cada partida é jogada pelos ${camp.match_size} primeiros do ranking, não pela fila. Marcados com → jogam a próxima.`
+          : missing > 0
+            ? `Uma partida precisa de ${camp.match_size}. Faltam ${missing}; os próximos entram quando uma partida terminar.`
+            : 'Marcados com → entram na próxima partida.'}
       </p>
       {queue.length === 0 ? (
         <p className="empty">Todo mundo está em partida.</p>

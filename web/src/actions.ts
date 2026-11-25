@@ -72,9 +72,7 @@ export function confirmCancelMatch(camp: Camp, match: Match): Confirm {
   return {
     title: `Cancelar a ${matchName(match)}?`,
     message: `A partida é apagada e os jogadores voltam para a fila nos lugares em que estavam antes dela${out}. Ninguém ganha pontos.`,
-    note: `A mensagem da partida no Discord passa a dizer que ela foi cancelada, e quem estiver em voz vai para o canal Queue.${
-      match.is_final ? ' Depois dá para criar a final de novo.' : ''
-    } Não dá para desfazer.`,
+    note: 'A mensagem da partida no Discord passa a dizer que ela foi cancelada, e quem estiver em voz vai para o canal Queue. Não dá para desfazer.',
     action: 'Cancelar partida',
     tone: 'danger',
   };
@@ -84,16 +82,41 @@ export function confirmCancelMatch(camp: Camp, match: Match): Confirm {
 export function createMatchBlocked(camp: Camp): string | undefined {
   if (camp.can_create_match) return undefined;
   if (camp.status !== 'running') return 'O camp não está em andamento.';
-  if (camp.has_final) return 'A partida final já foi criada.';
+  if (camp.finals) {
+    return camp.open_matches.length > 0
+      ? 'Na final, uma partida por vez: termine a partida aberta antes.'
+      : `A final precisa de ${camp.match_size} jogadores no camp.`;
+  }
   if (camp.open_matches.length >= 2) return 'As duas vagas de partida estão ocupadas.';
   return `Precisa de ${camp.match_size} jogadores na fila.`;
 }
 
-/** Why "Partida final" is off. */
-export function createFinalBlocked(camp: Camp): string | undefined {
-  if (camp.can_create_final) return undefined;
-  if (camp.has_final) return 'A partida final já foi criada.';
-  if (camp.open_matches.length > 0) return 'Termine as partidas abertas antes da final.';
+/** Why "Entrar na final" is off. */
+export function enterFinalsBlocked(camp: Camp): string | undefined {
+  if (camp.can_enter_finals) return undefined;
   if (camp.match_count < 1) return 'Jogue pelo menos uma partida antes da final.';
-  return 'Ainda não dá para criar a final.';
+  return `A final precisa de ${camp.match_size} jogadores no camp.`;
+}
+
+/** Before the camp enters its finals. */
+export function confirmEnterFinals(camp: Camp): Confirm {
+  const open = camp.open_matches.length;
+  return {
+    title: 'Entrar na final?',
+    message: `A partir de agora, cada partida criada é jogada pelos ${camp.match_size} primeiros do ranking (pontos, depois MVPs), em times equilibrados por pontos, e não pela fila. Uma partida por vez, quantas quiserem.`,
+    note: `${
+      open === 0 ? '' : open === 1 ? 'A partida aberta continua normal. ' : 'As partidas abertas continuam normais. '
+    }O bot anuncia a final no canal do camp. Dá para sair da final enquanto não houver uma partida dela aberta.`,
+    action: 'Entrar na final',
+  };
+}
+
+/** Before the camp leaves its finals, back to matches from the queue. */
+export function confirmLeaveFinals(): Confirm {
+  return {
+    title: 'Sair da final?',
+    message: 'As próximas partidas voltam a sair da fila, como antes da final.',
+    note: 'As partidas da final já jogadas continuam valendo. O bot avisa no canal do camp.',
+    action: 'Sair da final',
+  };
 }

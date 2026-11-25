@@ -10,7 +10,7 @@ const MAX_CHANGE = 50;
 
 /**
  * Adds or takes points from one player by hand. The bot announces it in the camp's channel,
- * and it counts for the ranking and the final match like any other point.
+ * and it counts for the ranking and for who plays the finals like any other point.
  */
 export function PointsDialog({ camp, player: picked, onClose }: { camp: Camp; player: Player | null; onClose: () => void }) {
   const { run, busy } = useActions();
@@ -100,7 +100,7 @@ export function PointsDialog({ camp, player: picked, onClose }: { camp: Camp; pl
             )}
           </p>
           <p id="points-help" className="muted small">
-            O bot anuncia o ajuste no canal do camp. Conta no ranking e na escolha da partida final.
+            O bot anuncia o ajuste no canal do camp. Conta no ranking e na escolha de quem joga a final.
           </p>
           <div className="modal-actions">
             <button type="button" className="button button-ghost" onClick={onClose}>

@@ -21,7 +21,17 @@ pub struct CampRow {
     pub match_size: i64,
     pub status: String,
     pub match_count: i64,
+    /// In the finals: every new match is played by the top of the ranking (`next_finalists`),
+    /// one at a time, instead of the front of the queue.
+    pub finals: bool,
 }
+
+/// What `CAMP_COLUMNS` reads, in its order.
+type CampColumns = (String, i64, i64, Option<i64>, i64, i64, String, i64, bool);
+
+/// The columns a `CampRow` reads, for `SELECT {CAMP_COLUMNS} FROM camps`.
+const CAMP_COLUMNS: &str =
+    "id, guild_id, channel_id, board_message_id, target_size, match_size, status, match_count, finals != 0";
 
 impl CampRow {
     pub fn layout(&self) -> CampLayout {
@@ -183,7 +193,6 @@ pub struct CampState {
     pub camp: CampRow,
     pub players: Vec<PlayerRow>,
     pub open_matches: Vec<OpenMatch>,
-    pub has_final: bool,
 }
 
 impl CampState {
@@ -191,19 +200,28 @@ impl CampState {
         self.players.iter().filter(|p| p.location == "queued").count()
     }
 
+    /// In the finals, one match at a time, with nobody in another one.
     pub fn can_create_match(&self) -> bool {
-        self.camp.status == "running"
-            && !self.has_final
-            && self.open_matches.len() < 2
-            && self.queued_count() >= self.camp.layout().match_size
+        let need = self.camp.layout().match_size;
+        if self.camp.status != "running" {
+            return false;
+        }
+        if self.camp.finals {
+            return self.open_matches.is_empty() && self.active_players().count() >= need;
+        }
+        self.open_matches.len() < 2 && self.queued_count() >= need
     }
 
-    pub fn can_create_final(&self) -> bool {
+    pub fn can_enter_finals(&self) -> bool {
         self.camp.status == "running"
-            && !self.has_final
-            && self.open_matches.is_empty()
+            && !self.camp.finals
             && self.camp.match_count >= 1
             && self.active_players().count() >= self.camp.layout().match_size
+    }
+
+    /// Not while a finals match is open.
+    pub fn can_leave_finals(&self) -> bool {
+        self.camp.status == "running" && self.camp.finals && !self.open_matches.iter().any(|m| m.row.is_final)
     }
 
     /// Everyone but the players an admin removed.
@@ -292,6 +310,7 @@ pub async fn create_camp(
         match_size,
         status: "signup".into(),
         match_count: 0,
+        finals: false,
     })
 }
 
@@ -349,12 +368,10 @@ pub async fn set_manual_draft(pool: &SqlitePool, match_id: &str) -> Result<()> {
 }
 
 pub async fn load_camp(pool: &SqlitePool, camp_id: &str) -> Result<Option<CampState>> {
-    let camp = sqlx::query_as::<_, (String, i64, i64, Option<i64>, i64, i64, String, i64)>(
-        "SELECT id, guild_id, channel_id, board_message_id, target_size, match_size, status, match_count FROM camps WHERE id = ?",
-    )
-    .bind(camp_id)
-    .fetch_optional(pool)
-    .await?;
+    let camp = sqlx::query_as::<_, CampColumns>(&format!("SELECT {CAMP_COLUMNS} FROM camps WHERE id = ?"))
+        .bind(camp_id)
+        .fetch_optional(pool)
+        .await?;
     let Some(c) = camp else {
         return Ok(None);
     };
@@ -362,10 +379,9 @@ pub async fn load_camp(pool: &SqlitePool, camp_id: &str) -> Result<Option<CampSt
 }
 
 pub async fn load_active_for_guild(pool: &SqlitePool, guild_id: i64) -> Result<Option<CampState>> {
-    let camp = sqlx::query_as::<_, (String, i64, i64, Option<i64>, i64, i64, String, i64)>(
-        "SELECT id, guild_id, channel_id, board_message_id, target_size, match_size, status, match_count
-         FROM camps WHERE guild_id = ? AND status IN ('signup', 'running') LIMIT 1",
-    )
+    let camp = sqlx::query_as::<_, CampColumns>(&format!(
+        "SELECT {CAMP_COLUMNS} FROM camps WHERE guild_id = ? AND status IN ('signup', 'running') LIMIT 1"
+    ))
     .bind(guild_id)
     .fetch_optional(pool)
     .await?;
@@ -904,10 +920,9 @@ pub async fn load_match_info(
 }
 
 pub async fn load_restore_camps(pool: &SqlitePool) -> Result<Vec<CampState>> {
-    let rows = sqlx::query_as::<_, (String, i64, i64, Option<i64>, i64, i64, String, i64)>(
-        "SELECT id, guild_id, channel_id, board_message_id, target_size, match_size, status, match_count
-         FROM camps WHERE status IN ('signup', 'running')",
-    )
+    let rows = sqlx::query_as::<_, CampColumns>(&format!(
+        "SELECT {CAMP_COLUMNS} FROM camps WHERE status IN ('signup', 'running')"
+    ))
     .fetch_all(pool)
     .await?;
     let mut out = Vec::new();
@@ -920,10 +935,7 @@ pub async fn load_restore_camps(pool: &SqlitePool) -> Result<Vec<CampState>> {
     Ok(out)
 }
 
-async fn assemble_state(
-    pool: &SqlitePool,
-    c: (String, i64, i64, Option<i64>, i64, i64, String, i64),
-) -> Result<CampState> {
+async fn assemble_state(pool: &SqlitePool, c: CampColumns) -> Result<CampState> {
     let camp = CampRow {
         id: c.0,
         guild_id: c.1,
@@ -933,6 +945,7 @@ async fn assemble_state(
         match_size: c.5,
         status: c.6,
         match_count: c.7,
+        finals: c.8,
     };
     #[allow(clippy::type_complexity)]
     let player_rows = sqlx::query_as::<_, (i64, i64, String, Option<i64>, i64, i64, Option<String>, bool)>(
@@ -1021,18 +1034,10 @@ async fn assemble_state(
         });
     }
 
-    let has_final: Option<i64> = sqlx::query_scalar(
-        "SELECT 1 FROM camp_matches WHERE camp_id = ? AND is_final != 0 LIMIT 1",
-    )
-    .bind(&camp.id)
-    .fetch_optional(pool)
-    .await?;
-
     Ok(CampState {
         camp,
         players,
         open_matches,
-        has_final: has_final.is_some(),
     })
 }
 
@@ -1569,7 +1574,8 @@ pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<Vec<i64>> {
     Ok(ids)
 }
 
-/// A match from the front of the queue, giving `points` to its players when it ends.
+/// A match from the front of the queue, or in the finals from the top of the ranking, giving
+/// `points` to its players when it ends.
 pub async fn create_match(
     pool: &SqlitePool,
     camp_id: &str,
@@ -1606,8 +1612,9 @@ pub async fn create_match(
         ));
     }
     let camp_id = state.camp.id.clone();
-    if state.has_final {
-        return Err(anyhow!("a partida final já foi criada"));
+    if state.camp.finals {
+        let match_id = create_finals_match(pool, &state, points).await?;
+        return Ok((camp_id, match_id));
     }
     if state.open_matches.len() >= 2 {
         return Err(anyhow!("as duas vagas de partida já estão ocupadas"));
@@ -1627,39 +1634,107 @@ pub async fn create_match(
     Ok((camp_id, match_id))
 }
 
-pub async fn create_final_match(
-    pool: &SqlitePool,
-    camp_id: &str,
-    guild_id: i64,
-    points: MatchPoints,
-) -> Result<(String, String)> {
-    let points = points.check()?;
-    let mut state = load_camp(pool, camp_id)
+/// From now on every new match is played by the top of the ranking (`next_finalists`). Needs a
+/// scored match first.
+pub async fn enter_finals(pool: &SqlitePool, camp_id: &str) -> Result<()> {
+    let state = load_camp(pool, camp_id)
         .await?
         .ok_or_else(|| anyhow!("camp não encontrado"))?;
-    if state.camp.guild_id != guild_id || state.camp.status != "running" {
-        state = load_active_for_guild(pool, guild_id)
-            .await?
-            .ok_or_else(|| anyhow!("nenhum camp ativo"))?;
-    }
-    if !state.can_create_final() {
-        if state.has_final {
-            return Err(anyhow!("a partida final já foi criada"));
+    if !state.can_enter_finals() {
+        if state.camp.status != "running" {
+            return Err(anyhow!("o camp não está em andamento"));
         }
-        if !state.open_matches.is_empty() {
-            return Err(anyhow!("termine todas as partidas ao vivo antes da final"));
+        if state.camp.finals {
+            return Err(anyhow!("o camp já está na final"));
         }
         if state.camp.match_count < 1 {
             return Err(anyhow!("jogue pelo menos uma partida pontuada antes da final"));
         }
-        return Err(anyhow!("ainda não é possível iniciar a partida final"));
+        return Err(anyhow!(
+            "a final precisa de {} jogadores no camp",
+            state.camp.layout().match_size
+        ));
     }
+    set_finals(pool, camp_id, true).await
+}
 
-    let camp_id = state.camp.id.clone();
+/// Back to matches from the queue, e.g. after entering the finals by mistake. Not while a finals
+/// match is open; the finals matches already played stay finals matches.
+pub async fn leave_finals(pool: &SqlitePool, camp_id: &str) -> Result<()> {
+    let state = load_camp(pool, camp_id)
+        .await?
+        .ok_or_else(|| anyhow!("camp não encontrado"))?;
+    if !state.can_leave_finals() {
+        if state.camp.status != "running" {
+            return Err(anyhow!("o camp não está em andamento"));
+        }
+        if !state.camp.finals {
+            return Err(anyhow!("o camp não está na final"));
+        }
+        return Err(anyhow!("termine ou cancele a partida da final antes de sair da final"));
+    }
+    set_finals(pool, camp_id, false).await
+}
+
+async fn set_finals(pool: &SqlitePool, camp_id: &str, finals: bool) -> Result<()> {
+    sqlx::query("UPDATE camps SET finals = ?, updated_at = ? WHERE id = ? AND status = 'running'")
+        .bind(finals)
+        .bind(now())
+        .bind(camp_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Who the next match would take: the front of the queue, or in the finals the top of the ranking.
+pub async fn up_next(pool: &SqlitePool, state: &CampState) -> Result<Vec<i64>> {
+    if state.camp.finals {
+        return next_finalists(pool, state).await;
+    }
+    let mut queued: Vec<&PlayerRow> = state.players.iter().filter(|p| p.location == "queued").collect();
+    queued.sort_by_key(|p| p.queue_position.unwrap_or(i64::MAX));
+    let seats: Vec<Seat> = queued.into_iter().map(PlayerRow::seat).collect();
+    Ok(queue::pick_match_seats(&seats, state.camp.layout().match_size)
+        .iter()
+        .map(|s| s.user_id)
+        .collect())
+}
+
+/// Who plays the next finals match: the top of the ranking, as many as a match takes, out of
+/// everyone an admin didn't remove (see `queue::select_finalists`).
+pub async fn next_finalists(pool: &SqlitePool, state: &CampState) -> Result<Vec<i64>> {
+    let stats = player_stats(pool, &state.camp.id).await?;
+    let last_final: Vec<i64> = sqlx::query_scalar(
+        "SELECT user_id FROM camp_match_players WHERE match_id = (
+             SELECT id FROM camp_matches WHERE camp_id = ? AND is_final != 0 AND status = 'completed'
+             ORDER BY completed_at DESC, rowid DESC LIMIT 1
+         )",
+    )
+    .bind(&state.camp.id)
+    .fetch_all(pool)
+    .await?;
+    let candidates: Vec<queue::Finalist> = state
+        .active_players()
+        .map(|p| queue::Finalist {
+            user_id: p.user_id,
+            points: p.points,
+            mvps: stats.get(&p.user_id).map_or(0, |s| s.mvps),
+            played_last_final: last_final.contains(&p.user_id),
+            queue_position: p.queue_position,
+        })
+        .collect();
+    Ok(queue::select_finalists(&candidates, state.camp.layout().match_size))
+}
+
+/// A finals match: the top of the ranking (`next_finalists`), with teams balanced by points. Only
+/// with no other match open, so every finalist is free to play.
+async fn create_finals_match(pool: &SqlitePool, state: &CampState, points: MatchPoints) -> Result<String> {
+    if !state.open_matches.is_empty() {
+        return Err(anyhow!("termine as partidas abertas antes da próxima partida da final"));
+    }
+    let camp_id = state.camp.id.as_str();
     let need = state.camp.layout().match_size;
-    let scored: Vec<(i64, i64)> = state.active_players().map(|p| (p.user_id, p.points)).collect();
-    let mut rng = StdRng::from_entropy();
-    let batch = queue::select_finalists(&scored, need, &mut rng);
+    let batch = next_finalists(pool, state).await?;
     if batch.len() < need {
         return Err(anyhow!(
             "precisa de {need} jogadores na final, tem {}",
@@ -1672,10 +1747,10 @@ pub async fn create_final_match(
         .filter_map(|user_id| state.players.iter().find(|p| p.user_id == *user_id))
         .map(PlayerRow::seat)
         .collect();
-    let split = queue::split_match(&seats, true, &mut rng);
+    let split = queue::split_match(&seats, true, &mut StdRng::from_entropy());
 
     let mut tx = pool.begin().await?;
-    let slot = next_free_slot(&mut tx, &camp_id)
+    let slot = next_free_slot(&mut tx, camp_id)
         .await?
         .ok_or_else(|| anyhow!("não há vaga livre para partida"))?;
 
@@ -1694,7 +1769,7 @@ pub async fn create_final_match(
          VALUES (?, ?, ?, 'voting', 0, 1, ?, ?, ?)",
     )
     .bind(&match_id)
-    .bind(&camp_id)
+    .bind(camp_id)
     .bind(slot)
     .bind(points.win)
     .bind(points.loss)
@@ -1709,7 +1784,7 @@ pub async fn create_final_match(
             "UPDATE camp_players SET location = ?, queue_position = NULL WHERE camp_id = ? AND user_id = ?",
         )
         .bind(location)
-        .bind(&camp_id)
+        .bind(camp_id)
         .bind(user_id)
         .execute(&mut *tx)
         .await?;
@@ -1718,19 +1793,19 @@ pub async fn create_final_match(
     let remaining: Vec<i64> = sqlx::query_scalar(
         "SELECT user_id FROM camp_players WHERE camp_id = ? AND location = 'queued' ORDER BY queue_position",
     )
-    .bind(&camp_id)
+    .bind(camp_id)
     .fetch_all(&mut *tx)
     .await?;
     for (i, user_id) in remaining.into_iter().enumerate() {
         sqlx::query("UPDATE camp_players SET queue_position = ? WHERE camp_id = ? AND user_id = ?")
             .bind(i as i64)
-            .bind(&camp_id)
+            .bind(camp_id)
             .bind(user_id)
             .execute(&mut *tx)
             .await?;
     }
     tx.commit().await?;
-    Ok((camp_id, match_id))
+    Ok(match_id)
 }
 
 #[derive(Debug)]
@@ -2532,7 +2607,7 @@ fn restored_queue(before: Option<&str>, returning: &[i64], waiting: &[i64]) -> V
 
 /// Cancels an open match as if it was never created: its players go back to the queue where they
 /// were before it, refreshes included, and the match is deleted. Players an admin removed stay
-/// out. Cancelling the final lets a new final be created.
+/// out.
 pub async fn cancel_match(pool: &SqlitePool, camp_id: &str, match_id: &str) -> Result<()> {
     let mut tx = pool.begin().await?;
     let camp_status: Option<String> = sqlx::query_scalar("SELECT status FROM camps WHERE id = ?")
@@ -2973,11 +3048,12 @@ mod tests {
         close_voting(&pool, &camp.id, &second).await.unwrap();
         start_live_match(&pool, &second, None, None).await.unwrap();
         report_winner(&pool, &camp.id, &second, "hiddenking", None).await.unwrap();
-        create_final_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
+        enter_finals(&pool, &camp.id).await.unwrap();
+        create_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
         let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
         assert!(
             state.open_matches[0].players.iter().all(|p| p.user_id != leaving),
-            "the final leaves removed players out"
+            "the finals leave removed players out"
         );
     }
 
@@ -3025,10 +3101,90 @@ mod tests {
         report_winner(&pool, &camp.id, &id, "hiddenking", None).await.unwrap();
         assert!(cancel_match(&pool, &camp.id, &id).await.is_err(), "finished matches stay");
 
-        let (_, final_id) = create_final_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
+        enter_finals(&pool, &camp.id).await.unwrap();
+        let (_, final_id) = create_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
         cancel_match(&pool, &camp.id, &final_id).await.unwrap();
         let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
-        assert!(!state.has_final && state.can_create_final(), "the final can be made again");
+        assert!(state.camp.finals && state.can_create_match(), "the finals match can be made again");
+    }
+
+    /// Finishes an open match: votes closed, live, `side` wins with `mvp`.
+    async fn play(pool: &SqlitePool, camp_id: &str, match_id: &str, side: &str, mvp: Option<i64>) {
+        close_voting(pool, camp_id, match_id).await.unwrap();
+        start_live_match(pool, match_id, None, None).await.unwrap();
+        report_winner(pool, camp_id, match_id, side, mvp).await.unwrap();
+    }
+
+    fn roster(state: &CampState) -> Vec<i64> {
+        let mut ids: Vec<i64> = state.open_matches[0].players.iter().map(|p| p.user_id).collect();
+        ids.sort();
+        ids
+    }
+
+    #[tokio::test]
+    async fn the_finals_play_the_top_of_the_ranking_match_after_match() {
+        let pool = memory_db().await;
+        let camp = create_camp(&pool, 1, 10, 4, 2).await.unwrap();
+        add_players(&pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
+        start_queue(&pool, &camp.id).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert!(!state.can_enter_finals(), "a scored match first");
+        assert!(enter_finals(&pool, &camp.id).await.is_err());
+
+        // Two 1v1s from the queue: 1 beats 2, then 3 beats 4 as MVP. 3 ranks first, then 1.
+        reorder_queue(&pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
+        for (winner, loser, mvp) in [(1, 2, None), (3, 4, Some(3))] {
+            let (_, id) = create_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
+            let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+            assert_eq!(roster(&state), [winner, loser]);
+            let side = state.open_matches[0].players.iter().find(|p| p.user_id == winner).unwrap().side.clone();
+            play(&pool, &camp.id, &id, &side, mvp).await;
+        }
+
+        enter_finals(&pool, &camp.id).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert!(state.camp.finals && !state.can_enter_finals());
+        assert_eq!(next_finalists(&pool, &state).await.unwrap(), [3, 1]);
+
+        // Worth 2 to the winner and nothing to the loser: 3 wins, 1 stays on 1 point.
+        let (_, first) = create_match(&pool, &camp.id, 1, MatchPoints { win: 2, loss: 0 }).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert!(state.open_matches[0].row.is_final);
+        assert_eq!(roster(&state), [1, 3]);
+        assert!(!state.can_create_match() && !state.can_leave_finals(), "one finals match at a time");
+        assert!(create_match(&pool, &camp.id, 1, MatchPoints::default()).await.is_err());
+        let three = state.open_matches[0].players.iter().find(|p| p.user_id == 3).unwrap().side.clone();
+        play(&pool, &camp.id, &first, &three, Some(3)).await;
+
+        // Another finals match, from the ranking again rather than the queue's front (2 and 4).
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert!(state.can_create_match());
+        let (_, second) = create_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert_eq!(roster(&state), [1, 3]);
+        cancel_match(&pool, &camp.id, &second).await.unwrap();
+
+        // 4 catches up with 1 by hand: tied on points and MVPs, 1 keeps the seat from the last
+        // finals match. One more point and 4 is in.
+        adjust_points(&pool, &camp.id, 4, 1).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert_eq!(next_finalists(&pool, &state).await.unwrap(), [3, 1]);
+        adjust_points(&pool, &camp.id, 4, 1).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert_eq!(next_finalists(&pool, &state).await.unwrap(), [3, 4]);
+
+        // Leaving the finals goes back to the queue's front.
+        leave_finals(&pool, &camp.id).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert!(!state.camp.finals && state.can_enter_finals());
+        let front: Vec<i64> = state.players.iter().filter(|p| p.location == "queued").take(2).map(|p| p.user_id).collect();
+        create_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert!(!state.open_matches[0].row.is_final);
+        let mut front = front;
+        front.sort();
+        assert_eq!(roster(&state), front);
+        assert!(leave_finals(&pool, &camp.id).await.is_err(), "not in the finals");
     }
 
     #[test]

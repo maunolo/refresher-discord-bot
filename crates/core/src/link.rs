@@ -56,8 +56,12 @@ pub struct Profile {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CampAction {
     /// `points` go to each player when the match ends: `win` to the winners, `loss` to the losers.
+    /// In the finals, the match is played by the top of the ranking instead of the queue's front.
     CreateMatch { points: MatchPoints },
-    CreateFinal { points: MatchPoints },
+    /// From now on every new match is played by the top of the ranking, one at a time.
+    EnterFinals,
+    /// Back to matches from the queue. Not while a finals match is open.
+    LeaveFinals,
     /// Ends the refresh vote now and keeps the teams.
     CloseVote { match_id: String },
     /// Ends the refresh vote now by re-sorting the teams, as if the refresh had passed.

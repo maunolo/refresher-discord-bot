@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import { createFinalBlocked, createMatchBlocked, useActions } from '../actions';
+import { confirmEnterFinals, confirmLeaveFinals, createMatchBlocked, enterFinalsBlocked, useActions } from '../actions';
 import type { Camp, CampSummary, Guild, Me } from '../api';
 import { campStatusLabel, formatLabel } from '../camp';
 import { CreateMatchDialog } from './CreateMatchDialog';
@@ -58,37 +58,53 @@ function GuildPicker({ guilds, value, onChange }: { guilds: Guild[]; value: stri
   );
 }
 
+function FinalsButton({ camp }: { camp: Camp }) {
+  const { run, busy } = useActions();
+  if (camp.finals) {
+    return (
+      <button
+        type="button"
+        className="button button-ghost"
+        disabled={busy || !camp.can_leave_finals}
+        title={camp.can_leave_finals ? 'Voltar a criar as partidas pela fila.' : 'Termine ou cancele a partida da final antes.'}
+        onClick={() => run({ type: 'leave_finals' }, { confirm: confirmLeaveFinals() })}
+      >
+        Sair da final
+      </button>
+    );
+  }
+  const blocked = enterFinalsBlocked(camp);
+  return (
+    <button
+      type="button"
+      className="button"
+      disabled={busy || blocked !== undefined}
+      title={blocked ?? `Daqui em diante, as partidas são entre os ${camp.match_size} primeiros do ranking.`}
+      onClick={() => run({ type: 'enter_finals' }, { confirm: confirmEnterFinals(camp) })}
+    >
+      Entrar na final
+    </button>
+  );
+}
+
 function CampButtons({ camp }: { camp: Camp }) {
   const { busy } = useActions();
-  const [creating, setCreating] = useState<'match' | 'final' | null>(null);
+  const [creating, setCreating] = useState(false);
   const matchBlocked = createMatchBlocked(camp);
-  const finalBlocked = createFinalBlocked(camp);
   return (
     <>
+      {camp.finals && <span className="pill pill-final">Final</span>}
       <button
         type="button"
         className="button"
         disabled={busy || matchBlocked !== undefined}
         title={matchBlocked}
-        onClick={() => setCreating('match')}
+        onClick={() => setCreating(true)}
       >
-        Criar partida
+        {camp.finals ? 'Criar partida da final' : 'Criar partida'}
       </button>
-      <button
-        type="button"
-        className="button"
-        disabled={busy || finalBlocked !== undefined}
-        title={finalBlocked}
-        onClick={() => setCreating('final')}
-      >
-        Partida final
-      </button>
-      <CreateMatchDialog
-        camp={camp}
-        final={creating === 'final'}
-        open={creating !== null}
-        onClose={() => setCreating(null)}
-      />
+      <FinalsButton camp={camp} />
+      <CreateMatchDialog camp={camp} open={creating} onClose={() => setCreating(false)} />
     </>
   );
 }

@@ -46,7 +46,9 @@ function NoOpenMatch({ camp }: { camp: Camp }) {
     <section className="card empty-card">
       <h2>Nenhuma partida aberta</h2>
       <p className="muted small">
-        Crie uma partida para tirar os próximos jogadores da fila
+        {camp.finals
+          ? `Crie a próxima partida da final com os ${camp.match_size} primeiros do ranking`
+          : 'Crie uma partida para tirar os próximos jogadores da fila'}
         {canEnd ? ', ou encerre o camp se o dia acabou.' : '.'}
       </p>
       {canEnd && (

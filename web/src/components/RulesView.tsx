@@ -44,9 +44,9 @@ export function RulesView() {
       <section className="card" aria-labelledby="rules-pick">
         <h2 id="rules-pick">2. Quem joga uma partida</h2>
         <p>
-          <strong>Criar partida</strong> precisa de uma vaga livre (no máximo duas partidas ao mesmo tempo), da final
-          ainda não criada e de pelo menos 12 jogadores na fila. Ela pega <strong>os 12 primeiros da fila</strong>, e mais
-          nada conta: S rank, função e pontos não dão prioridade. A → no quadro marca esses 12.
+          Fora da final, <strong>Criar partida</strong> precisa de uma vaga livre (no máximo duas partidas ao mesmo tempo)
+          e de pelo menos 12 jogadores na fila. Ela pega <strong>os 12 primeiros da fila</strong>, e mais nada conta: S
+          rank, função e pontos não dão prioridade. A → no quadro marca esses 12.
         </p>
         <p>
           Os admins podem reordenar a fila à mão em <strong>Fila</strong>; essa ordem vale até o próximo resultado. Ao criar
@@ -150,11 +150,22 @@ export function RulesView() {
       <section className="card" aria-labelledby="rules-final">
         <h2 id="rules-final">7. A final</h2>
         <p>
-          <strong>Partida final</strong> exige nenhuma partida aberta e pelo menos uma já pontuada. Ela pega{' '}
-          <strong>os 12 com mais pontos</strong>, com sorteio nos empates pelas últimas vagas, e não olha a fila. Os times
-          são divididos pelas regras da divisão, incluindo os pontos. Depois dela não dá para criar outra partida, e{' '}
-          <strong>Encerrar camp</strong> posta o ranking.
+          <strong>Entrar na final</strong> exige pelo menos uma partida já pontuada. A partir daí, cada partida criada pega{' '}
+          <strong>os 12 primeiros do ranking</strong> (pontos, depois MVPs) em vez da frente da fila, e a → no quadro marca
+          esses 12.
         </p>
+        <ul>
+          <li>
+            O ranking é visto de novo a cada partida: ajustes de pontos e jogadores removidos contam. No empate em pontos e
+            MVPs pela última vaga, fica quem jogou a última partida da final; depois, a ordem da fila.
+          </li>
+          <li>Os times são divididos pelas regras da divisão, incluindo os pontos.</li>
+          <li>Uma partida por vez, quantas forem precisas. Cancelar uma delas não tira o camp da final.</li>
+          <li>
+            <strong>Sair da final</strong> volta a criar as partidas pela fila, desde que nenhuma partida da final esteja
+            aberta. <strong>Encerrar camp</strong> posta o ranking.
+          </li>
+        </ul>
       </section>
 
       <section className="card" aria-labelledby="rules-example">

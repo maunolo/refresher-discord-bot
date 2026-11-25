@@ -54,9 +54,8 @@ impl DemoLink {
             CampAction::CreateMatch { points } => {
                 db::create_match(pool, camp_id, guild, points).await?;
             }
-            CampAction::CreateFinal { points } => {
-                db::create_final_match(pool, camp_id, guild, points).await?;
-            }
+            CampAction::EnterFinals => db::enter_finals(pool, camp_id).await?,
+            CampAction::LeaveFinals => db::leave_finals(pool, camp_id).await?,
             CampAction::CloseVote { match_id } => {
                 db::close_voting(pool, camp_id, &match_id).await?;
             }
@@ -362,6 +361,7 @@ pub async fn run(bind: &str, public_url: &str, static_dir: &str) -> Result<()> {
         link,
         default_settings: demo_settings(),
         site_cache: Default::default(),
+        site_access: Default::default(),
     };
     let login_state = state.clone();
     let vote_state = state.clone();

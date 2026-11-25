@@ -16,7 +16,7 @@ use refresher_core::db::{
 use refresher_core::cameras::{self, CameraConfig, StreamView};
 use refresher_core::draft::{self, DraftView};
 use refresher_core::link::{CampAction, Channel, Profile};
-use refresher_core::queue::{self, CampSize, Role};
+use refresher_core::queue::{CampSize, Role};
 use refresher_core::ranking::{rank_with_movement, LatestResult, Standing};
 use refresher_core::settings::{GuildSettings, DRAFT_RESERVES, DRAFT_TIMERS, MAX_DRAFT_BANS};
 use serde::{Deserialize, Serialize};
@@ -79,13 +79,16 @@ pub struct CampDto {
     target_size: i64,
     match_size: i64,
     match_count: i64,
-    has_final: bool,
+    /// In the finals: every new match is played by the top of the ranking, one at a time.
+    finals: bool,
     can_create_match: bool,
-    can_create_final: bool,
+    can_enter_finals: bool,
+    /// Not while a finals match is open.
+    can_leave_finals: bool,
     /// Refresh votes one team needs to re-sort a match.
     refresh_votes: usize,
     players: Vec<PlayerDto>,
-    /// Who the next match would take from the queue, by the bot's seating rule.
+    /// Who the next match would take: the queue's front, or in the finals the top of the ranking.
     up_next: Vec<String>,
     open_matches: Vec<MatchDto>,
     recent_matches: Vec<RecentMatchDto>,
@@ -291,20 +294,6 @@ fn match_dto(camp: &CampRow, row: &MatchRow, players: &[MatchPlayerRow], votes: 
     }
 }
 
-fn up_next(state: &CampState) -> Vec<String> {
-    let mut queued: Vec<&PlayerRow> = state
-        .players
-        .iter()
-        .filter(|p| p.location == "queued")
-        .collect();
-    queued.sort_by_key(|p| p.queue_position.unwrap_or(i64::MAX));
-    let seats: Vec<queue::Seat> = queued.iter().map(|p| p.seat()).collect();
-    queue::pick_match_seats(&seats, state.camp.layout().match_size)
-        .iter()
-        .map(|s| s.user_id.to_string())
-        .collect()
-}
-
 fn recent_dto(state: &CampState, recent: &[RecentMatch]) -> Vec<RecentMatchDto> {
     // Removed players are out of the queue but in no other match either.
     let queued = |user_id: i64| {
@@ -342,8 +331,10 @@ fn recent_dto(state: &CampState, recent: &[RecentMatch]) -> Vec<RecentMatchDto> 
         .collect()
 }
 
+#[allow(clippy::too_many_arguments)]
 fn camp_dto(
     state: &CampState,
+    up_next: &[i64],
     recent: &[RecentMatch],
     stats: &HashMap<i64, PlayerStats>,
     profiles: &HashMap<u64, Profile>,
@@ -359,9 +350,10 @@ fn camp_dto(
         target_size: state.camp.target_size,
         match_size: state.camp.match_size,
         match_count: state.camp.match_count,
-        has_final: state.has_final,
+        finals: state.camp.finals,
         can_create_match: state.can_create_match(),
-        can_create_final: state.can_create_final(),
+        can_enter_finals: state.can_enter_finals(),
+        can_leave_finals: state.can_leave_finals(),
         refresh_votes: state.camp.layout().refresh_votes,
         players: state
             .players
@@ -384,7 +376,7 @@ fn camp_dto(
                 }
             })
             .collect(),
-        up_next: up_next(state),
+        up_next: up_next.iter().map(|id| id.to_string()).collect(),
         open_matches: state
             .open_matches
             .iter()
@@ -516,7 +508,8 @@ async fn camp_response(state: &AppState, camp: CampState) -> Result<Json<CampDto
     };
     let (settings, _) = db::guild_settings(&state.db, camp.camp.guild_id, &state.default_settings).await?;
     let next_points = db::last_match_points(&state.db, &camp.camp.id).await?;
-    Ok(Json(camp_dto(&camp, &recent, &stats, &profiles, queue_voice, &settings, next_points)))
+    let up_next = db::up_next(&state.db, &camp).await?;
+    Ok(Json(camp_dto(&camp, &up_next, &recent, &stats, &profiles, queue_voice, &settings, next_points)))
 }
 
 /// A server the admin manages and the bot is in, or 404.
@@ -1000,12 +993,8 @@ pub enum ActionRequest {
         #[serde(default)]
         loss_points: i64,
     },
-    CreateFinal {
-        #[serde(default = "default_win_points")]
-        win_points: i64,
-        #[serde(default)]
-        loss_points: i64,
-    },
+    EnterFinals,
+    LeaveFinals,
     CloseVote { match_id: String },
     RefreshTeams { match_id: String },
     StartDraft { match_id: String },
@@ -1060,9 +1049,8 @@ impl TryFrom<ActionRequest> for CampAction {
             ActionRequest::CreateMatch { win_points, loss_points } => CampAction::CreateMatch {
                 points: match_points(win_points, loss_points)?,
             },
-            ActionRequest::CreateFinal { win_points, loss_points } => CampAction::CreateFinal {
-                points: match_points(win_points, loss_points)?,
-            },
+            ActionRequest::EnterFinals => CampAction::EnterFinals,
+            ActionRequest::LeaveFinals => CampAction::LeaveFinals,
             ActionRequest::CloseVote { match_id } => CampAction::CloseVote { match_id },
             ActionRequest::RefreshTeams { match_id } => CampAction::RefreshTeams { match_id },
             ActionRequest::StartDraft { match_id } => CampAction::StartDraft { match_id },

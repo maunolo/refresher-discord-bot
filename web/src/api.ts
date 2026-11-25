@@ -36,11 +36,15 @@ export interface Camp {
   target_size: number;
   match_size: number;
   match_count: number;
-  has_final: boolean;
+  /** In the finals: every new match is played by the top of the ranking, one at a time. */
+  finals: boolean;
   can_create_match: boolean;
-  can_create_final: boolean;
+  can_enter_finals: boolean;
+  /** Not while a finals match is open. */
+  can_leave_finals: boolean;
   refresh_votes: number;
   players: Player[];
+  /** Who the next match would take: the queue's front, or in the finals the top of the ranking. */
   up_next: string[];
   open_matches: Match[];
   recent_matches: RecentMatch[];
@@ -169,7 +173,8 @@ export interface Member {
 /** An admin action; the bot makes the change and does its Discord side. */
 export type CampAction =
   | { type: 'create_match'; win_points: number; loss_points: number }
-  | { type: 'create_final'; win_points: number; loss_points: number }
+  | { type: 'enter_finals' }
+  | { type: 'leave_finals' }
   | { type: 'close_vote'; match_id: string }
   | { type: 'refresh_teams'; match_id: string }
   | { type: 'start_draft'; match_id: string }
@@ -312,6 +317,10 @@ export interface SiteState {
   /** Finished matches of the camp, and how many have a Deadlock scoreboard for the site. */
   finished_matches: number;
   scoreboards: number;
+  /** `SITE_LOCK` is set: the site asks for its login unless admins unlocked it. */
+  lock_configured: boolean;
+  /** The site asks for the login now. */
+  locked: boolean;
 }
 
 /** A finished match's scoreboard lookup on the Deadlock API (crates/web/src/scoreboard.rs). */
@@ -397,6 +406,9 @@ export const api = {
   saveSite: (campId: string, info: SiteInfo) => send<SiteState>('PUT', `/api/camps/${campId}/site`, { info }),
   /** The site shows this camp's ranking, matches and info from now on. */
   publishSite: (campId: string) => post<SiteState>(`/api/camps/${campId}/site/publish`, {}),
+  /** Opens the whole site to everyone, or asks for the `SITE_LOCK` login again. */
+  lockSite: (campId: string, locked: boolean) =>
+    send<SiteState>('PUT', `/api/camps/${campId}/site/lock`, { locked }),
   matchStats: (matchId: string) => request<MatchStats>(`/api/matches/${matchId}/stats`),
   /** Looks the match up on the Deadlock API by this ID; the same ID again retries. */
   setDeadlockId: (matchId: string, deadlockMatchId: string) =>
