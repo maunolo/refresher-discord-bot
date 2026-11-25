@@ -27,7 +27,8 @@ pub async fn run(
     let camp_id = camp.camp.id.as_str();
     match action {
         CampAction::CreateMatch { points } => create_match(discord, data, guild_id, camp_id, *points).await,
-        CampAction::CreateFinal { points } => create_final(discord, data, guild_id, camp_id, *points).await,
+        CampAction::EnterFinals => enter_finals(discord, data, camp_id).await,
+        CampAction::LeaveFinals => leave_finals(discord, data, camp_id).await,
         CampAction::CloseVote { match_id } => close_vote(discord, data, camp_id, &normalize(match_id)).await,
         CampAction::RefreshTeams { match_id } => {
             refresh_teams(discord, data, guild_id, camp_id, &normalize(match_id)).await
@@ -217,29 +218,48 @@ async fn create_match(
     let state = load(data, &camp_id).await?;
     sync::redraw_all(discord, &data.db, &state).await?;
     if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
+        let created = if open.row.is_final {
+            format!(
+                "Partida da final criada com os {} primeiros do ranking, em times equilibrados por pontos.",
+                state.camp.layout().match_size
+            )
+        } else {
+            format!("Partida {} criada.", open.row.slot)
+        };
         let headline = format!(
-            "Partida {} criada. Cada time vai para o seu canal de voz: conversem e votem **Refresh** ou **Manter times**. Depois um admin inicia o draft.",
-            open.row.slot
+            "{created} Cada time vai para o seu canal de voz: conversem e votem **Refresh** ou **Manter times**. Depois um admin inicia o draft."
         );
         announce_new_match(discord, data, guild_id, &state, open, &headline).await?;
     }
     Ok(())
 }
 
-async fn create_final(
-    discord: &Discord,
-    data: &Data,
-    guild_id: GuildId,
-    camp_id: &str,
-    points: db::MatchPoints,
-) -> Result<()> {
-    let (camp_id, match_id) = db::create_final_match(&data.db, camp_id, guild_id.get() as i64, points).await?;
-    let state = load(data, &camp_id).await?;
-    sync::redraw_all(discord, &data.db, &state).await?;
-    if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
-        let headline = "Partida final criada com os jogadores de maior pontuação. Cada time vai para o seu canal de voz: conversem e votem **Refresh** ou **Manter times**. Depois um admin inicia o draft.";
-        announce_new_match(discord, data, guild_id, &state, open, headline).await?;
-    }
+async fn enter_finals(discord: &Discord, data: &Data, camp_id: &str) -> Result<()> {
+    db::enter_finals(&data.db, camp_id).await?;
+    let state = load(data, camp_id).await?;
+    sync::redraw_board(discord, &data.db, &state).await?;
+    let _ = channel(&state)
+        .say(
+            &discord.http,
+            format!(
+                "**Começou a final do camp `{camp_id}`.** A partir de agora, cada partida é jogada pelos {} primeiros do ranking (pontos, depois MVPs), em times equilibrados por pontos. Quem está fora deles fica na fila. A **→** na fila marca quem joga a próxima.",
+                state.camp.layout().match_size
+            ),
+        )
+        .await;
+    Ok(())
+}
+
+async fn leave_finals(discord: &Discord, data: &Data, camp_id: &str) -> Result<()> {
+    db::leave_finals(&data.db, camp_id).await?;
+    let state = load(data, camp_id).await?;
+    sync::redraw_board(discord, &data.db, &state).await?;
+    let _ = channel(&state)
+        .say(
+            &discord.http,
+            format!("Um admin desfez a final do camp `{camp_id}`: as próximas partidas voltam a sair da fila."),
+        )
+        .await;
     Ok(())
 }
 

@@ -15,7 +15,7 @@ pub async fn redraw_board(discord: &Discord, pool: &SqlitePool, state: &CampStat
     let embed = if state.camp.status == "signup" {
         crate::ui::signup_embed(state)
     } else {
-        crate::ui::board_embed(state)
+        crate::ui::board_embed(state, &db::up_next(pool, state).await?)
     };
     if let Some(id) = state.camp.board_message_id {
         // No components: this also clears the admin buttons older versions put here.

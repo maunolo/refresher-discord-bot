@@ -6,6 +6,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path as FsPath, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -17,7 +18,7 @@ use axum::http::header::{
 use axum::http::{HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Redirect, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
@@ -402,6 +403,54 @@ async fn shared_site_data(state: &AppState) -> Result<Arc<SiteData>> {
     Ok(data)
 }
 
+/// Whether admins opened the site to everyone while `SITE_LOCK` is set. Read from the database on
+/// the first request, then kept here: every file of the site asks.
+#[derive(Default)]
+pub struct SiteAccess(tokio::sync::OnceCell<AtomicBool>);
+
+impl SiteAccess {
+    async fn unlocked(&self, state: &AppState) -> Result<&AtomicBool> {
+        self.0
+            .get_or_try_init(|| async {
+                let unlocked = match state.config.site_guild_id {
+                    Some(guild_id) => sqlx::query_scalar::<_, bool>(
+                        "SELECT unlocked != 0 FROM site_access WHERE guild_id = ?",
+                    )
+                    .bind(guild_id as i64)
+                    .fetch_optional(&state.db)
+                    .await?
+                    .unwrap_or(false),
+                    None => false,
+                };
+                Ok(AtomicBool::new(unlocked))
+            })
+            .await
+    }
+
+    /// Whether the site asks for `SITE_LOCK`'s login now.
+    async fn locked(&self, state: &AppState) -> Result<bool> {
+        if state.config.site_lock.is_none() {
+            return Ok(false);
+        }
+        Ok(!self.unlocked(state).await?.load(Ordering::Relaxed))
+    }
+
+    async fn set_locked(&self, state: &AppState, guild_id: i64, locked: bool) -> Result<()> {
+        sqlx::query(
+            "INSERT INTO site_access (guild_id, unlocked, updated_at) VALUES (?, ?, ?)
+             ON CONFLICT (guild_id) DO UPDATE SET unlocked = excluded.unlocked, updated_at = excluded.updated_at",
+        )
+        .bind(guild_id)
+        .bind(!locked)
+        .bind(db::now())
+        .execute(&state.db)
+        .await?;
+        // After the save, so a first read racing with it can't keep the old value.
+        self.unlocked(state).await?.store(!locked, Ordering::Relaxed);
+        Ok(())
+    }
+}
+
 // --- Dashboard API ---
 
 #[derive(Serialize)]
@@ -413,11 +462,20 @@ pub struct SiteDto {
     /// Finished matches of the camp, and how many of them have a scoreboard for the site.
     finished_matches: usize,
     scoreboards: usize,
+    /// `SITE_LOCK` is set: the site asks for its login unless admins unlocked it.
+    lock_configured: bool,
+    /// The site asks for the login now.
+    locked: bool,
 }
 
 #[derive(Deserialize)]
 pub struct SiteRequest {
     info: Info,
+}
+
+#[derive(Deserialize)]
+pub struct LockRequest {
+    locked: bool,
 }
 
 /// A camp of the site's server that the admin manages, or 404.
@@ -445,6 +503,8 @@ async fn site_dto(state: &AppState, camp_id: &str, guild_id: i64) -> Result<Site
         info: load_info(&state.db, camp_id).await?,
         finished_matches: finished,
         scoreboards: stats::camp_scoreboards(&state.db, camp_id).await?.len(),
+        lock_configured: state.config.site_lock.is_some(),
+        locked: state.site_access.locked(state).await?,
     })
 }
 
@@ -486,10 +546,32 @@ pub async fn publish_camp_site(
     Ok(Json(site_dto(&state, &camp_id, guild_id).await?))
 }
 
+/// Opens the whole site to everyone, or asks for `SITE_LOCK`'s login again. It's the site's
+/// setting, whichever of its server's camps the admin has open.
+pub async fn lock_site(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(camp_id): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<SiteDto>, ApiError> {
+    let (camp_id, guild_id) = site_camp(&state, &session, &camp_id).await?;
+    let request: LockRequest =
+        serde_json::from_value(body).map_err(|err| ApiError::BadRequest(format!("Dados inválidos: {err}")))?;
+    if state.config.site_lock.is_none() {
+        return Err(ApiError::Conflict(
+            "O site não tem SITE_LOCK: já está aberto para todos.".to_string(),
+        ));
+    }
+    state.site_access.set_locked(&state, guild_id, request.locked).await?;
+    tracing::info!(user_id = session.user_id, locked = request.locked, "site lock changed from the web");
+    Ok(Json(site_dto(&state, &camp_id, guild_id).await?))
+}
+
 pub fn api_routes() -> Router<AppState> {
     Router::new()
         .route("/camps/{camp_id}/site", get(camp_site).put(save_camp_site))
         .route("/camps/{camp_id}/site/publish", post(publish_camp_site))
+        .route("/camps/{camp_id}/site/lock", put(lock_site))
 }
 
 // --- The public site ---
@@ -568,9 +650,15 @@ async fn cache_headers(request: Request, next: Next) -> Response {
     response
 }
 
-/// While `SITE_LOCK` is set, the whole site asks for that user and password.
-async fn require_lock(State(expected): State<Option<String>>, request: Request, next: Next) -> Response {
-    if let Some(expected) = expected {
+/// While `SITE_LOCK` is set, the whole site asks for that user and password, until admins unlock
+/// it on the Site tab.
+async fn require_lock(State(state): State<AppState>, request: Request, next: Next) -> Response {
+    let locked = state.site_access.locked(&state).await.unwrap_or_else(|err| {
+        tracing::error!("could not read whether the site is unlocked: {err:#}");
+        true
+    });
+    if let Some(lock) = state.config.site_lock.as_ref().filter(|_| locked) {
+        let expected = format!("Basic {}", STANDARD.encode(lock));
         let given = request.headers().get(AUTHORIZATION).and_then(|v| v.to_str().ok());
         if given != Some(expected.as_str()) {
             return (
@@ -586,7 +674,6 @@ async fn require_lock(State(expected): State<Option<String>>, request: Request, 
 
 /// The site's pages, assets, data scripts and JSON, from its root.
 pub fn router(state: AppState) -> Router {
-    let lock = state.config.site_lock.as_ref().map(|l| format!("Basic {}", STANDARD.encode(l)));
     let files = ServeDir::new(PathBuf::from(&state.config.site_dir));
     Router::new()
         .route("/info.js", get(info_js))
@@ -600,7 +687,7 @@ pub fn router(state: AppState) -> Router {
         .route("/staff/{*rest}", get(staff))
         .fallback_service(files)
         .layer(middleware::from_fn(cache_headers))
-        .layer(middleware::from_fn_with_state(lock, require_lock))
+        .layer(middleware::from_fn_with_state(state.clone(), require_lock))
         .with_state(state)
 }
 

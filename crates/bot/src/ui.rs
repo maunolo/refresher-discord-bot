@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use serenity::all::{ButtonStyle, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedFooter, Mentionable, UserId};
 
 use crate::db::{CampState, MatchPlayerRow, MatchPoints, OpenMatch, PlayerRow};
-use crate::queue::{self, Role};
+use crate::queue::Role;
 use crate::ranking::{self, Standing};
 
 pub const S_RANK_TAG: &str = "⭐";
@@ -190,17 +190,21 @@ fn pack_field_chunks(lines: &[String]) -> Vec<String> {
     chunks
 }
 
-pub fn board_embed(state: &CampState) -> CreateEmbed {
+/// `up_next`: who the next match would take (`db::up_next`).
+pub fn board_embed(state: &CampState, up_next: &[i64]) -> CreateEmbed {
     let queue = queued_players(state);
-    let seats: Vec<queue::Seat> = queue.iter().map(|p| p.seat()).collect();
-    let up_next: Vec<i64> = queue::pick_match_seats(&seats, state.camp.layout().match_size)
-        .iter()
-        .map(|s| s.user_id)
-        .collect();
+    let picking = if state.camp.finals {
+        format!(
+            "**Final:** cada partida é jogada pelos {} primeiros do ranking (pontos, depois MVPs). **→** indica quem joga a próxima.",
+            state.camp.layout().match_size
+        )
+    } else {
+        "Os próximos times saem da fila quando um admin cria a partida. **→** indica quem entra no próximo sorteio.".to_string()
+    };
     let mut embed = CreateEmbed::new()
         .title(format!("Camp de Deadlock {}", state.camp.id))
         .description(format!(
-            "Partidas jogadas: **{}** · Elenco: **{}**{}\nOs próximos times saem da fila quando um admin cria a partida. **→** indica quem entra no próximo sorteio.\nFunções: {ROLE_LEGEND}",
+            "Partidas jogadas: **{}** · Elenco: **{}**{}\n{picking}\nFunções: {ROLE_LEGEND}",
             state.camp.match_count,
             state.active_players().count(),
             match state.players.iter().filter(|p| p.removed).count() {

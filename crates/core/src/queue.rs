@@ -84,24 +84,34 @@ impl CampLayout {
     }
 }
 
-/// Top `n` players by points. Equal scores are shuffled so ties for the last seats are fair.
-pub fn select_finalists(players: &[(i64, i64)], n: usize, rng: &mut impl Rng) -> Vec<i64> {
-    let mut by_points: std::collections::BTreeMap<i64, Vec<i64>> =
-        std::collections::BTreeMap::new();
-    for (user_id, points) in players {
-        by_points.entry(*points).or_default().push(*user_id);
-    }
-    let mut result = Vec::with_capacity(n.min(players.len()));
-    for (_points, mut ids) in by_points.into_iter().rev() {
-        ids.shuffle(rng);
-        for user_id in ids {
-            result.push(user_id);
-            if result.len() == n {
-                return result;
-            }
-        }
-    }
-    result
+/// A player the finals can seat.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Finalist {
+    pub user_id: i64,
+    pub points: i64,
+    /// Finished matches as MVP: the ranking's tie-breaker.
+    pub mvps: i64,
+    /// Played the camp's latest finals match.
+    pub played_last_final: bool,
+    /// `None` while in a match.
+    pub queue_position: Option<i64>,
+}
+
+/// The top `n` of the ranking: by points, then MVPs. Among players equal on both, whoever played
+/// the latest finals match goes first, so the finals keep their players from one match to the
+/// next; then the queue's order, players in a match last.
+pub fn select_finalists(players: &[Finalist], n: usize) -> Vec<i64> {
+    let mut sorted = players.to_vec();
+    sorted.sort_by_key(|p| {
+        (
+            std::cmp::Reverse(p.points),
+            std::cmp::Reverse(p.mvps),
+            !p.played_last_final,
+            p.queue_position.unwrap_or(i64::MAX),
+            p.user_id,
+        )
+    });
+    sorted.into_iter().take(n).map(|p| p.user_id).collect()
 }
 
 /// The queue when a camp starts: the roster shuffled into the camp's teams, `team_size` places of
@@ -486,6 +496,29 @@ mod tests {
             let tanks: Vec<usize> = order.chunks(6).map(|team| team.iter().filter(|id| **id < 3).count()).collect();
             assert!(tanks.iter().all(|n| *n <= 1), "{tanks:?}");
         }
+    }
+
+    #[test]
+    fn finalists_are_the_top_of_the_ranking() {
+        let finalist = |user_id, points, mvps, played_last_final, queue_position| Finalist {
+            user_id,
+            points,
+            mvps,
+            played_last_final,
+            queue_position,
+        };
+        let players = [
+            finalist(1, 3, 0, false, Some(0)),
+            finalist(2, 5, 0, false, Some(1)),
+            finalist(3, 3, 1, false, Some(2)),
+            finalist(4, 3, 0, false, Some(3)),
+            finalist(5, 3, 0, true, Some(4)),
+            finalist(6, 4, 0, false, None),
+        ];
+        // Points, then MVPs; equal on both, the latest finals' players, then the queue's order.
+        assert_eq!(select_finalists(&players, 6), [2, 6, 3, 5, 1, 4]);
+        assert_eq!(select_finalists(&players, 4), [2, 6, 3, 5]);
+        assert_eq!(select_finalists(&players[..2], 4), [2, 1], "everyone when there are too few");
     }
 
     #[test]

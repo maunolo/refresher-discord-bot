@@ -39,6 +39,8 @@ pub struct AppState {
     pub default_settings: GuildSettings,
     /// The public site's data, shared by the requests of one page load.
     pub site_cache: Arc<site::SiteCache>,
+    /// Whether admins unlocked the site while `SITE_LOCK` is set.
+    pub site_access: Arc<site::SiteAccess>,
 }
 
 pub fn router(state: AppState) -> Router {
@@ -154,6 +156,7 @@ pub async fn run(
         link,
         default_settings,
         site_cache: Default::default(),
+        site_access: Default::default(),
     };
     axum::serve(listener, router(state)).await?;
     Ok(())
@@ -344,6 +347,7 @@ mod tests {
                 dm_captains: true,
             },
             site_cache: Default::default(),
+            site_access: Default::default(),
         }
     }
 
@@ -797,8 +801,12 @@ data: 111
 
         let (status, _) = post(&state, &path, Some(&token), r#"{"type": "create_match"}"#).await;
         assert_eq!(status, StatusCode::OK);
-        let worth_more = r#"{"type": "create_final", "win_points": 3, "loss_points": 1}"#;
+        let worth_more = r#"{"type": "create_match", "win_points": 3, "loss_points": 1}"#;
         assert_eq!(post(&state, &path, Some(&token), worth_more).await.0, StatusCode::OK);
+        for finals in ["enter_finals", "leave_finals"] {
+            let body = format!(r#"{{"type": "{finals}"}}"#);
+            assert_eq!(post(&state, &path, Some(&token), &body).await.0, StatusCode::OK);
+        }
         let close = r#"{"type": "close_vote", "match_id": "R4T8WN"}"#;
         assert_eq!(post(&state, &path, Some(&token), close).await.0, StatusCode::OK);
         let refresh = r#"{"type": "refresh_teams", "match_id": "r4t8wn"}"#;
@@ -827,10 +835,12 @@ data: 111
                 (
                     111,
                     camp.id.clone(),
-                    CampAction::CreateFinal {
+                    CampAction::CreateMatch {
                         points: MatchPoints { win: 3, loss: 1 }
                     }
                 ),
+                (111, camp.id.clone(), CampAction::EnterFinals),
+                (111, camp.id.clone(), CampAction::LeaveFinals),
                 (
                     111,
                     camp.id.clone(),
@@ -1432,6 +1442,50 @@ data: 111
         assert_eq!(fetch(&state, with_password).await.0, StatusCode::OK);
         // The admin page is not behind it.
         assert_eq!(get(&state, "/api/me", None).await.0, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn admins_unlock_the_site_and_lock_it_again() {
+        let mut state = test_state(FakeLink {
+            guilds: vec![111, 222],
+            ..FakeLink::default()
+        })
+        .await;
+        let camp = refresher_core::db::create_camp(&state.db, 111, 900, 24, 12).await.unwrap();
+        let other = refresher_core::db::create_camp(&state.db, 222, 901, 24, 12).await.unwrap();
+        let token = sign_in(&state, &[111, 222]).await;
+        let path = format!("/api/camps/{}/site/lock", camp.id);
+        let open = r#"{"locked": false}"#;
+
+        let (status, body) = put(&state, &path, Some(&token), open).await;
+        assert_eq!(status, StatusCode::CONFLICT, "nothing to unlock without SITE_LOCK");
+        assert!(body["error"].as_str().unwrap().contains("SITE_LOCK"));
+
+        let mut config = (*state.config).clone();
+        config.site_lock = Some("farinhagm:gordao".to_string());
+        state.config = Arc::new(config);
+        let site = || site_request("/info.js").body(Body::empty()).unwrap();
+        let (_, body) = get(&state, &format!("/api/camps/{}/site", camp.id), Some(&token)).await;
+        assert_eq!((body["lock_configured"].as_bool(), body["locked"].as_bool()), (Some(true), Some(true)));
+        assert_eq!(fetch(&state, site()).await.0, StatusCode::UNAUTHORIZED);
+
+        assert_eq!(put(&state, &path, None, open).await.0, StatusCode::UNAUTHORIZED);
+        let other_path = format!("/api/camps/{}/site/lock", other.id);
+        assert_eq!(put(&state, &other_path, Some(&token), open).await.0, StatusCode::NOT_FOUND, "not the site's server");
+        assert_eq!(put(&state, &path, Some(&token), "{}").await.0, StatusCode::BAD_REQUEST);
+
+        let (status, body) = put(&state, &path, Some(&token), open).await;
+        assert_eq!((status, body["locked"].as_bool()), (StatusCode::OK, Some(false)));
+        assert_eq!(fetch(&state, site()).await.0, StatusCode::OK);
+        let (status, _, _) = fetch(&state, Request::get("/site/info.js").body(Body::empty()).unwrap()).await;
+        assert_eq!(status, StatusCode::OK);
+        // Kept in the database: a restart keeps it open.
+        let restarted = AppState { site_access: Default::default(), ..state.clone() };
+        assert_eq!(fetch(&restarted, site()).await.0, StatusCode::OK);
+
+        let (status, body) = put(&state, &path, Some(&token), r#"{"locked": true}"#).await;
+        assert_eq!((status, body["locked"].as_bool()), (StatusCode::OK, Some(true)));
+        assert_eq!(fetch(&state, site()).await.0, StatusCode::UNAUTHORIZED);
     }
 
     #[test]

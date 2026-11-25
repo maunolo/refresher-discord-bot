@@ -467,6 +467,11 @@ input {
   background: var(--live-dot);
 }
 
+.pill-final {
+  border: 1px solid var(--gold);
+  color: var(--gold);
+}
+
 .chip {
   padding: 0 6px;
   border-radius: 4px;

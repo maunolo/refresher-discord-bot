@@ -68,20 +68,11 @@ function PointsField({
 }
 
 /**
- * Creates a match, or the final, with the points it gives each winner and each loser. Starts with
- * what the camp's newest match gave.
+ * Creates a match, from the queue or in the finals from the top of the ranking, with the points it
+ * gives each winner and each loser. Starts with what the camp's newest match gave.
  */
-export function CreateMatchDialog({
-  camp,
-  final,
-  open,
-  onClose,
-}: {
-  camp: Camp;
-  final: boolean;
-  open: boolean;
-  onClose: () => void;
-}) {
+export function CreateMatchDialog({ camp, open, onClose }: { camp: Camp; open: boolean; onClose: () => void }) {
+  const final = camp.finals;
   const { run, busy } = useActions();
   const [points, setPoints] = useState<MatchPoints>(camp.next_points);
   const input = useRef<HTMLInputElement>(null);
@@ -95,7 +86,7 @@ export function CreateMatchDialog({
 
   const worth = `+${points.win} / +${points.loss}`;
   const submit = () => {
-    run({ type: final ? 'create_final' : 'create_match', win_points: points.win, loss_points: points.loss });
+    run({ type: 'create_match', win_points: points.win, loss_points: points.loss });
     onClose();
   };
 
@@ -110,10 +101,10 @@ export function CreateMatchDialog({
           }}
         >
           <div>
-            <h2 id="create-title">{final ? 'Criar a partida final?' : 'Criar partida'}</h2>
+            <h2 id="create-title">{final ? 'Criar partida da final' : 'Criar partida'}</h2>
             <p className="text-2">
               {final
-                ? 'Os jogadores de maior pontuação jogam a final, com times equilibrados por pontos.'
+                ? `Os ${camp.match_size} primeiros do ranking jogam, em times equilibrados por pontos.`
                 : `Os próximos ${camp.match_size} da fila jogam.`}
             </p>
           </div>
@@ -152,15 +143,15 @@ export function CreateMatchDialog({
             />
           </div>
           <p id="create-help" className="muted small">
-            De 0 a {MAX_POINTS} pontos por jogador. Aparece na mensagem da partida no Discord e no card dela.
-            {final ? ' Depois da final não dá para criar outras partidas.' : ' A próxima partida já começa com estes valores.'}
+            De 0 a {MAX_POINTS} pontos por jogador. Aparece na mensagem da partida no Discord e no card dela. A
+            próxima partida já começa com estes valores.
           </p>
           <div className="modal-actions">
             <button type="button" className="button button-ghost" onClick={onClose}>
               Voltar
             </button>
             <button type="submit" className="button button-primary" disabled={busy}>
-              {final ? 'Criar partida final' : 'Criar partida'} · {worth}
+              {final ? 'Criar partida da final' : 'Criar partida'} · {worth}
             </button>
           </div>
         </form>

@@ -1,7 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
+import type { Confirm } from '../actions';
 import { api, type Camp, type SiteInfo, type SiteInfoKey, type SiteState, type SiteTexts } from '../api';
 import { routeHref } from '../route';
+import { ConfirmDialog } from './ConfirmDialog';
 import { ExternalIcon } from './Icons';
 
 const CARDS: { key: SiteInfoKey; label: string }[] = [
@@ -16,6 +18,95 @@ const LANGUAGES: { key: keyof SiteTexts; label: string }[] = [
   { key: 'en', label: 'English' },
   { key: 'es', label: 'Español' },
 ];
+
+const CONFIRM_UNLOCK: Confirm = {
+  title: 'Liberar o site para todos?',
+  message:
+    'O site para de pedir o usuário e a senha da staff: qualquer pessoa passa a ver o ranking, as partidas e as informações.',
+  note: 'Dá para bloquear de novo aqui mesmo, quando quiser.',
+  action: 'Liberar o site',
+};
+
+/** Whether the site asks for the staff login (`SITE_LOCK`), and the switch to open or lock it. */
+function SiteAccess({ camp, site, onSite }: { camp: Camp; site: SiteState; onSite: (site: SiteState) => void }) {
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const setLocked = (locked: boolean) => {
+    setBusy(true);
+    setError(null);
+    api
+      .lockSite(camp.id, locked)
+      .then(onSite)
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <section className="card" aria-labelledby="site-access-title">
+      <div className="card-head">
+        <h2 id="site-access-title" className="small-title">
+          Acesso ao site
+        </h2>
+        {site.lock_configured && (
+          <span className={site.locked ? 'pill pill-muted' : 'pill pill-running'}>
+            {site.locked ? 'Bloqueado' : 'Aberto'}
+          </span>
+        )}
+      </div>
+      {!site.lock_configured ? (
+        <p className="muted small">
+          Aberto para todos. Para o site pedir usuário e senha, configure <span className="mono">SITE_LOCK</span> no
+          servidor.
+        </p>
+      ) : site.locked ? (
+        <>
+          <p className="muted small">
+            O site pede o usuário e a senha da staff (<span className="mono">SITE_LOCK</span>). Libere quando ele estiver
+            pronto para o público.
+          </p>
+          <div className="form-actions">
+            <button
+              type="button"
+              className="button button-small button-primary"
+              disabled={busy}
+              onClick={() => setAsking(true)}
+            >
+              Liberar o site
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p className="muted small">Qualquer pessoa vê o site, sem usuário e senha.</p>
+          <div className="form-actions">
+            <button
+              type="button"
+              className="button button-small button-ghost"
+              disabled={busy}
+              onClick={() => setLocked(true)}
+            >
+              Bloquear de novo
+            </button>
+          </div>
+        </>
+      )}
+      {error && (
+        <p className="error small" role="alert">
+          {error}
+        </p>
+      )}
+      <ConfirmDialog
+        ask={asking ? CONFIRM_UNLOCK : null}
+        onAnswer={(ok) => {
+          setAsking(false);
+          if (ok) setLocked(false);
+        }}
+      />
+    </section>
+  );
+}
 
 /** The public site: its info cards, and which camp's ranking and matches it shows. */
 export function SiteView({ camp }: { camp: Camp }) {
@@ -180,6 +271,7 @@ export function SiteView({ camp }: { camp: Camp }) {
             )}
           </p>
         </section>
+        <SiteAccess camp={camp} site={site} onSite={setSite} />
       </aside>
     </form>
   );

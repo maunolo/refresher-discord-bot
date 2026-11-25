@@ -51,7 +51,8 @@ export function QueueView({ camp }: { camp: Camp }) {
   // A match started or ended while editing: the saved order would drop or add someone.
   const stale = draft !== null && !sameMembers(draft, serverOrder);
   const upNext = new Set(camp.up_next);
-  const missing = camp.match_size - serverOrder.length;
+  // In the finals, the top of the ranking plays: the queue's length doesn't matter.
+  const missing = camp.match_size - (camp.finals ? camp.up_next.length : serverOrder.length);
   const move = (from: number, to: number) => {
     if (to < 0 || to >= order.length || from === to) return;
     setDraft(moved(order, from, to));
@@ -117,9 +118,11 @@ export function QueueView({ camp }: { camp: Camp }) {
           </p>
         ) : (
           <p className="muted small">
-            {missing > 0
-              ? `Uma partida precisa de ${camp.match_size}. Faltam ${missing}; os próximos entram quando uma partida terminar.`
-              : 'Marcados com → entram na próxima partida: os primeiros da fila.'}
+            {camp.finals
+              ? `Final: cada partida é jogada pelos ${camp.match_size} primeiros do ranking. Marcados com → jogam a próxima; a ordem da fila só desempata quem tem os mesmos pontos e MVPs.`
+              : missing > 0
+                ? `Uma partida precisa de ${camp.match_size}. Faltam ${missing}; os próximos entram quando uma partida terminar.`
+                : 'Marcados com → entram na próxima partida: os primeiros da fila.'}
           </p>
         )}
         {order.length === 0 ? (
