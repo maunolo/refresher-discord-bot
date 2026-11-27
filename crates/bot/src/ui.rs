@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use serenity::all::{ButtonStyle, CreateActionRow, CreateButton, CreateEmbed, CreateEmbedFooter, Mentionable, UserId};
 
-use crate::db::{CampState, MatchPlayerRow, MatchPoints, OpenMatch, PlayerRow};
+use crate::db::{CampState, MatchPlayerRow, MatchPoints, OpenMatch, PlayerRow, PlayerStats};
 use crate::queue::Role;
 use crate::ranking::{self, Standing};
 
@@ -53,16 +53,20 @@ fn status_label(status: &str) -> &str {
     }
 }
 
-/// The ranking by points, then MVPs, then fewer matches played; gold, silver and bronze for the
-/// top three places.
-pub fn trophy_lines(players: &[PlayerRow], mvps: &HashMap<i64, i64>) -> String {
+/// The ranking by points, then MVPs, then fewer matches played, then wins; gold, silver and
+/// bronze for the top three places.
+pub fn trophy_lines(players: &[PlayerRow], stats: &HashMap<i64, PlayerStats>) -> String {
     let standings: Vec<Standing> = players
         .iter()
-        .map(|p| Standing {
-            user_id: p.user_id,
-            points: p.points,
-            matches: p.matches_played,
-            mvps: mvps.get(&p.user_id).copied().unwrap_or(0),
+        .map(|p| {
+            let stats = stats.get(&p.user_id).copied().unwrap_or_default();
+            Standing {
+                user_id: p.user_id,
+                points: p.points,
+                matches: p.matches_played,
+                mvps: stats.mvps,
+                wins: stats.wins,
+            }
         })
         .collect();
     ranking::rank(&standings)
@@ -166,7 +170,7 @@ pub fn board_embed(state: &CampState, up_next: &[i64]) -> CreateEmbed {
     let queue = queued_players(state);
     let picking = if state.camp.finals {
         format!(
-            "**Final:** cada partida é jogada pelos {} primeiros do ranking (pontos, depois MVPs, depois menos partidas). **→** indica quem joga a próxima.",
+            "**Final:** cada partida é jogada pelos {} primeiros do ranking (pontos, depois MVPs, menos partidas e mais vitórias). **→** indica quem joga a próxima.",
             state.camp.layout().match_size
         )
     } else {
@@ -402,13 +406,13 @@ pub fn standings_embed(
     camp_id: &str,
     match_count: i64,
     players: &[PlayerRow],
-    mvps: &HashMap<i64, i64>,
+    stats: &HashMap<i64, PlayerStats>,
 ) -> CreateEmbed {
     CreateEmbed::new()
         .title(format!("Ranking do camp {camp_id}"))
         .description(format!(
-            "Partidas jogadas: **{match_count}**\nEmpates em pontos são desfeitos pelo número de MVPs, depois por quem jogou menos partidas."
+            "Partidas jogadas: **{match_count}**\nEmpates em pontos são desfeitos pelo número de MVPs, depois por quem jogou menos partidas, depois por quem venceu mais."
         ))
-        .field("Colocação", trophy_lines(players, mvps), false)
+        .field("Colocação", trophy_lines(players, stats), false)
         .footer(footer(camp_id))
 }

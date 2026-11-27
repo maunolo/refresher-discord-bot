@@ -109,7 +109,7 @@ export function RankingView({ camp }: { camp: Camp }) {
       <p className="muted small">
         Cada partida vale o que o admin escolheu ao criá-la (1 ponto por vitória, se ninguém mudou); ajustes manuais
         aparecem entre parênteses. Empate em pontos é desfeito pelo número de
-        MVPs e depois por quem jogou menos partidas; empatados nos três dividem o lugar. Aproveitamento conta só partidas terminadas; correções de resultado entram
+        MVPs, depois por quem jogou menos partidas e por fim por quem venceu mais; empatados nos quatro dividem o lugar. Aproveitamento conta só partidas terminadas; correções de resultado entram
         na hora.
       </p>
       <PointsDialog camp={camp} player={adjusting} onClose={() => setAdjusting(null)} />

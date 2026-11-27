@@ -338,6 +338,7 @@ async fn site_data(state: &AppState) -> Result<SiteData> {
             points: p.points,
             matches: p.matches_played,
             mvps: player_stats.get(&p.user_id).map_or(0, |s| s.mvps),
+            wins: player_stats.get(&p.user_id).map_or(0, |s| s.wins),
         })
         .collect();
     let ranking = rank(&standings)

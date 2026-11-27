@@ -16,7 +16,7 @@ export function RulesView() {
         <h2 id="rules-played">Partidas jogadas</h2>
         <p>
           O número ao lado de cada jogador na fila conta as partidas terminadas que ele jogou no camp. Quem jogou menos joga
-          primeiro, e ele também desempata o ranking, depois dos MVPs. Uma partida cancelada ou reaberta não conta.
+          primeiro, e ele também desempata o ranking, depois dos MVPs e antes das vitórias. Uma partida cancelada ou reaberta não conta.
         </p>
       </section>
 
@@ -174,7 +174,8 @@ export function RulesView() {
         <h2 id="rules-ranking">7. O ranking</h2>
         <p>
           Por pontos. No empate, fica na frente quem tem <strong>mais MVPs</strong>; depois, quem{' '}
-          <strong>jogou menos partidas</strong>. Empatados nos três dividem o lugar.
+          <strong>jogou menos partidas</strong>; por fim, quem tem <strong>mais vitórias</strong>. Empatados nos quatro
+          dividem o lugar.
         </p>
       </section>
 
@@ -182,12 +183,12 @@ export function RulesView() {
         <h2 id="rules-final">8. A final</h2>
         <p>
           <strong>Entrar na final</strong> exige pelo menos uma partida já pontuada. A partir daí, cada partida criada pega{' '}
-          <strong>os 12 primeiros do ranking</strong> (pontos, depois MVPs, depois menos partidas) em vez da fila, e a → no
+          <strong>os 12 primeiros do ranking</strong> (pontos, depois MVPs, menos partidas e mais vitórias) em vez da fila, e a → no
           quadro marca esses 12.
         </p>
         <ul>
           <li>
-            O ranking é visto de novo a cada partida: ajustes de pontos e jogadores removidos contam. No empate nos três
+            O ranking é visto de novo a cada partida: ajustes de pontos e jogadores removidos contam. No empate nos quatro
             pela última vaga, fica quem jogou a última partida da final; depois, a ordem da fila.
           </li>
           <li>

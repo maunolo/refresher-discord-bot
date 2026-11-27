@@ -186,14 +186,14 @@ export function winRate(player: Player): string {
 }
 
 /**
- * Players by points, then MVPs, then fewer matches played, like the bot's final ranking: players
- * equal on all three share the place.
+ * Players by points, then MVPs, then fewer matches played, then wins, like the bot's final
+ * ranking: players equal on all four share the place.
  */
 export function ranking(players: Player[]): { player: Player; place: number }[] {
   const sorted = [...players].sort(
-    (a, b) => b.points - a.points || b.mvps - a.mvps || a.matches_played - b.matches_played,
+    (a, b) => b.points - a.points || b.mvps - a.mvps || a.matches_played - b.matches_played || b.wins - a.wins,
   );
-  const key = (p: Player) => `${p.points}:${p.mvps}:${p.matches_played}`;
+  const key = (p: Player) => `${p.points}:${p.mvps}:${p.matches_played}:${p.wins}`;
   const keys = [...new Set(sorted.map(key))];
   return sorted.map((player) => ({ player, place: keys.indexOf(key(player)) + 1 }));
 }

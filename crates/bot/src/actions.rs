@@ -1,7 +1,6 @@
 //! Admin actions shared by the Discord buttons and the web admin. Callers check that the user
 //! manages the server and hold its lock. Errors are messages for the admin.
 
-use std::collections::HashMap;
 
 use anyhow::{anyhow, bail, Result};
 use refresher_core::link::CampAction;
@@ -181,12 +180,8 @@ async fn end_camp(discord: &Discord, data: &Data, camp_id: &str) -> Result<()> {
     let players = db::end_camp(&data.db, camp_id).await?;
     let state = load(data, camp_id).await?;
     let channel = channel(&state);
-    let mvps: HashMap<i64, i64> = db::player_stats(&data.db, camp_id)
-        .await?
-        .into_iter()
-        .map(|(user_id, stats)| (user_id, stats.mvps))
-        .collect();
-    let standings = || ui::standings_embed(camp_id, state.camp.match_count, &players, &mvps);
+    let stats = db::player_stats(&data.db, camp_id).await?;
+    let standings = || ui::standings_embed(camp_id, state.camp.match_count, &players, &stats);
     let _ = channel
         .send_message(&discord.http, CreateMessage::new().embed(standings()))
         .await;
@@ -251,7 +246,7 @@ async fn enter_finals(discord: &Discord, data: &Data, camp_id: &str) -> Result<(
         .say(
             &discord.http,
             format!(
-                "**Começou a final do camp `{camp_id}`.** A partir de agora, cada partida é jogada pelos {} primeiros do ranking (pontos, depois MVPs, depois menos partidas), em times equilibrados por pontos. Quem está fora deles fica na fila. A **→** na fila marca quem joga a próxima.",
+                "**Começou a final do camp `{camp_id}`.** A partir de agora, cada partida é jogada pelos {} primeiros do ranking (pontos, depois MVPs, menos partidas e mais vitórias), em times equilibrados por pontos. Quem está fora deles fica na fila. A **→** na fila marca quem joga a próxima.",
                 state.camp.layout().match_size
             ),
         )

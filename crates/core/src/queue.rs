@@ -95,14 +95,16 @@ pub struct Finalist {
     pub mvps: i64,
     /// Finished matches in the camp: fewer ranks higher among equal points and MVPs.
     pub matches_played: i64,
+    /// Finished matches won: the ranking's last tie-breaker, more first.
+    pub wins: i64,
     /// Played the camp's latest finals match.
     pub played_last_final: bool,
     /// `None` while in a match.
     pub queue_position: Option<i64>,
 }
 
-/// The top `n` of the ranking: by points, then MVPs, then fewer matches played. Among players
-/// equal on all three, whoever played the latest finals match goes first, so the finals keep their
+/// The top `n` of the ranking: by points, then MVPs, then fewer matches played, then wins. Among
+/// players equal on all four, whoever played the latest finals match goes first, so the finals keep their
 /// players from one match to the next; then the queue's order, players in a match last.
 pub fn select_finalists(players: &[Finalist], n: usize) -> Vec<i64> {
     let mut sorted = players.to_vec();
@@ -111,6 +113,7 @@ pub fn select_finalists(players: &[Finalist], n: usize) -> Vec<i64> {
             std::cmp::Reverse(p.points),
             std::cmp::Reverse(p.mvps),
             p.matches_played,
+            std::cmp::Reverse(p.wins),
             !p.played_last_final,
             p.queue_position.unwrap_or(i64::MAX),
             p.user_id,
@@ -577,6 +580,7 @@ mod tests {
             points,
             matches_played,
             mvps,
+            wins: 1,
             played_last_final,
             queue_position,
         };
@@ -594,6 +598,10 @@ mod tests {
         assert_eq!(select_finalists(&players, 7), [2, 6, 3, 7, 5, 1, 4]);
         assert_eq!(select_finalists(&players, 4), [2, 6, 3, 7]);
         assert_eq!(select_finalists(&players[..2], 4), [2, 1], "everyone when there are too few");
+        // Then more wins, before the latest finals and the queue.
+        let mut players = players;
+        players[3].wins = 2;
+        assert_eq!(select_finalists(&players, 7), [2, 6, 3, 7, 4, 5, 1]);
     }
 
     #[test]
