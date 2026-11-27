@@ -9,8 +9,8 @@ function SignupNote({ camp }: { camp: Camp }) {
     <section className="card empty-card">
       <h2>Inscrição aberta</h2>
       <p className="muted small">
-        {camp.players.length} de {camp.target_size} jogadores. Monte o elenco e inicie a fila em Jogadores; as partidas
-        aparecem aqui depois.
+        {camp.players.length} de {camp.target_size} jogadores. Monte o elenco e inicie a fila em Jogadores; dá para
+        começar com {camp.match_size} e adicionar o resto depois. As partidas aparecem aqui.
       </p>
       <a className="button button-primary" href={routeHref('players')}>
         Abrir Jogadores
