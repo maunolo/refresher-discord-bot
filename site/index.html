@@ -20,7 +20,7 @@
   <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=20261118a">
   <link rel="preload" href="assets/fonts/VALVEOracle-SemiBold.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="preload" href="assets/fonts/VALVEOracle-Medium.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="style.css?v=20261126a">
+  <link rel="stylesheet" href="style.css?v=20261126b">
 </head>
 <body>
   <!-- Patronos fixos nas bordas da tela (metade de cada um aparece): Hidden King à esquerda e
@@ -52,19 +52,6 @@
     <p class="hero-date" data-i18n="info.dateValue" data-info="data">28 e 29 de novembro</p>
   </section>
 
-  <!-- Informações: só aparecem os cartões já definidos (info.js, editado pelo painel da staff).
-       O que ainda falta vira uma linha só. A data fica no topo. -->
-  <section id="info" class="info" aria-label="Informações do campeonato">
-    <div class="info-cards">
-      <div class="info-card" data-card="formato"><span class="label" data-i18n="info.format">Formato</span><strong data-i18n="info.tbd" data-info="formato">A definir</strong></div>
-      <div class="info-card" data-card="premiacao"><span class="label" data-i18n="info.prize">Premiação</span><strong data-i18n="info.tbd" data-info="premiacao">A definir</strong></div>
-      <div class="info-card" data-card="times"><span class="label" data-i18n="info.teams">Times</span><strong data-i18n="info.tbd" data-info="times">A definir</strong></div>
-    </div>
-    <p class="info-pending">
-      <span data-i18n="info.pending">Ainda a definir:</span>
-      <span class="info-pending-list"><span data-pending="formato" data-i18n="info.format">Formato</span><span data-pending="premiacao" data-i18n="info.prize">Premiação</span><span data-pending="times" data-i18n="info.teams">Times</span></span>
-    </p>
-  </section>
   <script src="info.js?v=20261117v"></script>
   <script>
     (() => {
@@ -75,11 +62,6 @@
         const v = I[e.dataset.info];
         if (defined(v)) { e.textContent = v.pt; e.dataset.i18n = "infoval." + e.dataset.info; }
       });
-      const section = document.getElementById("info");
-      section.querySelectorAll("[data-card]").forEach((c) => { c.hidden = !defined(I[c.dataset.card]); });
-      section.querySelectorAll("[data-pending]").forEach((s) => { s.hidden = defined(I[s.dataset.pending]); });
-      section.querySelector(".info-cards").hidden = !section.querySelector("[data-card]:not([hidden])");
-      section.querySelector(".info-pending").hidden = !section.querySelector("[data-pending]:not([hidden])");
     })();
   </script>
 
