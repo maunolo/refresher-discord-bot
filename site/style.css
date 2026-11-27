@@ -144,21 +144,6 @@ section[id] { scroll-margin-top: 80px; } /* o menu fixo não cobre o título ao 
 
 
 /* Informações: cartões só do que já foi definido + uma linha com o que falta */
-.info { max-width: 1100px; margin: -40px auto 0; padding: 0 6vw 90px; }
-.info-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 14px; margin-bottom: 22px; }
-.info-cards[hidden], .info-card[hidden], .info-pending[hidden], .info-pending-list > [hidden] { display: none; }
-.info-card {
-  background: var(--card); border: 1px solid var(--line);
-  padding: 18px 20px;
-}
-.label { display: block; text-transform: uppercase; font-size: 0.78rem; letter-spacing: 0.12em; color: var(--muted); }
-.info-card strong { font-size: 1.1rem; }
-.info-pending {
-  display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 6px 14px;
-  text-align: center; color: var(--muted); font-size: 1rem;
-}
-.info-pending-list { color: var(--text); font-weight: 600; }
-.info-pending-list > :not(:last-child)::after { content: " · "; color: var(--gold); font-weight: 400; white-space: pre; }
 
 /* Players: ranking por pontuação, no mesmo quadro dourado da live */
 .players { max-width: 860px; margin: 0 auto; padding: 0 4vw 90px; }
