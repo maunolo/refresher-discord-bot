@@ -68,11 +68,11 @@ pub enum CampAction {
     RefreshTeams { match_id: String },
     StartDraft { match_id: String },
     StartMatch { match_id: String },
-    /// `side` is `hiddenking` or `archmother`. The MVP, one of the match's players, breaks ties
-    /// in points in the final ranking.
+    /// `side` is `hiddenking` or `archmother`. The MVP, one of the winners, breaks ties in points
+    /// in the final ranking.
     ReportWinner { match_id: String, side: String, mvp_user_id: Option<u64> },
     CorrectWinner { match_id: String },
-    /// The latest result only, while the camp runs.
+    /// The latest result only, while the camp runs. One of its winners.
     ChangeMvp { match_id: String, user_id: u64 },
     ReopenMatch { match_id: String },
     /// An open match (voting, draft or live) undone: deleted, its players back in the queue where
@@ -80,13 +80,19 @@ pub enum CampAction {
     CancelMatch { match_id: String },
     /// Signup only. Users already on the roster, or past the camp's size, are skipped.
     AddPlayers { user_ids: Vec<u64> },
+    /// Signup only: the players of one of the server's selections, with their categories and
+    /// roles (`presets::apply`).
+    ApplyPreset { preset_id: i64 },
     /// Before the queue starts, off the roster. While the camp runs, out of the queue and of new
     /// matches (after their open match, if in one); points and matches stay.
     RemovePlayer { user_id: u64 },
     /// Running only: a removed player back at the end of the queue.
     RestorePlayer { user_id: u64 },
-    /// Signup or running; matches created afterwards use it.
+    /// Signup or running; matches created afterwards use it. S rank takes away SS rank.
     SetSRank { user_id: u64, s_rank: bool },
+    /// Like `SetSRank`. SS-rank players captain their team, two a team at most; SS rank takes away
+    /// S rank.
+    SetSsRank { user_id: u64, ss_rank: bool },
     /// Signup or running. The role is kept per server, for later camps too; `None` clears it.
     SetRole { user_id: u64, role: Option<Role> },
     /// Running only. Adds `delta` points by hand (negative takes them); never below zero.

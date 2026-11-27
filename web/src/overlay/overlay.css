@@ -180,12 +180,12 @@ h1 {
     box-shadow 0.3s ease;
 }
 
-.ov-pips-hiddenking i.on {
+.ov-pips i.on-hiddenking {
   background: var(--hk);
   box-shadow: 0 0 8px rgba(214, 168, 115, 0.6);
 }
 
-.ov-pips-archmother i.on {
+.ov-pips i.on-archmother {
   background: var(--am);
   box-shadow: 0 0 8px rgba(157, 187, 232, 0.6);
 }
@@ -255,6 +255,11 @@ h1 {
   font-size: 11px;
   font-weight: 700;
   line-height: 16px;
+}
+
+.ov-ss {
+  background: var(--s);
+  color: #10140f;
 }
 
 .ov-role {

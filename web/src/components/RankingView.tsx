@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { useActions } from '../actions';
 import type { Camp, Player } from '../api';
 import { playerName, ranking, signed, whereIs, winRate } from '../camp';
-import { DiscordLink, RemovedChip, SRankChip } from './common';
+import { DiscordLink, RemovedChip, RankChip } from './common';
 import { PointsDialog } from './PointsDialog';
 
 /** Every player by points, with wins and matches; ties share a place, like the bot's medals. */
@@ -70,7 +70,7 @@ export function RankingView({ camp }: { camp: Camp }) {
                   <td>
                     <span className="player-cell">
                       {playerName(camp, player.user_id)}
-                      {player.s_rank && <SRankChip />}
+                      <RankChip player={player} />
                       {player.removed && <RemovedChip />}
                     </span>
                   </td>
@@ -109,7 +109,7 @@ export function RankingView({ camp }: { camp: Camp }) {
       <p className="muted small">
         Cada partida vale o que o admin escolheu ao criá-la (1 ponto por vitória, se ninguém mudou); ajustes manuais
         aparecem entre parênteses. Empate em pontos é desfeito pelo número de
-        MVPs; empatados nos dois dividem o lugar. Aproveitamento conta só partidas terminadas; correções de resultado entram
+        MVPs e depois por quem jogou menos partidas; empatados nos três dividem o lugar. Aproveitamento conta só partidas terminadas; correções de resultado entram
         na hora.
       </p>
       <PointsDialog camp={camp} player={adjusting} onClose={() => setAdjusting(null)} />

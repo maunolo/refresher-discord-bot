@@ -8,6 +8,7 @@ export type Route =
   | 'matches'
   | 'ranking'
   | 'camps'
+  | 'presets'
   | 'overlays'
   | 'settings'
   | 'site'
@@ -20,6 +21,7 @@ const HASHES: Record<Route, string> = {
   matches: '#/partidas',
   ranking: '#/ranking',
   camps: '#/camps',
+  presets: '#/elenco',
   overlays: '#/overlays',
   settings: '#/configuracoes',
   site: '#/site',

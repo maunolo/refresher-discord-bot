@@ -60,10 +60,19 @@ pub async fn run(
             db::add_players(&data.db, camp_id, &ids).await?;
             redraw_board(discord, data, camp_id).await
         }
+        CampAction::ApplyPreset { preset_id } => {
+            refresher_core::presets::apply(&data.db, camp_id, *preset_id).await?;
+            let state = load(data, camp_id).await?;
+            sync::redraw_all(discord, &data.db, &state).await
+        }
         CampAction::RemovePlayer { user_id } => remove_player(discord, data, camp_id, *user_id as i64).await,
         CampAction::RestorePlayer { user_id } => restore_player(discord, data, camp_id, *user_id as i64).await,
         CampAction::SetSRank { user_id, s_rank } => {
             db::set_player_s_rank(&data.db, camp_id, *user_id as i64, *s_rank).await?;
+            redraw_board(discord, data, camp_id).await
+        }
+        CampAction::SetSsRank { user_id, ss_rank } => {
+            db::set_player_ss_rank(&data.db, camp_id, *user_id as i64, *ss_rank).await?;
             redraw_board(discord, data, camp_id).await
         }
         CampAction::SetRole { user_id, role } => {
@@ -242,7 +251,7 @@ async fn enter_finals(discord: &Discord, data: &Data, camp_id: &str) -> Result<(
         .say(
             &discord.http,
             format!(
-                "**Começou a final do camp `{camp_id}`.** A partir de agora, cada partida é jogada pelos {} primeiros do ranking (pontos, depois MVPs), em times equilibrados por pontos. Quem está fora deles fica na fila. A **→** na fila marca quem joga a próxima.",
+                "**Começou a final do camp `{camp_id}`.** A partir de agora, cada partida é jogada pelos {} primeiros do ranking (pontos, depois MVPs, depois menos partidas), em times equilibrados por pontos. Quem está fora deles fica na fila. A **→** na fila marca quem joga a próxima.",
                 state.camp.layout().match_size
             ),
         )
@@ -472,20 +481,11 @@ async fn start_draft(
     sync::redraw_all(discord, &data.db, &state).await?;
     if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {
         sync::apply_moves(discord, guild_id, &settings, channel, &sync::match_voice_moves(open)).await;
-        let link = if settings.dm_captains {
-            "receberam por DM o link para entrar no draft".to_string()
-        } else {
-            format!(
-                "entram no draft pelo botão **{}** na mensagem da partida",
-                ui::CAPTAIN_LINK_LABEL
-            )
-        };
         let _ = channel
             .say(
                 &discord.http,
                 format!(
-                    "Draft criado no DeadChaps. Os capitães ({}) {link}.\nHiddenking: {}\nArchmother: {}\nAssistir ao draft: {}",
-                    ui::CAPTAIN_TAG,
+                    "Draft criado no DeadChaps.\nHiddenking: {}\nArchmother: {}\nAssistir ao draft: {}",
                     sync::side_mentions(&open.players, "hiddenking"),
                     sync::side_mentions(&open.players, "archmother"),
                     draft.spectator_url
@@ -519,8 +519,7 @@ async fn start_manual_draft(
             .say(
                 &discord.http,
                 format!(
-                    "Hora do draft. Os capitães ({}) recebem o link do draft de um admin.\nHiddenking: {}\nArchmother: {}",
-                    ui::CAPTAIN_TAG,
+                    "Hora do draft.\nHiddenking: {}\nArchmother: {}",
                     sync::side_mentions(&open.players, "hiddenking"),
                     sync::side_mentions(&open.players, "archmother")
                 ),
@@ -771,7 +770,7 @@ async fn correct_winner(
     let _ = channel
         .say(
             &discord.http,
-            format!("Resultado corrigido: {winner} vence. Pontos e fila atualizados."),
+            format!("Resultado corrigido: {winner} vence. Pontos e fila atualizados; o MVP sai até um admin escolher um dos vencedores."),
         )
         .await;
     Ok(())

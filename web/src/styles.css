@@ -484,16 +484,39 @@ input {
   color: var(--s-text);
 }
 
+.chip-ss {
+  background: var(--s-text);
+  color: var(--bg, #10140f);
+}
+
 .chip-role {
   border: 1px solid var(--control);
   color: var(--text-2);
   font-weight: 600;
 }
 
-.role-select {
+.role-select,
+.rank-select {
   min-height: 32px;
   padding: 0 8px;
   font-size: 13px;
+}
+
+/* Name and role filters over a player list. */
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.filters input[type='search'] {
+  flex: 1 1 200px;
+  max-width: 320px;
+}
+
+.filters select {
+  flex: 0 1 200px;
 }
 
 .captain {
@@ -1436,16 +1459,13 @@ input {
 .mvp-picker legend {
   margin-bottom: 8px;
 }
-.mvp-teams {
+.mvp-picker > .team-title {
+  margin-bottom: 6px;
+}
+.mvp-options {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 6px 16px;
-}
-.mvp-team {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
+  gap: 4px 16px;
 }
 .mvp-option {
   display: flex;
@@ -1478,7 +1498,7 @@ input {
   font-weight: 700;
 }
 @media (max-width: 520px) {
-  .mvp-teams {
+  .mvp-options {
     grid-template-columns: minmax(0, 1fr);
   }
 }

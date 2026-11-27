@@ -16,6 +16,7 @@ use refresher_core::db::{
 use refresher_core::cameras::{self, CameraConfig, StreamView};
 use refresher_core::draft::{self, DraftView};
 use refresher_core::link::{CampAction, Channel, Profile};
+use refresher_core::presets;
 use refresher_core::queue::{CampSize, Role};
 use refresher_core::ranking::{rank_with_movement, LatestResult, Standing};
 use refresher_core::settings::{GuildSettings, DRAFT_RESERVES, DRAFT_TIMERS, MAX_DRAFT_BANS};
@@ -85,7 +86,7 @@ pub struct CampDto {
     can_enter_finals: bool,
     /// Not while a finals match is open.
     can_leave_finals: bool,
-    /// Refresh votes one team needs to re-sort a match.
+    /// Refresh votes, from either team, that re-sort a match.
     refresh_votes: usize,
     players: Vec<PlayerDto>,
     /// Who the next match would take: the queue's front, or in the finals the top of the ranking.
@@ -167,11 +168,12 @@ struct PlayerDto {
     points: i64,
     location: String,
     queue_position: Option<i64>,
-    consecutive_matches: i64,
     s_rank: bool,
+    /// Above S rank: captains their team, two a team of a match at most.
+    ss_rank: bool,
     /// `tank`, `carry` or `support`; kept per server.
     role: Option<&'static str>,
-    /// Finished matches only.
+    /// Finished matches only. Fewer plays first, and breaks ties in points and MVPs.
     matches_played: i64,
     wins: i64,
     /// Points admins added (or, below zero, took) by hand.
@@ -365,10 +367,10 @@ fn camp_dto(
                     points: p.points,
                     location: p.location.clone(),
                     queue_position: p.queue_position,
-                    consecutive_matches: p.consecutive_matches,
                     s_rank: p.s_rank,
+                    ss_rank: p.ss_rank,
                     role: p.role.map(Role::as_str),
-                    matches_played: stats.played,
+                    matches_played: p.matches_played,
                     wins: stats.wins,
                     points_adjusted: stats.adjusted,
                     mvps: stats.mvps,
@@ -658,8 +660,10 @@ struct OverlayVoteDto {
     is_final: bool,
     /// `open` while players vote, then `refreshed` (new teams) or `kept`.
     state: &'static str,
-    /// Refresh votes one side needs for new teams.
+    /// Refresh votes, from either side, that bring new teams.
     needed: usize,
+    /// Refresh votes so far, both sides together.
+    refresh: usize,
     /// Votes to keep the teams.
     keep: usize,
     voted: usize,
@@ -685,6 +689,7 @@ struct OverlayPlayerDto {
     avatar_url: Option<String>,
     captain: bool,
     s_rank: bool,
+    ss_rank: bool,
     role: Option<&'static str>,
     voted: bool,
 }
@@ -732,6 +737,7 @@ fn overlay_vote_dto(camp: &CampState, open: &db::OpenMatch, profiles: &HashMap<u
                             avatar_url: profile.map(|profile| profile.avatar_url.clone()).filter(|url| !url.is_empty()),
                             captain: p.is_captain,
                             s_rank: camp_player.is_some_and(|c| c.s_rank),
+                            ss_rank: camp_player.is_some_and(|c| c.ss_rank),
                             role: camp_player.and_then(|c| c.role).map(Role::as_str),
                             voted: open.votes.iter().any(|v| v.user_id == p.user_id),
                         }
@@ -746,6 +752,7 @@ fn overlay_vote_dto(camp: &CampState, open: &db::OpenMatch, profiles: &HashMap<u
         is_final: row.is_final,
         state,
         needed: camp.camp.layout().refresh_votes,
+        refresh: open.votes.iter().filter(|v| v.refresh).count(),
         keep: open.votes.iter().filter(|v| !v.refresh).count(),
         voted: open.votes.len(),
         total: open.players.len(),
@@ -851,6 +858,7 @@ pub async fn overlay_ranking(
         .map(|p| Standing {
             user_id: p.user_id,
             points: p.points,
+            matches: p.matches_played,
             mvps: stats.get(&p.user_id).map_or(0, |s| s.mvps),
         })
         .collect();
@@ -950,6 +958,9 @@ pub struct CreateCampRequest {
     channel_id: String,
     /// `24`, `30`, `4-1v1` or `4-2v2`.
     size: String,
+    /// A selection of the server's to fill the roster with.
+    #[serde(default)]
+    preset_id: Option<i64>,
 }
 
 pub async fn create_camp(
@@ -965,14 +976,154 @@ pub async fn create_camp(
         .map_err(|_| ApiError::BadRequest("canal inválido".to_string()))?;
     let size = CampSize::parse(&request.size)
         .ok_or_else(|| ApiError::BadRequest("tamanho inválido".to_string()))?;
-    tracing::info!(user_id = session.user_id, guild_id, channel_id, ?size, "camp created from the web");
+    if let Some(preset_id) = request.preset_id {
+        if presets::load(&state.db, guild_id as i64, preset_id).await?.is_none() {
+            return Err(ApiError::BadRequest("seleção não encontrada".to_string()));
+        }
+    }
+    tracing::info!(user_id = session.user_id, guild_id, channel_id, ?size, preset = ?request.preset_id, "camp created from the web");
     let camp_id = state
         .link
         .create_camp(guild_id, channel_id, size)
         .await
         .map_err(|err| ApiError::Conflict(err.to_string()))?;
+    if let Some(preset_id) = request.preset_id {
+        // The camp exists either way; a failure here leaves its roster to fill by hand.
+        if let Err(err) = state.link.act(guild_id, &camp_id, CampAction::ApplyPreset { preset_id }).await {
+            return Err(ApiError::Conflict(format!("o camp foi criado, mas a seleção não entrou: {err}")));
+        }
+    }
     let camp = admin_camp(&state, &session, &camp_id).await?;
     Ok((StatusCode::CREATED, camp_response(&state, camp).await?))
+}
+
+#[derive(Serialize)]
+pub struct PresetsDto {
+    presets: Vec<PresetDto>,
+    /// Every server member's main role, by user ID: what a new player of a selection starts with.
+    roles: HashMap<String, &'static str>,
+}
+
+#[derive(Serialize)]
+struct PresetDto {
+    id: i64,
+    name: String,
+    players: Vec<PresetPlayerDto>,
+    updated_at: i64,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct PresetPlayerDto {
+    user_id: String,
+    /// `s`, `ss` or `null`.
+    rank: Option<String>,
+    /// `tank`, `carry`, `support` or `null`.
+    role: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct PresetRequest {
+    name: String,
+    players: Vec<PresetPlayerDto>,
+}
+
+async fn presets_dto(state: &AppState, guild_id: u64) -> Result<PresetsDto, ApiError> {
+    let presets = presets::list(&state.db, guild_id as i64).await?;
+    let roles = presets::guild_roles(&state.db, guild_id as i64).await?;
+    Ok(PresetsDto {
+        presets: presets
+            .into_iter()
+            .map(|p| PresetDto {
+                id: p.id,
+                name: p.name,
+                players: p
+                    .players
+                    .into_iter()
+                    .map(|player| PresetPlayerDto {
+                        user_id: player.user_id.to_string(),
+                        rank: player.rank.map(|r| r.as_str().to_string()),
+                        role: player.role.map(|r| r.as_str().to_string()),
+                    })
+                    .collect(),
+                updated_at: p.updated_at,
+            })
+            .collect(),
+        roles: roles.into_iter().map(|(id, role)| (id.to_string(), role.as_str())).collect(),
+    })
+}
+
+fn preset_players(players: &[PresetPlayerDto]) -> Result<Vec<presets::PresetPlayer>, ApiError> {
+    players
+        .iter()
+        .map(|p| {
+            Ok(presets::PresetPlayer {
+                user_id: p
+                    .user_id
+                    .parse()
+                    .map_err(|_| ApiError::BadRequest(format!("ID de usuário inválido: {}", p.user_id)))?,
+                rank: p
+                    .rank
+                    .as_deref()
+                    .map(|name| presets::Rank::parse(name).ok_or_else(|| ApiError::BadRequest(format!("categoria inválida: {name}"))))
+                    .transpose()?,
+                role: p
+                    .role
+                    .as_deref()
+                    .map(|name| Role::parse(name).ok_or_else(|| ApiError::BadRequest(format!("função inválida: {name}"))))
+                    .transpose()?,
+            })
+        })
+        .collect()
+}
+
+/// The server's selections of players, to fill a new camp's roster.
+pub async fn guild_presets(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+) -> Result<Json<PresetsDto>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    Ok(Json(presets_dto(&state, guild_id).await?))
+}
+
+pub async fn create_preset(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+    Json(request): Json<PresetRequest>,
+) -> Result<Json<PresetsDto>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    let players = preset_players(&request.players)?;
+    presets::save(&state.db, guild_id as i64, None, &request.name, &players)
+        .await
+        .map_err(|err| ApiError::BadRequest(err.to_string()))?;
+    Ok(Json(presets_dto(&state, guild_id).await?))
+}
+
+pub async fn save_preset(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path((guild_id, preset_id)): Path<(u64, i64)>,
+    Json(request): Json<PresetRequest>,
+) -> Result<Json<PresetsDto>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    let players = preset_players(&request.players)?;
+    presets::save(&state.db, guild_id as i64, Some(preset_id), &request.name, &players)
+        .await
+        .map_err(|err| ApiError::BadRequest(err.to_string()))?;
+    Ok(Json(presets_dto(&state, guild_id).await?))
+}
+
+pub async fn delete_preset(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path((guild_id, preset_id)): Path<(u64, i64)>,
+) -> Result<Json<PresetsDto>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    presets::delete(&state.db, guild_id as i64, preset_id)
+        .await
+        .map_err(|err| ApiError::BadRequest(err.to_string()))?;
+    Ok(Json(presets_dto(&state, guild_id).await?))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1010,9 +1161,11 @@ pub enum ActionRequest {
     ReopenMatch { match_id: String },
     CancelMatch { match_id: String },
     AddPlayers { user_ids: Vec<String> },
+    ApplyPreset { preset_id: i64 },
     RemovePlayer { user_id: String },
     RestorePlayer { user_id: String },
     SetSRank { user_id: String, s_rank: bool },
+    SetSsRank { user_id: String, ss_rank: bool },
     /// `tank`, `carry`, `support`, or `null` to clear it.
     SetRole { user_id: String, role: Option<String> },
     /// Points to add, or below zero to take.
@@ -1074,11 +1227,16 @@ impl TryFrom<ActionRequest> for CampAction {
             ActionRequest::AddPlayers { user_ids } => CampAction::AddPlayers {
                 user_ids: user_ids.iter().map(|id| user_id(id)).collect::<Result<_, _>>()?,
             },
+            ActionRequest::ApplyPreset { preset_id } => CampAction::ApplyPreset { preset_id },
             ActionRequest::RemovePlayer { user_id: id } => CampAction::RemovePlayer { user_id: user_id(&id)? },
             ActionRequest::RestorePlayer { user_id: id } => CampAction::RestorePlayer { user_id: user_id(&id)? },
             ActionRequest::SetSRank { user_id: id, s_rank } => CampAction::SetSRank {
                 user_id: user_id(&id)?,
                 s_rank,
+            },
+            ActionRequest::SetSsRank { user_id: id, ss_rank } => CampAction::SetSsRank {
+                user_id: user_id(&id)?,
+                ss_rank,
             },
             ActionRequest::SetRole { user_id: id, role } => CampAction::SetRole {
                 user_id: user_id(&id)?,

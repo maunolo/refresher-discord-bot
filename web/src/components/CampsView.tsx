@@ -1,8 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 
 import { useActions } from '../actions';
-import { api, type Camp, type CampSizeChoice, type CampSummary, type Channel } from '../api';
+import { api, type Camp, type CampSizeChoice, type CampSummary, type Channel, type Preset } from '../api';
 import { campStatusLabel, formatLabel, isActive, playerName, points, ranking } from '../camp';
+import { routeHref } from '../route';
 import { DiscordLink } from './common';
 
 const SIZES: { value: CampSizeChoice; title: string; detail: string }[] = [
@@ -11,6 +12,8 @@ const SIZES: { value: CampSizeChoice; title: string; detail: string }[] = [
   { value: '4-1v1', title: 'Teste 4 · 1v1', detail: 'Duas partidas 1v1' },
   { value: '4-2v2', title: 'Teste 4 · 2v2', detail: 'Uma partida 2v2' },
 ];
+
+const SIZE_TARGET: Record<CampSizeChoice, number> = { '24': 24, '30': 30, '4-1v1': 4, '4-2v2': 4 };
 
 function sizeLabel(camp: CampSummary): string {
   return camp.target_size === 4 ? `Teste 4 · ${formatLabel(camp.match_size)}` : `${camp.target_size} · ${formatLabel(camp.match_size)}`;
@@ -38,6 +41,8 @@ function NewCampForm({
 }) {
   const [channelId, setChannelId] = useState(channels[0]?.id ?? '');
   const [size, setSize] = useState<CampSizeChoice>('24');
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [presetId, setPresetId] = useState('');
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,12 +50,22 @@ function NewCampForm({
     if (!channelId && channels[0]) setChannelId(channels[0].id);
   }, [channels, channelId]);
 
+  useEffect(() => {
+    api
+      .presets(guildId)
+      .then((loaded) => setPresets(loaded.presets))
+      .catch(() => setPresets([]));
+  }, [guildId]);
+
+  const preset = presets.find((p) => String(p.id) === presetId);
+  const target = SIZE_TARGET[size];
+
   const submit = (e: FormEvent) => {
     e.preventDefault();
     setSending(true);
     setError(null);
     api
-      .createCamp(guildId, channelId, size)
+      .createCamp(guildId, channelId, size, preset?.id ?? null)
       .then(onCreated)
       .catch((err: Error) => setError(err.message))
       .finally(() => setSending(false));
@@ -84,6 +99,26 @@ function NewCampForm({
           ))}
         </div>
       </fieldset>
+      <div className="field">
+        <label htmlFor="camp-preset">Elenco</label>
+        <select id="camp-preset" className="input" value={presetId} onChange={(e) => setPresetId(e.target.value)}>
+          <option value="">Vazio: adicionar os jogadores depois</option>
+          {presets.map((p) => (
+            <option key={p.id} value={p.id}>
+              Seleção {p.name} ({p.players.length} jogadores)
+            </option>
+          ))}
+        </select>
+        <span className="muted small">
+          {preset
+            ? preset.players.length > target
+              ? `Entram os ${target} primeiros da seleção, com categorias e funções; os outros ${preset.players.length - target} ficam de fora.`
+              : `Os ${preset.players.length} jogadores entram já com categorias e funções.`
+            : presets.length === 0
+              ? <>Monte uma seleção em <a href={routeHref('presets')}>Elenco</a> para o elenco já entrar pronto.</>
+              : 'Escolha uma seleção para o elenco já entrar pronto.'}
+        </span>
+      </div>
       {error && <p className="error small">{error}</p>}
       <div className="form-actions">
         <button type="submit" className="button button-primary" disabled={sending || !channelId}>

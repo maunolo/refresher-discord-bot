@@ -6,7 +6,8 @@ const CAMP_ID_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueuePlayer {
     pub user_id: i64,
-    pub consecutive_matches: i64,
+    /// Finished matches in the camp, the one being requeued included.
+    pub matches_played: i64,
     pub queue_position: i64,
     /// `Some(true)` won the match being requeued, `Some(false)` lost, `None` was waiting.
     pub just_won: Option<bool>,
@@ -62,6 +63,7 @@ impl CampSize {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CampLayout {
     pub match_size: usize,
+    /// Refresh votes that re-sort a match, from either team: half its players.
     pub refresh_votes: usize,
 }
 
@@ -78,7 +80,7 @@ impl CampLayout {
             },
             _ => Self {
                 match_size: 12,
-                refresh_votes: 4,
+                refresh_votes: 6,
             },
         }
     }
@@ -89,23 +91,26 @@ impl CampLayout {
 pub struct Finalist {
     pub user_id: i64,
     pub points: i64,
-    /// Finished matches as MVP: the ranking's tie-breaker.
+    /// Finished matches as MVP: the ranking's tie-breaker for equal points.
     pub mvps: i64,
+    /// Finished matches in the camp: fewer ranks higher among equal points and MVPs.
+    pub matches_played: i64,
     /// Played the camp's latest finals match.
     pub played_last_final: bool,
     /// `None` while in a match.
     pub queue_position: Option<i64>,
 }
 
-/// The top `n` of the ranking: by points, then MVPs. Among players equal on both, whoever played
-/// the latest finals match goes first, so the finals keep their players from one match to the
-/// next; then the queue's order, players in a match last.
+/// The top `n` of the ranking: by points, then MVPs, then fewer matches played. Among players
+/// equal on all three, whoever played the latest finals match goes first, so the finals keep their
+/// players from one match to the next; then the queue's order, players in a match last.
 pub fn select_finalists(players: &[Finalist], n: usize) -> Vec<i64> {
     let mut sorted = players.to_vec();
     sorted.sort_by_key(|p| {
         (
             std::cmp::Reverse(p.points),
             std::cmp::Reverse(p.mvps),
+            p.matches_played,
             !p.played_last_final,
             p.queue_position.unwrap_or(i64::MAX),
             p.user_id,
@@ -115,9 +120,9 @@ pub fn select_finalists(players: &[Finalist], n: usize) -> Vec<i64> {
 }
 
 /// The queue when a camp starts: the roster shuffled into the camp's teams, `team_size` places of
-/// the line each. S-rank players are spread over the teams as evenly as possible (which teams get
-/// one more is random), and so is each role, so every team has one of each where the roster
-/// allows. The first match takes the first two teams, the next match the two after.
+/// the line each. SS-rank players are spread over the teams as evenly as possible (which teams get
+/// one more is random), then S-rank players, and so is each role, so every team has one of each
+/// where the roster allows. The first match takes the first two teams, the next match the two after.
 pub fn starting_queue(players: &[Seat], team_size: usize, rng: &mut impl Rng) -> Vec<i64> {
     let team_size = team_size.max(1);
     let teams = players.len().div_ceil(team_size);
@@ -127,20 +132,19 @@ pub fn starting_queue(players: &[Seat], team_size: usize, rng: &mut impl Rng) ->
     let size: Vec<usize> = (0..teams)
         .map(|team| team_size.min(players.len() - team * team_size))
         .collect();
-    let (s_rank, others): (Vec<Seat>, Vec<Seat>) = players.iter().copied().partition(|p| p.s_rank);
+    let (ss_rank, rest): (Vec<Seat>, Vec<Seat>) = players.iter().copied().partition(|p| p.ss_rank);
+    let (s_rank, others): (Vec<Seat>, Vec<Seat>) = rest.into_iter().partition(|p| p.s_rank);
 
-    let each = s_rank.len() / teams;
-    let mut s_rank_places = vec![each; teams];
-    let mut one_more: Vec<usize> = (0..teams).filter(|team| size[*team] > each).collect();
-    one_more.shuffle(rng);
-    for team in one_more.into_iter().take(s_rank.len() % teams) {
-        s_rank_places[team] += 1;
-    }
+    let ss_rank_places = spread(ss_rank.len(), &size, &vec![0; teams], rng);
+    let room: Vec<usize> = (0..teams).map(|team| size[team] - ss_rank_places[team]).collect();
+    // Teams with one SS rank fewer get the S rank first.
+    let s_rank_places = spread(s_rank.len(), &room, &ss_rank_places, rng);
     let other_places: Vec<usize> = (0..teams)
-        .map(|team| size[team].saturating_sub(s_rank_places[team]))
+        .map(|team| room[team].saturating_sub(s_rank_places[team]))
         .collect();
 
     let mut lineup: Vec<Vec<Seat>> = vec![Vec::new(); teams];
+    deal(&mut lineup, ss_rank, ss_rank_places, rng);
     deal(&mut lineup, s_rank, s_rank_places, rng);
     deal(&mut lineup, others, other_places, rng);
     lineup
@@ -150,6 +154,24 @@ pub fn starting_queue(players: &[Seat], team_size: usize, rng: &mut impl Rng) ->
             team.into_iter().map(|s| s.user_id)
         })
         .collect()
+}
+
+/// How many of `count` players each team gets, as evenly as `room` allows: one at a time to a team
+/// with room and the fewest so far, `already` (top players placed before) included; ties at random.
+fn spread(count: usize, room: &[usize], already: &[usize], rng: &mut impl Rng) -> Vec<usize> {
+    let mut places = vec![0; room.len()];
+    for _ in 0..count {
+        let open = (0..room.len()).filter(|team| places[*team] < room[*team]);
+        let so_far = |team: usize| already[team] + places[team];
+        let Some(fewest) = open.clone().map(so_far).min() else {
+            break;
+        };
+        let candidates: Vec<usize> = open.filter(|team| so_far(*team) == fewest).collect();
+        if let Some(team) = candidates.choose(rng) {
+            places[*team] += 1;
+        }
+    }
+    places
 }
 
 /// Seats `players` on `teams`, `places[t]` more on team `t`, spreading each role: the rarest role
@@ -214,8 +236,13 @@ pub struct Seat {
     pub user_id: i64,
     pub points: i64,
     pub s_rank: bool,
+    /// Above S rank: captains their team, two a team at most.
+    pub ss_rank: bool,
     pub role: Option<Role>,
 }
+
+/// The most SS-rank players a team of a match takes.
+pub const MAX_SS_RANK_PER_TEAM: usize = 2;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TeamSplit {
@@ -225,37 +252,58 @@ pub struct TeamSplit {
     pub archmother_captains: Vec<i64>,
 }
 
-/// Who leaves the queue for the next match: the first `match_size` of `queued`, in queue order.
-/// S rank gives no priority; `starting_queue` spreads S-rank players over the camp's teams instead.
-pub fn pick_match_seats(queued: &[Seat], match_size: usize) -> Vec<Seat> {
-    queued.iter().take(match_size).copied().collect()
-}
-
-/// A player a refresh can seat: one of the match's or one waiting in the queue.
+/// A player a match can seat, from the queue or, in a refresh, from the match itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Candidate {
     pub seat: Seat,
-    pub consecutive_matches: i64,
+    /// Finished matches in the camp: fewer plays first.
+    pub matches_played: i64,
 }
 
-/// Who plays a match after its refresh, as many as `playing`. Match players with fewer
-/// consecutive matches than the match's highest keep their seat: they were waiting. The other
-/// seats are drawn at random among the match players at that highest count and the queued players
-/// with no more than it, so a refresh never brings in someone who played more in a row.
+/// Who leaves the queue for the next match, `match_size` of `queued` (in queue order): the fewest
+/// matches played in the camp first, the queue's order among equals. S rank gives no priority;
+/// `starting_queue` spreads S-rank players over the camp's teams instead. SS rank past two a team
+/// waits for a later match, unless the match can't be filled without them.
+pub fn pick_match_seats(queued: &[Candidate], match_size: usize) -> Vec<Seat> {
+    let mut order = queued.to_vec();
+    order.sort_by_key(|c| c.matches_played);
+    take_seats(&order, match_size)
+}
+
+/// Who plays a match after its refresh, as many as `playing`: the match's players and the queued
+/// ones together, the fewest matches played first, so a queued player who played less takes the
+/// seat of a match player who played more. The seats left for players tied at the last count are
+/// drawn at random among them, in the match or in the queue. SS rank as in `pick_match_seats`.
 pub fn refresh_roster(playing: &[Candidate], queued: &[Candidate], rng: &mut impl Rng) -> Vec<Seat> {
-    let Some(highest) = playing.iter().map(|c| c.consecutive_matches).max() else {
-        return Vec::new();
-    };
-    let (kept, drawn): (Vec<&Candidate>, Vec<&Candidate>) =
-        playing.iter().partition(|c| c.consecutive_matches < highest);
-    let pool: Vec<Seat> = drawn
-        .into_iter()
-        .chain(queued.iter().filter(|c| c.consecutive_matches <= highest))
-        .map(|c| c.seat)
-        .collect();
-    let mut roster: Vec<Seat> = kept.into_iter().map(|c| c.seat).collect();
-    roster.extend(pool.choose_multiple(rng, playing.len() - roster.len()).copied());
-    roster
+    let mut order: Vec<Candidate> = playing.iter().chain(queued).copied().collect();
+    order.shuffle(rng);
+    order.sort_by_key(|c| c.matches_played);
+    take_seats(&order, playing.len())
+}
+
+/// The first `n` of `order`, skipping SS-rank players past `MAX_SS_RANK_PER_TEAM` a team; the
+/// skipped ones only fill seats nobody else can.
+fn take_seats(order: &[Candidate], n: usize) -> Vec<Seat> {
+    let cap = MAX_SS_RANK_PER_TEAM.min(n / 2) * 2;
+    let mut seats: Vec<Seat> = Vec::with_capacity(n);
+    let mut skipped: Vec<Seat> = Vec::new();
+    let mut ss_rank = 0;
+    for candidate in order {
+        if seats.len() == n {
+            break;
+        }
+        if candidate.seat.ss_rank {
+            if ss_rank == cap {
+                skipped.push(candidate.seat);
+                continue;
+            }
+            ss_rank += 1;
+        }
+        seats.push(candidate.seat);
+    }
+    let short = n - seats.len();
+    seats.extend(skipped.into_iter().take(short));
+    seats
 }
 
 /// Roles of `Role::ALL` nobody on the team plays.
@@ -266,16 +314,20 @@ fn missing_roles(team: &[Seat]) -> usize {
         .count()
 }
 
-/// Every S-rank player on the team is a captain. With none, the one with the most points; ties are random.
+/// Every SS-rank player on the team is a captain. With none, one captain: the S-rank player with
+/// the most points, or the player with the most points when the team has no S rank either; ties
+/// are random.
 fn pick_captains(team: &[Seat], rng: &mut impl Rng) -> Vec<i64> {
-    let s_rank: Vec<i64> = team.iter().filter(|s| s.s_rank).map(|s| s.user_id).collect();
-    if !s_rank.is_empty() {
-        return s_rank;
+    let ss_rank: Vec<i64> = team.iter().filter(|s| s.ss_rank).map(|s| s.user_id).collect();
+    if !ss_rank.is_empty() {
+        return ss_rank;
     }
-    let Some(best) = team.iter().map(|s| s.points).max() else {
+    let any_s_rank = team.iter().any(|s| s.s_rank);
+    let pool: Vec<&Seat> = team.iter().filter(|s| s.s_rank || !any_s_rank).collect();
+    let Some(best) = pool.iter().map(|s| s.points).max() else {
         return Vec::new();
     };
-    let top: Vec<i64> = team
+    let top: Vec<i64> = pool
         .iter()
         .filter(|s| s.points == best)
         .map(|s| s.user_id)
@@ -285,14 +337,17 @@ fn pick_captains(team: &[Seat], rng: &mut impl Rng) -> Vec<i64> {
 
 /// Split a match roster into Hiddenking and Archmother and name each team's captains.
 ///
-/// Of every way to split the roster in half, it keeps those where the teams' S-rank counts
-/// differ by one at most. Among them, the ones where the teams miss the fewest roles (each team
-/// should have a tank or bruiser, a carry and a utility or support), the worse-off team counting
-/// next. `balanced` (final match) then keeps the closest point totals. One of those that are left
-/// is picked at random, sides included. A match has 12 players at most, 924 splits.
+/// Of every way to split the roster in half, it keeps those where the teams' SS-rank counts
+/// differ by one at most (so with up to four, two a team at most), then their S-rank counts, then
+/// both together. Among them, the ones where the teams miss the fewest roles (each team should
+/// have a tank or bruiser, a carry and a utility or support), the worse-off team counting next.
+/// `balanced` (finals) then keeps the closest point totals. One of those that are left is picked
+/// at random, sides included. A match has 12 players at most, 924 splits.
 pub fn split_match(seats: &[Seat], balanced: bool, rng: &mut impl Rng) -> TeamSplit {
     let half = seats.len() / 2;
-    let s_rank = seats.iter().filter(|s| s.s_rank).count();
+    // How far two counts are past differing by one.
+    let uneven = |a: usize, b: usize| a.abs_diff(b).saturating_sub(1);
+    let count = |team: &[Seat], rank: fn(&Seat) -> bool| team.iter().filter(|s| rank(s)).count();
     // Bit `i` of a mask puts `seats[i]` on the first team.
     let teams = |mask: u32| -> (Vec<Seat>, Vec<Seat>) {
         let (a, b): (Vec<(usize, &Seat)>, Vec<(usize, &Seat)>) =
@@ -306,10 +361,9 @@ pub fn split_match(seats: &[Seat], balanced: bool, rng: &mut impl Rng) -> TeamSp
             continue;
         }
         let (team_a, team_b) = teams(mask);
-        let a_s_rank = team_a.iter().filter(|s| s.s_rank).count();
-        if a_s_rank.abs_diff(s_rank - a_s_rank) > 1 {
-            continue;
-        }
+        let (a_ss, b_ss) = (count(&team_a, |s| s.ss_rank), count(&team_b, |s| s.ss_rank));
+        let (a_s, b_s) = (count(&team_a, |s| s.s_rank), count(&team_b, |s| s.s_rank));
+        let ranks = (uneven(a_ss, b_ss), uneven(a_s, b_s), uneven(a_ss + a_s, b_ss + b_s));
         let (a_missing, b_missing) = (missing_roles(&team_a), missing_roles(&team_b));
         let gap = if balanced {
             let total = |team: &[Seat]| team.iter().map(|s| s.points).sum::<i64>();
@@ -317,7 +371,7 @@ pub fn split_match(seats: &[Seat], balanced: bool, rng: &mut impl Rng) -> TeamSp
         } else {
             0
         };
-        let score = (a_missing + b_missing, a_missing.max(b_missing), gap);
+        let score = (ranks, a_missing + b_missing, a_missing.max(b_missing), gap);
         if best_score.is_none_or(|best| score < best) {
             best_score = Some(score);
             best.clear();
@@ -344,32 +398,30 @@ fn shuffle_if_many<T>(items: &mut [T], rng: &mut impl Rng) {
     }
 }
 
-/// Rebuild the queue after a match ends.
+/// Rebuild the queue after a match ends: the fewest matches played in the camp first.
 ///
-/// Waiters (just_won = None) are reset to consecutive 0 and keep their current order at the front.
-/// Finished players are grouped by consecutive_matches (already incremented), winners before losers
-/// inside each count. A winner or loser block with more than 2 players is shuffled.
+/// Among players with the same count, the waiters (`waiters`, in queue order) keep their order in
+/// front, then the match's winners, then its losers. A winner or loser block with more than 2
+/// players is shuffled.
 pub fn requeue(waiters: Vec<QueuePlayer>, finished: Vec<QueuePlayer>, rng: &mut impl Rng) -> Vec<QueuePlayer> {
-    let mut waiters = waiters;
-    for waiter in &mut waiters {
-        waiter.consecutive_matches = 0;
-        waiter.just_won = None;
+    type Blocks = (Vec<QueuePlayer>, Vec<QueuePlayer>, Vec<QueuePlayer>);
+    let mut by_count: std::collections::BTreeMap<i64, Blocks> = std::collections::BTreeMap::new();
+    for waiter in waiters {
+        by_count.entry(waiter.matches_played).or_default().0.push(waiter);
     }
-
-    let mut by_count: std::collections::BTreeMap<i64, (Vec<QueuePlayer>, Vec<QueuePlayer>)> =
-        std::collections::BTreeMap::new();
     for player in finished {
-        let entry = by_count.entry(player.consecutive_matches).or_default();
+        let entry = by_count.entry(player.matches_played).or_default();
         match player.just_won {
-            Some(true) => entry.0.push(player),
-            _ => entry.1.push(player),
+            Some(true) => entry.1.push(player),
+            _ => entry.2.push(player),
         }
     }
 
-    let mut result = waiters;
-    for (_count, (mut winners, mut losers)) in by_count {
+    let mut result = Vec::new();
+    for (_count, (waiting, mut winners, mut losers)) in by_count {
         shuffle_if_many(&mut winners, rng);
         shuffle_if_many(&mut losers, rng);
+        result.extend(waiting);
         result.extend(winners);
         result.extend(losers);
     }
@@ -392,8 +444,13 @@ mod tests {
             user_id,
             points,
             s_rank,
+            ss_rank: false,
             role: None,
         }
+    }
+
+    fn ss(user_id: i64, points: i64) -> Seat {
+        Seat { ss_rank: true, ..seat(user_id, points, false) }
     }
 
     fn with_role(seat: Seat, role: Role) -> Seat {
@@ -486,6 +543,21 @@ mod tests {
     }
 
     #[test]
+    fn starting_queue_spreads_ss_rank_before_s_rank() {
+        // 24 players in 4 teams of 6: 6 SS rank (0-5) and 6 S rank (6-11).
+        let players: Vec<Seat> = (0..24)
+            .map(|i| if i < 6 { ss(i, 0) } else { seat(i, 0, i < 12) })
+            .collect();
+        for seed in 0..50 {
+            let order = starting_queue(&players, 6, &mut StdRng::seed_from_u64(seed));
+            let ss_rank = s_rank_per_team(&order, &[0, 1, 2, 3, 4, 5], 6);
+            let both = s_rank_per_team(&order, &(0..12).collect::<Vec<_>>(), 6);
+            assert!(ss_rank.iter().all(|n| (1..=2).contains(n)), "{ss_rank:?}");
+            assert!(both.iter().all(|n| *n == 3), "{both:?}");
+        }
+    }
+
+    #[test]
     fn starting_queue_spreads_a_short_role_one_per_team() {
         // Three tanks for five teams: three teams get one, none gets two.
         let players: Vec<Seat> = (0..30)
@@ -500,31 +572,63 @@ mod tests {
 
     #[test]
     fn finalists_are_the_top_of_the_ranking() {
-        let finalist = |user_id, points, mvps, played_last_final, queue_position| Finalist {
+        let finalist = |user_id, points, matches_played, mvps, played_last_final, queue_position| Finalist {
             user_id,
             points,
+            matches_played,
             mvps,
             played_last_final,
             queue_position,
         };
         let players = [
-            finalist(1, 3, 0, false, Some(0)),
-            finalist(2, 5, 0, false, Some(1)),
-            finalist(3, 3, 1, false, Some(2)),
-            finalist(4, 3, 0, false, Some(3)),
-            finalist(5, 3, 0, true, Some(4)),
-            finalist(6, 4, 0, false, None),
+            finalist(1, 3, 2, 0, false, Some(0)),
+            finalist(2, 5, 2, 0, false, Some(1)),
+            finalist(3, 3, 2, 1, false, Some(2)),
+            finalist(4, 3, 2, 0, false, Some(3)),
+            finalist(5, 3, 2, 0, true, Some(4)),
+            finalist(6, 4, 2, 0, false, None),
+            finalist(7, 3, 1, 0, false, Some(5)),
         ];
-        // Points, then MVPs; equal on both, the latest finals' players, then the queue's order.
-        assert_eq!(select_finalists(&players, 6), [2, 6, 3, 5, 1, 4]);
-        assert_eq!(select_finalists(&players, 4), [2, 6, 3, 5]);
+        // Points, then MVPs, then fewer matches; equal on all three, the latest finals' players,
+        // then the queue's order.
+        assert_eq!(select_finalists(&players, 7), [2, 6, 3, 7, 5, 1, 4]);
+        assert_eq!(select_finalists(&players, 4), [2, 6, 3, 7]);
         assert_eq!(select_finalists(&players[..2], 4), [2, 1], "everyone when there are too few");
     }
 
     #[test]
     fn pick_takes_the_front_of_the_queue_s_rank_or_not() {
-        let queued: Vec<Seat> = (0..16).map(|i| seat(i, 0, [5, 13, 14].contains(&i))).collect();
+        let queued: Vec<Candidate> = (0..16)
+            .map(|i| Candidate { seat: seat(i, 0, [5, 13, 14].contains(&i)), matches_played: 1 })
+            .collect();
         assert_eq!(ids(&pick_match_seats(&queued, 12)), (0..12).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn pick_takes_the_fewest_matches_played_first() {
+        // The queue's front played 3; 14 and 15, at its end, played 1.
+        let queued: Vec<Candidate> = (0..16)
+            .map(|i| candidate(i, match i {
+                14 | 15 => 1,
+                0..4 => 3,
+                _ => 2,
+            }))
+            .collect();
+        let mut picked = ids(&pick_match_seats(&queued, 12));
+        picked.sort();
+        assert_eq!(picked, [4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+    }
+
+    #[test]
+    fn pick_leaves_ss_rank_past_two_a_team_in_the_queue() {
+        // 0-5 SS rank at the front: only four of them fit a 6v6.
+        let queued: Vec<Candidate> = (0..16)
+            .map(|i| Candidate { seat: if i < 6 { ss(i, 0) } else { seat(i, 0, false) }, matches_played: 0 })
+            .collect();
+        assert_eq!(ids(&pick_match_seats(&queued, 12)), [0, 1, 2, 3, 6, 7, 8, 9, 10, 11, 12, 13]);
+        // Five SS rank and three others for a 4v4: with nobody else to play, the fifth still does.
+        let short: Vec<Candidate> = queued[..5].iter().chain(&queued[6..9]).copied().collect();
+        assert_eq!(ids(&pick_match_seats(&short, 8)), [0, 1, 2, 3, 6, 7, 8, 4]);
     }
 
     #[test]
@@ -550,17 +654,10 @@ mod tests {
                             (&split.hiddenking, &split.hiddenking_captains, hk_s),
                             (&split.archmother, &split.archmother_captains, am_s),
                         ] {
-                            if s_on_team > 0 {
-                                let mut s_rank: Vec<i64> =
-                                    team.iter().copied().filter(|id| *id < s_count).collect();
-                                let mut captains = captains.clone();
-                                s_rank.sort();
-                                captains.sort();
-                                assert_eq!(captains, s_rank, "every S-rank player on the team captains it");
-                            } else {
-                                assert_eq!(captains.len(), 1);
-                                assert!(team.contains(&captains[0]));
-                            }
+                            // Without SS rank, one captain: an S-rank player when the team has one.
+                            assert_eq!(captains.len(), 1);
+                            assert!(team.contains(&captains[0]));
+                            assert_eq!(captains[0] < s_count, s_on_team > 0);
                         }
                     }
                 }
@@ -583,17 +680,65 @@ mod tests {
         }
     }
 
-    fn candidate(user_id: i64, consecutive_matches: i64) -> Candidate {
+    #[test]
+    fn ss_rank_captains_and_splits_two_a_team() {
+        // Four SS rank (0-3) and four S rank (4-7): two and two on each side.
+        let seats: Vec<Seat> = (0..12)
+            .map(|i| if i < 4 { ss(i, i) } else { seat(i, i, i < 8) })
+            .collect();
+        for balanced in [false, true] {
+            for seed in 0..50 {
+                let split = split_match(&seats, balanced, &mut StdRng::seed_from_u64(seed));
+                for (team, captains) in [
+                    (&split.hiddenking, &split.hiddenking_captains),
+                    (&split.archmother, &split.archmother_captains),
+                ] {
+                    let mut ss_rank: Vec<i64> = team.iter().copied().filter(|id| *id < 4).collect();
+                    let mut captains = captains.clone();
+                    ss_rank.sort();
+                    captains.sort();
+                    assert_eq!(ss_rank.len(), 2, "{split:?}");
+                    assert_eq!(team.iter().filter(|id| (4..8).contains(*id)).count(), 2, "{split:?}");
+                    assert_eq!(captains, ss_rank, "every SS-rank player on the team captains it");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn s_and_ss_rank_spread_together() {
+        // One SS and one S rank: never both on the same side.
+        let seats: Vec<Seat> = (0..12).map(|i| if i == 0 { ss(i, 0) } else { seat(i, 0, i == 1) }).collect();
+        for seed in 0..50 {
+            let split = split_match(&seats, false, &mut StdRng::seed_from_u64(seed));
+            assert_ne!(split.hiddenking.contains(&0), split.hiddenking.contains(&1), "{split:?}");
+            let s_side = if split.hiddenking.contains(&1) { &split.hiddenking_captains } else { &split.archmother_captains };
+            assert_eq!(s_side, &[1], "the S-rank player captains the side without SS rank");
+        }
+    }
+
+    fn candidate(user_id: i64, matches_played: i64) -> Candidate {
         Candidate {
             seat: seat(user_id, 0, false),
-            consecutive_matches,
+            matches_played,
+        }
+    }
+
+    #[test]
+    fn refresh_pulls_in_queued_players_who_played_less() {
+        // Match: 0-9 played 1, 10-11 played 3. Queue: 12-13 played 0, 14-17 played 3.
+        let playing: Vec<Candidate> = (0..12).map(|i| candidate(i, if i < 10 { 1 } else { 3 })).collect();
+        let queued: Vec<Candidate> = (12..18).map(|i| candidate(i, if i < 14 { 0 } else { 3 })).collect();
+        for seed in 0..20 {
+            let mut roster = ids(&refresh_roster(&playing, &queued, &mut StdRng::seed_from_u64(seed)));
+            roster.sort();
+            assert_eq!(roster, [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13]);
         }
     }
 
     #[test]
     fn refresh_keeps_waiters_and_draws_the_rest_from_match_and_queue() {
-        // Match: 0-5 waited (0 in a row), 6-11 just played (1). Queue: 12-17 just played (1),
-        // 18-19 played two in a row (2).
+        // Match: 0-5 waited (0 matches), 6-11 played 1. Queue: 12-17 played 1, 18-19 played 2.
         let playing: Vec<Candidate> = (0..12).map(|i| candidate(i, i64::from(i >= 6))).collect();
         let queued: Vec<Candidate> = (12..20).map(|i| candidate(i, if i < 18 { 1 } else { 2 })).collect();
         let mut drawn_in = std::collections::HashSet::new();
@@ -605,7 +750,7 @@ mod tests {
             ids.dedup();
             assert_eq!(ids.len(), 12, "nobody twice");
             assert!((0..6).all(|id| ids.contains(&id)), "waiters keep their seat");
-            assert!(ids.iter().all(|id| *id < 18), "nobody with more in a row than the match");
+            assert!(ids.iter().all(|id| *id < 18), "nobody who played more than the match");
             drawn_in.extend(ids.into_iter().filter(|id| *id >= 6));
         }
         assert_eq!(drawn_in.len(), 12, "every player at the match's count can be drawn");
@@ -688,6 +833,31 @@ mod tests {
             assert_eq!(team_roles(&seats, &split.hiddenking).len(), 2, "{split:?}");
             assert_eq!(team_roles(&seats, &split.archmother).len(), 2, "{split:?}");
         }
+    }
+
+    fn waiting(user_id: i64, matches_played: i64) -> QueuePlayer {
+        QueuePlayer { user_id, matches_played, queue_position: 0, just_won: None }
+    }
+
+    #[test]
+    fn requeue_puts_the_fewest_matches_played_first() {
+        // Waiting: 1 and 2 played 1, 3 played 2. The match: 4-6 won and 7-9 lost, now at 2 each.
+        let waiters = vec![waiting(1, 1), waiting(2, 1), waiting(3, 2)];
+        let finished: Vec<QueuePlayer> = (4..10)
+            .map(|i| QueuePlayer { just_won: Some(i < 7), ..waiting(i, 2) })
+            .collect();
+        for seed in 0..20 {
+            let queue = requeue(waiters.clone(), finished.clone(), &mut StdRng::seed_from_u64(seed));
+            let order: Vec<i64> = queue.iter().map(|p| p.user_id).collect();
+            assert_eq!(order[..3], [1, 2, 3], "waiters first among equals");
+            let mut winners = order[3..6].to_vec();
+            winners.sort();
+            assert_eq!(winners, [4, 5, 6], "winners before losers");
+            assert_eq!(queue.iter().map(|p| p.queue_position).collect::<Vec<_>>(), (0..9).collect::<Vec<_>>());
+        }
+        // A waiter who played more goes behind a match player who played less.
+        let queue = requeue(vec![waiting(1, 5)], vec![QueuePlayer { just_won: Some(false), ..waiting(2, 1) }], &mut StdRng::seed_from_u64(1));
+        assert_eq!(queue.iter().map(|p| p.user_id).collect::<Vec<_>>(), [2, 1]);
     }
 
     #[test]

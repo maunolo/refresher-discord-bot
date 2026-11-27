@@ -109,13 +109,14 @@ function CampButtons({ camp }: { camp: Camp }) {
   );
 }
 
-function summary(camp: Camp, sRank: number): string {
+function summary(camp: Camp, sRank: number, ssRank: number): string {
   const played = camp.match_count === 1 ? 'partida jogada' : 'partidas jogadas';
-  return `${camp.players.length} jogadores · ${formatLabel(camp.match_size)} · ${camp.match_count} ${played} · ${sRank} S rank`;
+  return `${camp.players.length} jogadores · ${formatLabel(camp.match_size)} · ${camp.match_count} ${played} · ${ssRank} SS rank · ${sRank} S rank`;
 }
 
 export function Header({ me, guildId, onGuild, camps, campId, onCamp, camp, live }: HeaderProps) {
   const sRank = camp?.players.filter((p) => p.s_rank).length ?? 0;
+  const ssRank = camp?.players.filter((p) => p.ss_rank).length ?? 0;
   return (
     <header className="header">
       <div className="header-group">
@@ -141,8 +142,8 @@ export function Header({ me, guildId, onGuild, camps, campId, onCamp, camp, live
         )}
         {camp && <StatusPill status={camp.status} />}
         {camp && (
-          <span className="muted small header-summary" title={summary(camp, sRank)}>
-            {summary(camp, sRank)}
+          <span className="muted small header-summary" title={summary(camp, sRank, ssRank)}>
+            {summary(camp, sRank, ssRank)}
           </span>
         )}
       </div>

@@ -1,6 +1,6 @@
 // Labels and derived values for camps and matches, matching what the bot shows in Discord.
 
-import type { Camp, Match, Player, Role, Side } from './api';
+import type { Camp, Match, Player, Rank, Role, Side } from './api';
 
 export const SIDES: Side[] = ['hiddenking', 'archmother'];
 
@@ -34,6 +34,24 @@ export function roleCounts(players: Player[]): string {
   const none = players.filter((p) => p.role === null).length;
   if (none > 0) parts.push(`sem função ${none}`);
   return parts.join(' · ');
+}
+
+export const RANKS: Rank[] = ['ss', 's'];
+
+export const RANK_LABEL: Record<Rank, string> = {
+  ss: 'SS rank',
+  s: 'S rank',
+};
+
+/** The player's category, if any. */
+export function rankOf(player: Pick<Player, 's_rank' | 'ss_rank'>): Rank | null {
+  if (player.ss_rank) return 'ss';
+  return player.s_rank ? 's' : null;
+}
+
+/** `1 partida`, `3 partidas`. */
+export function matchesWord(n: number): string {
+  return `${n} ${n === 1 ? 'partida' : 'partidas'}`;
 }
 
 const CAMP_STATUS: Record<string, string> = {
@@ -115,8 +133,10 @@ export function stage(match: Match): Stage {
 }
 
 export interface VoteCount {
-  /** Refresh votes per team; one team reaching `needed` re-sorts the match. */
+  /** Refresh votes per team. */
   refresh: Record<Side, number>;
+  /** Refresh votes from both teams; reaching `needed` re-sorts the match. */
+  total_refresh: number;
   keep: number;
   voted: number;
   total: number;
@@ -128,6 +148,7 @@ export function voteCount(camp: Camp, match: Match): VoteCount {
   const refresh = (side: Side) => match.votes.filter((v) => v.refresh && sideOf.get(v.user_id) === side).length;
   return {
     refresh: { hiddenking: refresh('hiddenking'), archmother: refresh('archmother') },
+    total_refresh: match.votes.filter((v) => v.refresh).length,
     keep: match.votes.filter((v) => !v.refresh).length,
     voted: match.votes.length,
     total: match.players.length,
@@ -150,7 +171,7 @@ export function voteSummary(camp: Camp, match: Match): string {
   }
   const count = voteCount(camp, match);
   const needed = count.needed;
-  return `Refresh: Hiddenking ${count.refresh.hiddenking}/${needed} · Archmother ${count.refresh.archmother}/${needed} · Manter ${count.keep} · Votos ${voted}/${total}`;
+  return `Refresh: ${count.total_refresh}/${needed} · Manter ${count.keep} · Votos ${voted}/${total}`;
 }
 
 export function queuedPlayers(camp: Camp): Player[] {
@@ -165,13 +186,14 @@ export function winRate(player: Player): string {
 }
 
 /**
- * Players by points, MVPs breaking ties, like the bot's final ranking: `place` counts distinct
- * (points, MVPs) pairs. Players equal on both share the place; fewer matches played lists first.
+ * Players by points, then MVPs, then fewer matches played, like the bot's final ranking: players
+ * equal on all three share the place.
  */
 export function ranking(players: Player[]): { player: Player; place: number }[] {
   const sorted = [...players].sort(
     (a, b) => b.points - a.points || b.mvps - a.mvps || a.matches_played - b.matches_played,
   );
-  const keys = [...new Set(sorted.map((p) => `${p.points}:${p.mvps}`))];
-  return sorted.map((player) => ({ player, place: keys.indexOf(`${player.points}:${player.mvps}`) + 1 }));
+  const key = (p: Player) => `${p.points}:${p.mvps}:${p.matches_played}`;
+  const keys = [...new Set(sorted.map(key))];
+  return sorted.map((player) => ({ player, place: keys.indexOf(key(player)) + 1 }));
 }

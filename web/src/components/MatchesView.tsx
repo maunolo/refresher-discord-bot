@@ -18,7 +18,7 @@ import {
 import { pollEvery, useLive } from '../live';
 import { matchHref, routeHref } from '../route';
 import { usePolling } from '../usePolling';
-import { Captain, CopyButton, DiscordLink, MatchWorth, MvpTag, RemovedChip, RoleChip, SRankChip } from './common';
+import { Captain, CopyButton, DiscordLink, MatchWorth, MvpTag, RemovedChip, RoleChip, RankChip } from './common';
 import { CancelMatchButton, DraftLinks, ManualDraftNote, StagePill, Stepper } from './MatchCard';
 import { MatchStatsCard } from './MatchStatsCard';
 import { Corrections } from './Panels';
@@ -175,20 +175,21 @@ function VoteTiles({ camp, match }: { camp: Camp; match: Match }) {
   const count = voteCount(camp, match);
   return (
     <div className="stats">
-      {SIDES.map((side) => (
-        <Stat key={side} label={`Refresh · ${SIDE_LABEL[side]}`}>
-          <span className={`stat-value stat-${side}`}>
-            {count.refresh[side]}
-            <span className="stat-of"> de {count.needed}</span>
-          </span>
-          <Meter
-            value={count.refresh[side]}
-            of={count.needed}
-            tone={side}
-            label={`${count.refresh[side]} de ${count.needed} votos`}
-          />
-        </Stat>
-      ))}
+      <Stat label="Refresh">
+        <span className="stat-value">
+          {count.total_refresh}
+          <span className="stat-of"> de {count.needed}</span>
+        </span>
+        <Meter
+          value={count.total_refresh}
+          of={count.needed}
+          tone="jade"
+          label={`${count.total_refresh} de ${count.needed} votos Refresh`}
+        />
+        <span className="muted small">
+          {SIDES.map((side) => `${SIDE_LABEL[side]} ${count.refresh[side]}`).join(' · ')}
+        </span>
+      </Stat>
       <Stat label="Manter times">
         <span className="stat-value">{count.keep}</span>
         <span className="muted small">votos para não mudar</span>
@@ -228,7 +229,7 @@ function TeamVotes({ camp, match, side }: { camp: Camp; match: Match; side: Side
           return (
             <li key={p.user_id} className="row row-tall">
               <span className="ellipsis">{playerName(camp, p.user_id)}</span>
-              {player?.s_rank && <SRankChip />}
+              <RankChip player={player} />
               {player?.removed && <RemovedChip />}
               <RoleChip role={player?.role ?? null} />
               {p.is_captain && <Captain />}
@@ -439,7 +440,7 @@ function MatchDetail({ camp, match }: { camp: Camp; match: Match }) {
           </div>
           <p className="muted small">
             {voting && !match.refresh_used
-              ? `A votação fecha quando ${camp.refresh_votes} jogadores de um mesmo time pedem refresh, quando todos votam, ou quando o refresh não tem mais como passar.`
+              ? `A votação fecha quando ${camp.refresh_votes} jogadores pedem refresh, somando os dois times, quando todos votam, ou quando o refresh não tem mais como passar.`
               : voteSummary(camp, match)}
           </p>
         </section>

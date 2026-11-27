@@ -78,6 +78,34 @@ export interface MemberResult {
   avatar_url: string;
 }
 
+/** A player's category: S rank, or SS rank above it (the team captains). */
+export type Rank = 's' | 'ss';
+
+export interface PresetPlayer {
+  user_id: string;
+  rank: Rank | null;
+  role: Role | null;
+}
+
+/** A selection of players saved on the server, to fill a new camp's roster. */
+export interface Preset {
+  id: number;
+  name: string;
+  players: PresetPlayer[];
+  updated_at: number;
+}
+
+export interface Presets {
+  presets: Preset[];
+  /** Every member's main role on the server, by user ID. */
+  roles: Record<string, Role>;
+}
+
+export interface PresetForm {
+  name: string;
+  players: PresetPlayer[];
+}
+
 export type CampSizeChoice = '24' | '30' | '4-1v1' | '4-2v2';
 
 /** A player's main role, kept per server: tank or bruiser, carry, utility or support. */
@@ -88,10 +116,11 @@ export interface Player {
   points: number;
   location: string;
   queue_position: number | null;
-  consecutive_matches: number;
   s_rank: boolean;
+  /** Above S rank: captains their team, two a team of a match at most. */
+  ss_rank: boolean;
   role: Role | null;
-  /** Finished matches only. */
+  /** Finished matches only. Fewer plays first, and breaks ties in points and MVPs. */
   matches_played: number;
   wins: number;
   /** Points admins added (or, below zero, took) by hand. */
@@ -188,6 +217,8 @@ export type CampAction =
   | { type: 'remove_player'; user_id: string }
   | { type: 'restore_player'; user_id: string }
   | { type: 'set_s_rank'; user_id: string; s_rank: boolean }
+  | { type: 'set_ss_rank'; user_id: string; ss_rank: boolean }
+  | { type: 'apply_preset'; preset_id: number }
   | { type: 'set_role'; user_id: string; role: Role | null }
   | { type: 'adjust_points'; user_id: string; delta: number }
   | { type: 'start_queue' }
@@ -399,8 +430,14 @@ export const api = {
   members: (guildId: string) => request<MemberResult[]>(`/api/guilds/${guildId}/members`),
   /** Resolves with the camp once the bot has also updated Discord. */
   act: (campId: string, action: CampAction) => post<Camp>(`/api/camps/${campId}/actions`, action),
-  createCamp: (guildId: string, channelId: string, size: CampSizeChoice) =>
-    post<Camp>(`/api/guilds/${guildId}/camps`, { channel_id: channelId, size }),
+  /** `presetId` fills the roster from one of the server's selections. */
+  createCamp: (guildId: string, channelId: string, size: CampSizeChoice, presetId: number | null) =>
+    post<Camp>(`/api/guilds/${guildId}/camps`, { channel_id: channelId, size, preset_id: presetId }),
+  presets: (guildId: string) => request<Presets>(`/api/guilds/${guildId}/presets`),
+  createPreset: (guildId: string, form: PresetForm) => post<Presets>(`/api/guilds/${guildId}/presets`, form),
+  savePreset: (guildId: string, id: number, form: PresetForm) =>
+    send<Presets>('PUT', `/api/guilds/${guildId}/presets/${id}`, form),
+  deletePreset: (guildId: string, id: number) => request<Presets>(`/api/guilds/${guildId}/presets/${id}`, { method: 'DELETE' }),
   site: (campId: string) => request<SiteState>(`/api/camps/${campId}/site`),
   /** Saves the camp's info cards; they come back cleaned up. */
   saveSite: (campId: string, info: SiteInfo) => send<SiteState>('PUT', `/api/camps/${campId}/site`, { info }),

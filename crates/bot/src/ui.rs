@@ -9,34 +9,10 @@ use crate::db::{CampState, MatchPlayerRow, MatchPoints, OpenMatch, PlayerRow};
 use crate::queue::Role;
 use crate::ranking::{self, Standing};
 
-pub const S_RANK_TAG: &str = "⭐";
-pub const CAPTAIN_TAG: &str = "👑";
 pub const CAPTAIN_LINK_LABEL: &str = "Link do capitão";
 
 pub fn mention(user_id: i64) -> String {
     UserId::new(user_id as u64).mention().to_string()
-}
-
-/// The main roles' tags, in the order team lists sort them.
-const ROLE_LEGEND: &str = "🛡️ Tank/Bruiser · 🎯 Carry · ✨ Utility/Support";
-
-fn role_tag(role: Role) -> &'static str {
-    match role {
-        Role::Tank => "🛡️",
-        Role::Carry => "🎯",
-        Role::Support => "✨",
-    }
-}
-
-fn player_label(player: &PlayerRow) -> String {
-    let mut label = mention(player.user_id);
-    if player.s_rank {
-        label.push_str(&format!(" {S_RANK_TAG}"));
-    }
-    if let Some(role) = player.role {
-        label.push_str(&format!(" {}", role_tag(role)));
-    }
-    label
 }
 
 /// One team's mentions, one per line: captains first, then by role.
@@ -57,16 +33,7 @@ fn team_list(state: &CampState, players: &[MatchPlayerRow], side: &str) -> Strin
     // Players without a role last.
     team.sort_by_key(|p| (!p.is_captain, role_order(p.user_id).unwrap_or(usize::MAX), p.user_id));
     team.iter()
-        .map(|p| {
-            let mut line = mention(p.user_id);
-            if p.is_captain {
-                line.push_str(&format!(" {CAPTAIN_TAG}"));
-            }
-            if let Some(role) = role_of(p.user_id) {
-                line.push_str(&format!(" {}", role_tag(role)));
-            }
-            line
-        })
+        .map(|p| mention(p.user_id))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -86,13 +53,15 @@ fn status_label(status: &str) -> &str {
     }
 }
 
-/// The ranking by points, MVPs breaking ties; gold, silver and bronze for the top three places.
+/// The ranking by points, then MVPs, then fewer matches played; gold, silver and bronze for the
+/// top three places.
 pub fn trophy_lines(players: &[PlayerRow], mvps: &HashMap<i64, i64>) -> String {
     let standings: Vec<Standing> = players
         .iter()
         .map(|p| Standing {
             user_id: p.user_id,
             points: p.points,
+            matches: p.matches_played,
             mvps: mvps.get(&p.user_id).copied().unwrap_or(0),
         })
         .collect();
@@ -128,15 +97,16 @@ pub fn signup_embed(state: &CampState) -> CreateEmbed {
     } else {
         players
             .iter()
-            .map(|p| player_label(p))
+            .map(|p| mention(p.user_id))
             .collect::<Vec<_>>()
             .join("\n")
     };
+    let ss_rank = state.players.iter().filter(|p| p.ss_rank).count();
     let s_rank = state.players.iter().filter(|p| p.s_rank).count();
     CreateEmbed::new()
         .title("Elenco do camp de Deadlock")
         .description(format!(
-            "Inscrição aberta: {}/{} jogadores. Quando o elenco fechar, a fila aparece aqui.{}\n{S_RANK_TAG} S rank: **{s_rank}** — a fila começa com eles divididos por igual entre os times, e todos são capitães.\nFunções: {ROLE_LEGEND} — a fila começa com elas espalhadas, e cada time de uma partida recebe uma de cada, quando dá.",
+            "Inscrição aberta: {}/{} jogadores. Quando o elenco fechar, a fila aparece aqui.{}\nSS rank: **{ss_rank}** — capitães dos times, no máximo dois por time numa partida. S rank: **{s_rank}**. A fila começa com os dois divididos por igual entre os times.\nFunções: a fila começa com elas espalhadas, e cada time de uma partida recebe uma de cada, quando dá.",
             state.players.len(),
             state.camp.target_size,
             match state.camp.layout().match_size {
@@ -161,11 +131,12 @@ fn queued_players(state: &CampState) -> Vec<&PlayerRow> {
 
 fn queue_line(index: usize, player: &PlayerRow, up_next: bool) -> String {
     format!(
-        "`{:>2}.` {} {} ({} seg., {} pts)",
+        "`{:>2}.` {} {} ({} {}, {} pts)",
         index + 1,
         if up_next { "→" } else { " " },
-        player_label(player),
-        player.consecutive_matches,
+        mention(player.user_id),
+        player.matches_played,
+        if player.matches_played == 1 { "partida" } else { "partidas" },
         player.points
     )
 }
@@ -195,16 +166,16 @@ pub fn board_embed(state: &CampState, up_next: &[i64]) -> CreateEmbed {
     let queue = queued_players(state);
     let picking = if state.camp.finals {
         format!(
-            "**Final:** cada partida é jogada pelos {} primeiros do ranking (pontos, depois MVPs). **→** indica quem joga a próxima.",
+            "**Final:** cada partida é jogada pelos {} primeiros do ranking (pontos, depois MVPs, depois menos partidas). **→** indica quem joga a próxima.",
             state.camp.layout().match_size
         )
     } else {
-        "Os próximos times saem da fila quando um admin cria a partida. **→** indica quem entra no próximo sorteio.".to_string()
+        "Os próximos times saem da fila quando um admin cria a partida, quem jogou menos partidas no camp primeiro. **→** indica quem entra no próximo sorteio.".to_string()
     };
     let mut embed = CreateEmbed::new()
         .title(format!("Camp de Deadlock {}", state.camp.id))
         .description(format!(
-            "Partidas jogadas: **{}** · Elenco: **{}**{}\n{picking}\nFunções: {ROLE_LEGEND}",
+            "Partidas jogadas: **{}** · Elenco: **{}**{}\n{picking}",
             state.camp.match_count,
             state.active_players().count(),
             match state.players.iter().filter(|p| p.removed).count() {
@@ -266,35 +237,14 @@ fn match_field(state: &CampState, open: &OpenMatch) -> String {
 }
 
 pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
-    let hk: Vec<i64> = open
-        .players
-        .iter()
-        .filter(|p| p.side == "hiddenking")
-        .map(|p| p.user_id)
-        .collect();
-    let am: Vec<i64> = open
-        .players
-        .iter()
-        .filter(|p| p.side == "archmother")
-        .map(|p| p.user_id)
-        .collect();
-    let refresh_ids: Vec<i64> = open
-        .votes
-        .iter()
-        .filter(|v| v.refresh)
-        .map(|v| v.user_id)
-        .collect();
-    let keep = open.votes.iter().filter(|v| !v.refresh).count();
-    let hk_votes = refresh_ids.iter().filter(|id| hk.contains(id)).count();
-    let am_votes = refresh_ids.iter().filter(|id| am.contains(id)).count();
+    let refresh_votes = open.votes.iter().filter(|v| v.refresh).count();
+    let keep = open.votes.len() - refresh_votes;
     let needed = state.camp.layout().refresh_votes;
     let voted = open.votes.len();
     let total = open.players.len();
     let mut desc = if open.row.status == "voting" {
-        if open.row.draft_url.is_some() {
-            format!("Draft iniciado — os capitães ({CAPTAIN_TAG}) entram no draft pelo botão **{CAPTAIN_LINK_LABEL}** abaixo. Um admin pode iniciar a partida.")
-        } else if open.row.draft_manual {
-            format!("Draft iniciado — os capitães ({CAPTAIN_TAG}) recebem o link do draft de um admin. Depois, um admin inicia a partida.")
+        if open.row.draft_started() {
+            "Draft iniciado. Depois, um admin inicia a partida.".to_string()
         } else if open.row.refreshed_by_admin {
             "Times sorteados de novo por um admin. Um admin pode iniciar o draft.".to_string()
         } else if open.row.vote_closed_by_admin {
@@ -309,12 +259,12 @@ pub fn match_embed(state: &CampState, open: &OpenMatch) -> CreateEmbed {
             "Times atualizados. Um admin pode iniciar o draft.".to_string()
         } else {
             let refresh = if open.row.is_final {
-                "**Refresh** sorteia times novos com os mesmos jogadores."
+                format!("**Refresh** com {needed} votos, de qualquer time, sorteia times novos com os mesmos jogadores.")
             } else {
-                "**Refresh** sorteia times novos e pode trazer jogadores da fila; quem estava esperando fica."
+                format!("**Refresh** com {needed} votos, de qualquer time, sorteia times novos e pode trazer da fila quem jogou menos partidas.")
             };
             format!(
-                "{refresh}\nAtualizar: Hiddenking **{hk_votes}/{needed}** · Archmother **{am_votes}/{needed}**\nManter times: **{keep}** · Votos: **{voted}/{total}**"
+                "{refresh}\nRefresh: **{refresh_votes}/{needed}** · Manter times: **{keep}** · Votos: **{voted}/{total}**"
             )
         }
     } else {
@@ -457,7 +407,7 @@ pub fn standings_embed(
     CreateEmbed::new()
         .title(format!("Ranking do camp {camp_id}"))
         .description(format!(
-            "Partidas jogadas: **{match_count}**\nEmpates em pontos são desfeitos pelo número de MVPs."
+            "Partidas jogadas: **{match_count}**\nEmpates em pontos são desfeitos pelo número de MVPs, depois por quem jogou menos partidas."
         ))
         .field("Colocação", trophy_lines(players, mvps), false)
         .footer(footer(camp_id))

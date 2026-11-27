@@ -164,7 +164,7 @@ pub async fn announce_refresh(
     );
     if !change.joined.is_empty() {
         text.push_str(&format!(
-            "\nEntraram da fila: {}\nVoltaram para o começo da fila: {}",
+            "\nEntraram da fila: {}\nVoltaram para a fila: {}",
             mention_list(&change.joined),
             mention_list(&change.left)
         ));
@@ -189,20 +189,13 @@ pub fn side_mentions(players: &[MatchPlayerRow], side: &str) -> String {
     let mut team: Vec<&MatchPlayerRow> = players.iter().filter(|p| p.side == side).collect();
     team.sort_by_key(|p| !p.is_captain);
     team.iter()
-        .map(|p| {
-            let mention = UserId::new(p.user_id as u64).mention().to_string();
-            if p.is_captain {
-                format!("{mention} {}", crate::ui::CAPTAIN_TAG)
-            } else {
-                mention
-            }
-        })
+        .map(|p| UserId::new(p.user_id as u64).mention().to_string())
         .collect::<Vec<_>>()
         .join(" ")
 }
 
 /// DM each captain the draft's invite link, naming the side they take in the lobby. A team can
-/// have several captains (all its S-rank players). The link is never posted in the channel: it
+/// have several captains (all its SS-rank players). The link is never posted in the channel: it
 /// lets anyone take a slot, so a captain who can't be DM'd is pointed at the captain-only button
 /// on the match message.
 pub async fn send_draft_to_captains(

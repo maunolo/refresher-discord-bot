@@ -78,6 +78,15 @@ export function PlayersIcon(props: IconProps) {
   );
 }
 
+export function ListIcon(props: IconProps) {
+  return (
+    <Svg {...props}>
+      <path d="M9 6h11M9 12h11M9 18h11" />
+      <path d="M4 6h.01M4 12h.01M4 18h.01" />
+    </Svg>
+  );
+}
+
 export function MatchesIcon(props: IconProps) {
   return (
     <Svg {...props}>

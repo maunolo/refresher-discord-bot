@@ -12,31 +12,46 @@ export function RulesView() {
         jogadores e o refresh precisa de 2 votos, e o 1v1 leva 2 jogadores e precisa de 1 voto.
       </p>
 
-      <section className="card" aria-labelledby="rules-streak">
-        <h2 id="rules-streak">Partidas seguidas</h2>
+      <section className="card" aria-labelledby="rules-played">
+        <h2 id="rules-played">Partidas jogadas</h2>
         <p>
-          O "seg." no quadro conta quantas partidas o jogador jogou sem ficar fora de nenhuma. Sobe 1 para todos da partida
-          quando sai o resultado, e volta a 0 para todos que estavam esperando na fila quando outra partida termina.
+          O número ao lado de cada jogador na fila conta as partidas terminadas que ele jogou no camp. Quem jogou menos joga
+          primeiro, e ele também desempata o ranking, depois dos MVPs. Uma partida cancelada ou reaberta não conta.
         </p>
+      </section>
+
+      <section className="card" aria-labelledby="rules-ranks">
+        <h2 id="rules-ranks">Categorias</h2>
+        <ul>
+          <li>
+            <strong>SS rank:</strong> os capitães. Todo SS rank de um time é capitão e recebe o link do draft, e um time de
+            uma partida tem no máximo dois.
+          </li>
+          <li>
+            <strong>S rank:</strong> os jogadores fortes, divididos por igual entre os times.
+          </li>
+          <li>Cada jogador tem uma categoria ou nenhuma. A categoria não dá prioridade na fila.</li>
+        </ul>
       </section>
 
       <section className="card" aria-labelledby="rules-start">
         <h2 id="rules-start">1. Início da fila</h2>
         <p>
-          <strong>Iniciar fila</strong> exige o elenco exatamente completo (24 ou 30). O elenco é sorteado numa fila de
-          blocos de 6, meia partida cada:
+          <strong>Iniciar fila</strong> exige o elenco exatamente completo (24 ou 30). O elenco pode vir de uma{' '}
+          <strong>seleção</strong> salva, com categorias e funções prontas. Ele é sorteado numa fila de blocos de 6, meia
+          partida cada:
         </p>
         <ul>
           <li>
-            Primeiro os S rank, divididos o mais por igual possível entre os blocos. Quais blocos ganham um a mais é
-            sorteado.
+            Primeiro os SS rank, depois os S rank, divididos o mais por igual possível entre os blocos: um bloco com um SS a
+            menos recebe um S antes. Quais blocos ganham um a mais é sorteado.
           </li>
           <li>
             Depois as funções, da mais rara para a mais comum: cada jogador vai para o bloco com menos jogadores da sua
             função. Assim, cada bloco tem um Tank/Bruiser, um Carry e um Utility/Support quando o elenco permite, e as
             primeiras partidas começam com pelo menos dois de cada.
           </li>
-          <li>O resto é sorteado. Todos começam com 0 partidas seguidas.</li>
+          <li>O resto é sorteado. Todos começam com 0 partidas jogadas.</li>
         </ul>
         <p>A primeira partida pega os dois primeiros blocos, a segunda os dois seguintes.</p>
       </section>
@@ -45,12 +60,17 @@ export function RulesView() {
         <h2 id="rules-pick">2. Quem joga uma partida</h2>
         <p>
           Fora da final, <strong>Criar partida</strong> precisa de uma vaga livre (no máximo duas partidas ao mesmo tempo)
-          e de pelo menos 12 jogadores na fila. Ela pega <strong>os 12 primeiros da fila</strong>, e mais nada conta: S
-          rank, função e pontos não dão prioridade. A → no quadro marca esses 12.
+          e de pelo menos 12 jogadores na fila. Ela pega <strong>os 12 da fila que jogaram menos partidas</strong>; entre
+          quem jogou o mesmo tanto, a ordem da fila. S rank, função e pontos não dão prioridade. A → no quadro marca esses
+          12.
         </p>
         <p>
-          Os admins podem reordenar a fila à mão em <strong>Fila</strong>; essa ordem vale até o próximo resultado. Ao criar
-          a partida, os jogadores vão para os canais de voz dos seus times.
+          Só cabem quatro SS rank, dois por time: um quinto espera a próxima partida, a não ser que sem ele não dê para
+          fechar os 12.
+        </p>
+        <p>
+          Os admins podem reordenar a fila à mão em <strong>Fila</strong>; a ordem vale entre quem jogou o mesmo número de
+          partidas, até o próximo resultado. Ao criar a partida, os jogadores vão para os canais de voz dos seus times.
         </p>
       </section>
 
@@ -61,7 +81,8 @@ export function RulesView() {
         </p>
         <ol>
           <li>
-            <strong>S rank:</strong> a quantidade de S rank nos dois times difere em no máximo 1. Isso vale sempre.
+            <strong>Categorias:</strong> a quantidade de SS rank nos dois times difere em no máximo 1 (com quatro, dois e
+            dois), depois a de S rank, e depois as duas somadas.
           </li>
           <li>
             <strong>Funções:</strong> o menor número de funções faltando nos dois times; no empate, ganha a divisão em que
@@ -76,8 +97,8 @@ export function RulesView() {
           </li>
         </ol>
         <p>
-          <strong>Capitães:</strong> todo S rank de um time é capitão. Um time sem S rank tem como capitão quem tem mais
-          pontos, com sorteio no empate.
+          <strong>Capitães:</strong> todo SS rank de um time é capitão. Um time sem SS rank tem um capitão: o S rank com
+          mais pontos, ou, sem S rank, quem tem mais pontos, com sorteio no empate.
         </p>
       </section>
 
@@ -89,11 +110,11 @@ export function RulesView() {
             dentro do canal de voz do seu time.
           </li>
           <li>
-            <strong>Passa</strong> assim que um dos lados tem 4 votos Refresh.
+            <strong>Passa</strong> assim que a partida tem 6 votos Refresh, somando os dois times.
           </li>
           <li>
-            <strong>Os times ficam</strong> quando todos votaram sem nenhum lado chegar a 4, ou quando o refresh não tem
-            mais como passar.
+            <strong>Os times ficam</strong> quando todos votaram sem chegar a 6, ou quando o refresh não tem mais como
+            passar.
           </li>
           <li>
             Os admins podem encerrar antes: <strong>Fechar e manter times</strong> mantém os times, e{' '}
@@ -105,23 +126,25 @@ export function RulesView() {
 
       <section className="card" aria-labelledby="rules-refresh">
         <h2 id="rules-refresh">5. O que o refresh muda</h2>
-        <p>Seja H o maior número de partidas seguidas entre os 12 jogadores da partida.</p>
+        <p>Os 12 jogadores da partida e os da fila entram juntos, por partidas jogadas, quem jogou menos primeiro:</p>
         <ul>
           <li>
-            Quem está <strong>abaixo de H fica com a vaga</strong>: estava esperando.
+            Quem jogou menos <strong>fica com a vaga</strong>, ou <strong>entra da fila</strong> no lugar de quem jogou
+            mais.
           </li>
           <li>
-            As outras vagas são <strong>sorteadas</strong> entre os jogadores da partida com H e os da fila com H ou menos.
-            Ninguém que jogou mais partidas seguidas entra.
+            As últimas vagas, entre quem jogou o mesmo tanto, são <strong>sorteadas</strong> entre os jogadores da partida e
+            os da fila.
           </li>
+          <li>Continuam valendo no máximo dois SS rank por time.</li>
           <li>
-            Quem perde a vaga vai para o <strong>começo da fila</strong> e para o canal de voz Queue; quem entra vai para o
-            canal do seu time.
+            Quem perde a vaga volta para a fila, na ordem de partidas jogadas, e para o canal de voz Queue; quem entra vai
+            para o canal do seu time.
           </li>
           <li>Os 12 novos são divididos pelas regras da divisão dos times.</li>
           <li>
-            Se ninguém da fila se encaixa, o refresh só reembaralha os mesmos 12. No começo do camp todos têm 0, então a
-            partida inteira é sorteada de novo entre ela e a fila.
+            Se ninguém da fila jogou menos, o refresh só reembaralha os mesmos 12, ou sorteia as vagas entre a partida e
+            quem está empatado com ela.
           </li>
           <li>
             A <strong>final só reembaralha</strong> os próprios jogadores.
@@ -133,33 +156,44 @@ export function RulesView() {
         <h2 id="rules-result">6. Depois de um resultado</h2>
         <p>
           Cada jogador ganha os pontos que a partida vale: o admin escolhe ao criá-la quanto vale a vitória e quanto vale a
-          derrota (1 e 0, se ninguém mudar). Todos que jogaram ganham +1 partida seguida. Aí a fila é refeita:
+          derrota (1 e 0, se ninguém mudar). O MVP é escolhido entre os vencedores. Todos que jogaram ganham +1 partida
+          jogada. Aí a fila é refeita:
         </p>
         <ol>
-          <li>Quem estava esperando zera e continua na frente, na ordem em que estava.</li>
-          <li>Atrás vêm os jogadores da partida, com menos partidas seguidas primeiro.</li>
+          <li>Em ordem de partidas jogadas no camp, quem jogou menos na frente.</li>
+          <li>Com o mesmo número, quem estava esperando vem primeiro, na ordem em que estava.</li>
           <li>
-            Com o mesmo número, <strong>vencedores vêm antes dos perdedores</strong>, então quem vence joga de novo mais
-            cedo.
+            Depois, <strong>vencedores antes dos perdedores</strong>, então quem vence joga de novo mais cedo.
           </li>
           <li>Um grupo com mais de 2 vencedores (ou perdedores) é embaralhado.</li>
         </ol>
         <p>Todos da partida voltam para o canal de voz Queue.</p>
       </section>
 
+      <section className="card" aria-labelledby="rules-ranking">
+        <h2 id="rules-ranking">7. O ranking</h2>
+        <p>
+          Por pontos. No empate, fica na frente quem tem <strong>mais MVPs</strong>; depois, quem{' '}
+          <strong>jogou menos partidas</strong>. Empatados nos três dividem o lugar.
+        </p>
+      </section>
+
       <section className="card" aria-labelledby="rules-final">
-        <h2 id="rules-final">7. A final</h2>
+        <h2 id="rules-final">8. A final</h2>
         <p>
           <strong>Entrar na final</strong> exige pelo menos uma partida já pontuada. A partir daí, cada partida criada pega{' '}
-          <strong>os 12 primeiros do ranking</strong> (pontos, depois MVPs) em vez da frente da fila, e a → no quadro marca
-          esses 12.
+          <strong>os 12 primeiros do ranking</strong> (pontos, depois MVPs, depois menos partidas) em vez da fila, e a → no
+          quadro marca esses 12.
         </p>
         <ul>
           <li>
-            O ranking é visto de novo a cada partida: ajustes de pontos e jogadores removidos contam. No empate em pontos e
-            MVPs pela última vaga, fica quem jogou a última partida da final; depois, a ordem da fila.
+            O ranking é visto de novo a cada partida: ajustes de pontos e jogadores removidos contam. No empate nos três
+            pela última vaga, fica quem jogou a última partida da final; depois, a ordem da fila.
           </li>
-          <li>Os times são divididos pelas regras da divisão, incluindo os pontos.</li>
+          <li>
+            Os times são divididos pelas regras da divisão, incluindo os pontos. Os 12 do ranking jogam mesmo que tenham mais
+            de quatro SS rank; aí os SS ficam o mais divididos possível.
+          </li>
           <li>Uma partida por vez, quantas forem precisas. Cancelar uma delas não tira o camp da final.</li>
           <li>
             <strong>Sair da final</strong> volta a criar as partidas pela fila, desde que nenhuma partida da final esteja
@@ -182,7 +216,7 @@ export function RulesView() {
             <tbody>
               <tr>
                 <td>Iniciar fila</td>
-                <td>blocos A B C D E, todos com 0 seguidas</td>
+                <td>blocos A B C D E, todos com 0 partidas</td>
                 <td>—</td>
               </tr>
               <tr>
@@ -192,7 +226,7 @@ export function RulesView() {
               </tr>
               <tr>
                 <td>P1 termina, A vence</td>
-                <td>E (0, esperou) → A (1, venceu) → B (1, perdeu)</td>
+                <td>E (0) → A (1, venceu) → B (1, perdeu)</td>
                 <td>P2 ao vivo</td>
               </tr>
               <tr>
@@ -203,13 +237,13 @@ export function RulesView() {
               <tr>
                 <td>Refresh da P3</td>
                 <td colSpan={2}>
-                  H = 1. E fica com as suas 6 vagas; as 6 de A são sorteadas entre A e B (12 jogadores). Quem perde a vaga
-                  vai para a frente do resto de B.
+                  E (0) fica com as suas 6 vagas; as 6 de A são sorteadas entre A e B, todos com 1 (12 jogadores). Quem perde
+                  a vaga volta para a fila com o resto de B.
                 </td>
               </tr>
               <tr>
                 <td>P2 termina, C vence</td>
-                <td>os de B zeram → C (1) → D (1)</td>
+                <td>B (1, esperou) → C (1, venceu) → D (1, perdeu)</td>
                 <td>—</td>
               </tr>
             </tbody>

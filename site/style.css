@@ -173,6 +173,7 @@ section[id] { scroll-margin-top: 80px; } /* o menu fixo não cobre o título ao 
 .players-table td.col-mvp.has-mvp { color: var(--gold-text); font-weight: 700; }
 .players-table td.col-rank { color: var(--muted); font-weight: 700; }
 .players-table td.col-score { font-weight: 700; color: var(--gold-text); }
+.players-table .col-num { text-align: right; width: 6.5rem; }
 /* Pódio: ouro, prata e bronze */
 .players-table .top td.col-rank { font-size: 1.15rem; }
 .players-table .top-1 td.col-rank { color: #e2b366; }
@@ -190,6 +191,8 @@ section[id] { scroll-margin-top: 80px; } /* o menu fixo não cobre o título ao 
   .players-table .col-rank { width: 2.8rem; }
   .players-table .col-score { width: 5.5rem; }
   .players-table .col-mvp { width: 3.8rem; }
+  .players-table .col-wins, .players-table .col-rate { display: none; }
+  .players-table .col-num { width: 4rem; }
 }
 
 /* Partidas: placar da última partida, na mesma moldura dourada do ranking */
