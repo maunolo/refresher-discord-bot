@@ -336,6 +336,7 @@ async fn site_data(state: &AppState) -> Result<SiteData> {
         .map(|p| Standing {
             user_id: p.user_id,
             points: p.points,
+            matches: p.matches_played,
             mvps: player_stats.get(&p.user_id).map_or(0, |s| s.mvps),
         })
         .collect();

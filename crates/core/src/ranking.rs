@@ -1,21 +1,31 @@
-//! The camp ranking: points first, then MVPs as the tie-breaker.
+//! The camp ranking: points first, then MVPs, then fewer matches played.
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Standing {
     pub user_id: i64,
     pub points: i64,
+    /// Finished matches of the camp this player played.
+    pub matches: i64,
     /// Finished matches where an admin picked this player as MVP.
     pub mvps: i64,
 }
 
-/// Best first, each with its place (1 is gold). Places count distinct (points, MVPs) pairs:
-/// with the same points, more MVPs ranks above; equal on both shares the place.
+impl Standing {
+    /// What decides the place: equal on all of it shares the place.
+    fn key(&self) -> (i64, i64, i64) {
+        (self.points, self.mvps, self.matches)
+    }
+}
+
+/// Best first, each with its place (1 is gold). With the same points, more MVPs ranks above, then
+/// fewer matches played; equal on all three shares the place.
 pub fn rank(players: &[Standing]) -> Vec<(Standing, usize)> {
     let mut sorted = players.to_vec();
     sorted.sort_by(|a, b| {
         b.points
             .cmp(&a.points)
             .then(b.mvps.cmp(&a.mvps))
+            .then(a.matches.cmp(&b.matches))
             .then(a.user_id.cmp(&b.user_id))
     });
     let mut place = 0;
@@ -23,17 +33,17 @@ pub fn rank(players: &[Standing]) -> Vec<(Standing, usize)> {
     sorted
         .into_iter()
         .map(|s| {
-            if last != Some((s.points, s.mvps)) {
+            if last != Some(s.key()) {
                 place += 1;
-                last = Some((s.points, s.mvps));
+                last = Some(s.key());
             }
             (s, place)
         })
         .collect()
 }
 
-/// What the latest result gave: each of its players' points (the match's win or loss points) and
-/// an MVP to its MVP.
+/// What the latest result gave: each of its players' points (the match's win or loss points), a
+/// match played, and an MVP to its MVP.
 pub struct LatestResult<'a> {
     pub gained: &'a [(i64, i64)],
     pub mvp: Option<i64>,
@@ -46,6 +56,7 @@ pub fn rank_with_movement(players: &[Standing], latest: &LatestResult) -> Vec<(S
         .iter()
         .map(|s| Standing {
             points: s.points - latest.gained.iter().find(|(id, _)| *id == s.user_id).map_or(0, |(_, p)| *p),
+            matches: s.matches - i64::from(latest.gained.iter().any(|(id, _)| *id == s.user_id)),
             mvps: s.mvps - i64::from(latest.mvp == Some(s.user_id)),
             ..*s
         })
@@ -66,11 +77,26 @@ mod tests {
     use super::*;
 
     fn standing(user_id: i64, points: i64, mvps: i64) -> Standing {
-        Standing { user_id, points, mvps }
+        Standing { user_id, points, matches: 0, mvps }
     }
 
     #[test]
-    fn mvps_break_ties_in_points() {
+    fn fewer_matches_break_ties_in_points_and_mvps() {
+        let played = |user_id, points, matches, mvps| Standing { user_id, points, matches, mvps };
+        let ranked = rank(&[
+            played(1, 3, 3, 2),
+            played(2, 3, 3, 0),
+            played(3, 4, 5, 0),
+            played(4, 3, 2, 0),
+            played(5, 3, 2, 0),
+        ]);
+        let places: Vec<(i64, usize)> = ranked.iter().map(|(s, place)| (s.user_id, *place)).collect();
+        // 3 points: MVPs first, then fewer matches; equal on all three shares the place.
+        assert_eq!(places, [(3, 1), (1, 2), (4, 3), (5, 3), (2, 4)]);
+    }
+
+    #[test]
+    fn mvps_break_ties_in_points_and_matches() {
         let ranked = rank(&[
             standing(1, 3, 0),
             standing(2, 3, 2),
@@ -86,13 +112,15 @@ mod tests {
 
     #[test]
     fn movement_compares_with_the_standings_before_the_latest_result() {
-        // Before it: 1 led with 2 points, 2 and 3 shared second with 1, 4 had none.
-        // The latest result: 2 and 4 won, and 4 was MVP.
-        let now = [standing(1, 2, 0), standing(2, 2, 0), standing(3, 1, 0), standing(4, 1, 1)];
+        // Before it: 1 led with 2 points, 2 and 3 shared second with 1, 4 had none; everyone had
+        // played one match. The latest result: 2 and 4 won, and 4 was MVP; 2 and 4 played it.
+        let played = |user_id, points, matches, mvps| Standing { user_id, points, matches, mvps };
+        let now = [played(1, 2, 1, 0), played(2, 2, 2, 0), played(3, 1, 1, 0), played(4, 1, 2, 1)];
         let ranked = rank_with_movement(&now, &LatestResult { gained: &[(2, 1), (4, 1)], mvp: Some(4) });
         let moves: Vec<(i64, usize, i64)> = ranked.iter().map(|(s, place, moved)| (s.user_id, *place, *moved)).collect();
-        // 1 keeps first (now shared), 2 climbs to it, 4 jumps over 3 with the MVP, 3 drops.
-        assert_eq!(moves, [(1, 1, 0), (2, 1, 1), (4, 2, 1), (3, 3, -1)]);
+        // 1 keeps first, with fewer matches than 2, who stays second; 4 jumps over 3 with the MVP,
+        // and 3, no longer tied with 2, drops two.
+        assert_eq!(moves, [(1, 1, 0), (2, 2, 0), (4, 3, 0), (3, 4, -2)]);
     }
 
     #[test]

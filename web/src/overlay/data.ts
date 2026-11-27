@@ -9,6 +9,7 @@ export interface OverlayPlayer {
   avatar_url: string | null;
   captain: boolean;
   s_rank: boolean;
+  ss_rank: boolean;
   role: Role | null;
   voted: boolean;
 }
@@ -29,7 +30,10 @@ export interface OverlayVote {
   /** `open` while players vote, then `refreshed` (new teams) or `kept`. */
   state: 'open' | 'refreshed' | 'kept';
   /** Refresh votes one side needs for new teams. */
+  /** Refresh votes, from either side, that bring new teams. */
   needed: number;
+  /** Refresh votes so far, both sides together. */
+  refresh: number;
   keep: number;
   voted: number;
   total: number;

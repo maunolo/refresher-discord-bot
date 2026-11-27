@@ -55,6 +55,11 @@ pub fn router(state: AppState) -> Router {
         .route("/guilds/{guild_id}/channels", get(api::guild_channels))
         .route("/guilds/{guild_id}/members", get(api::guild_members))
         .route("/guilds/{guild_id}/settings", get(api::guild_settings).put(api::save_guild_settings))
+        .route("/guilds/{guild_id}/presets", get(api::guild_presets).post(api::create_preset))
+        .route(
+            "/guilds/{guild_id}/presets/{preset_id}",
+            axum::routing::put(api::save_preset).delete(api::delete_preset),
+        )
         .route("/guilds/{guild_id}/events", get(api::guild_events))
         .route("/guilds/{guild_id}/overlays", get(api::guild_overlays).post(api::reset_guild_overlays))
         .route("/overlay/{token}/votes", get(api::overlay_votes))
@@ -614,6 +619,7 @@ data: 111
         assert_eq!(vote["match_id"], match_id);
         assert_eq!(vote["state"], "open");
         assert_eq!((vote["needed"].as_u64(), vote["voted"].as_u64(), vote["total"].as_u64()), (Some(2), Some(1), Some(4)));
+        assert_eq!(vote["refresh"], 1);
         let teams = vote["teams"].as_array().unwrap();
         assert_eq!((teams[0]["side"].as_str(), teams[1]["side"].as_str()), (Some("hiddenking"), Some("archmother")));
         let players: Vec<&serde_json::Value> = teams.iter().flat_map(|t| t["players"].as_array().unwrap()).collect();
@@ -627,7 +633,7 @@ data: 111
         for player in &players {
             let mut keys: Vec<&String> = player.as_object().unwrap().keys().collect();
             keys.sort();
-            assert_eq!(keys, ["avatar_url", "captain", "name", "role", "s_rank", "user_id", "voted"], "no vote choice");
+            assert_eq!(keys, ["avatar_url", "captain", "name", "role", "s_rank", "ss_rank", "user_id", "voted"], "no vote choice");
         }
         let unnamed = players.iter().find(|p| p["user_id"] == "3").unwrap();
         assert_eq!(unnamed["name"], "3", "Discord couldn't find them");
@@ -683,7 +689,7 @@ data: 111
         assert_eq!((leader["wins"].as_i64(), leader["played"].as_i64()), (Some(1), Some(1)));
         assert_eq!(leader["scored_last"], true);
         assert!(body["players"].as_array().unwrap().iter().all(|p| p["moved"].is_null()), "nothing to compare yet");
-        assert_eq!(row(&body, l1)["place"], 2);
+        assert_eq!(row(&body, l1)["place"], 3, "behind the two who haven't played: fewer matches");
 
         // Results are timed to the second: move the first back so the order is unambiguous.
         sqlx::query("UPDATE camp_matches SET completed_at = completed_at - 60 WHERE id = ?")
@@ -702,8 +708,9 @@ data: 111
                 (*id, p["place"].as_u64().unwrap(), p["moved"].as_i64().unwrap(), p["scored_last"].as_bool().unwrap())
             })
             .collect();
-        // The MVP breaks the tie at one point; the first winner drops to second, the losers to third.
-        assert_eq!(places, [(w2, 1, 1, true), (w1, 2, -1, false), (l1, 3, -1, false), (l2, 3, -1, false)]);
+        // The MVP breaks the tie at one point; the first winner drops to second, the losers share
+        // third (l1 was already there).
+        assert_eq!(places, [(w2, 1, 1, true), (w1, 2, -1, false), (l1, 3, 0, false), (l2, 3, -1, false)]);
         assert_eq!(body["players"][0]["user_id"], w2.to_string(), "best first");
         assert_eq!(row(&body, w2)["mvps"], 1);
 
@@ -774,7 +781,7 @@ data: 111
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body["guild_id"], "111");
         assert_eq!(body["status"], "signup");
-        assert_eq!(body["refresh_votes"], 4);
+        assert_eq!(body["refresh_votes"], 6);
         assert_eq!(body["members"]["5"]["name"], "kaze");
         assert!(body["members"].get("6").is_none());
 
@@ -946,6 +953,53 @@ data: 111
     }
 
     #[tokio::test]
+    async fn selections_are_saved_per_server_and_fill_a_new_camp() {
+        let link = Arc::new(FakeLink {
+            guilds: vec![111, 222],
+            ..FakeLink::default()
+        });
+        let state = test_state_with(link.clone()).await;
+        let token = sign_in(&state, &[111]).await;
+        let path = "/api/guilds/111/presets";
+
+        let (status, body) = get(&state, path, Some(&token)).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["presets"], serde_json::json!([]));
+
+        let preset = r#"{"name": "Quinta", "players": [
+            {"user_id": "5", "rank": "ss", "role": "tank"},
+            {"user_id": "6", "rank": null, "role": null}
+        ]}"#;
+        let (status, body) = post(&state, path, Some(&token), preset).await;
+        assert_eq!(status, StatusCode::OK);
+        let saved = &body["presets"][0];
+        assert_eq!((saved["name"].as_str(), saved["players"][0]["rank"].as_str()), (Some("Quinta"), Some("ss")));
+        let id = saved["id"].as_i64().unwrap();
+
+        let renamed = r#"{"name": "Sexta", "players": [{"user_id": "5", "rank": "s", "role": "carry"}]}"#;
+        let (status, body) = put(&state, &format!("{path}/{id}"), Some(&token), renamed).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!((body["presets"][0]["name"].as_str(), body["presets"][0]["players"].as_array().unwrap().len()), (Some("Sexta"), 1));
+        let bad = r#"{"name": "X", "players": [{"user_id": "5", "rank": "a", "role": null}]}"#;
+        assert_eq!(post(&state, path, Some(&token), bad).await.0, StatusCode::BAD_REQUEST);
+        assert_eq!(get(&state, "/api/guilds/222/presets", Some(&token)).await.0, StatusCode::NOT_FOUND);
+
+        let camp = format!(r#"{{"channel_id": "1110", "size": "24", "preset_id": {id}}}"#);
+        let (status, body) = post(&state, "/api/guilds/111/camps", Some(&token), &camp).await;
+        assert_eq!(status, StatusCode::CREATED);
+        let camp_id = body["id"].as_str().unwrap().to_string();
+        let actions = link.actions.lock().unwrap().clone();
+        assert_eq!(actions, [(111, camp_id, CampAction::ApplyPreset { preset_id: id })]);
+
+        let missing = r#"{"channel_id": "1110", "size": "24", "preset_id": 999}"#;
+        assert_eq!(post(&state, "/api/guilds/111/camps", Some(&token), missing).await.0, StatusCode::BAD_REQUEST);
+
+        let request = Request::delete(format!("{path}/{id}"));
+        assert_eq!(send(&state, request, Some(&token), "").await.0, StatusCode::OK);
+        assert_eq!(get(&state, path, Some(&token)).await.1["presets"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
     async fn channels_and_members_need_a_managed_server() {
         let state = test_state(FakeLink {
             guilds: vec![111, 222],
@@ -981,6 +1035,8 @@ data: 111
         assert_eq!(post(&state, &path, Some(&token), add).await.0, StatusCode::OK);
         let s_rank = r#"{"type": "set_s_rank", "user_id": "5", "s_rank": true}"#;
         assert_eq!(post(&state, &path, Some(&token), s_rank).await.0, StatusCode::OK);
+        let ss_rank = r#"{"type": "set_ss_rank", "user_id": "5", "ss_rank": true}"#;
+        assert_eq!(post(&state, &path, Some(&token), ss_rank).await.0, StatusCode::OK);
         let role = r#"{"type": "set_role", "user_id": "5", "role": "support"}"#;
         assert_eq!(post(&state, &path, Some(&token), role).await.0, StatusCode::OK);
         let no_role = r#"{"type": "set_role", "user_id": "5", "role": null}"#;
@@ -1004,6 +1060,7 @@ data: 111
                     user_ids: vec![307688453406064641, 5]
                 },
                 CampAction::SetSRank { user_id: 5, s_rank: true },
+                CampAction::SetSsRank { user_id: 5, ss_rank: true },
                 CampAction::SetRole { user_id: 5, role: Some(Role::Support) },
                 CampAction::SetRole { user_id: 5, role: None },
                 CampAction::RemovePlayer { user_id: 5 },

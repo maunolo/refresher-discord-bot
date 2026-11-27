@@ -1,10 +1,10 @@
 import { useActions } from '../actions';
 import type { Camp, RecentMatch } from '../api';
-import { SIDE_LABEL, playerName, points, queuedPlayers, ranking } from '../camp';
+import { matchesWord, SIDE_LABEL, playerName, points, queuedPlayers, ranking } from '../camp';
 import { matchHref, routeHref } from '../route';
 import { useState } from 'react';
 
-import { CardLink, DiscordLink, MvpTag, RoleChip, SRankChip } from './common';
+import { CardLink, DiscordLink, MvpTag, RoleChip, RankChip } from './common';
 import { MvpDialog } from './ResultDialogs';
 
 const PLAYERS_MOVED_ON = 'Os jogadores já estão em outra partida.';
@@ -29,6 +29,9 @@ export function Corrections({ camp, match }: { camp: Camp; match: RecentMatch })
               confirm: {
                 title: `Trocar o vencedor da partida #${match.number}?`,
                 message: `${SIDE_LABEL[other]} passa a ser o vencedor. Os pontos e a fila são refeitos.`,
+                note: match.mvp_user_id
+                  ? 'O MVP sai, porque estava no time que agora perdeu. Depois, escolha um dos vencedores em Trocar MVP.'
+                  : undefined,
                 action: `${SIDE_LABEL[other]} venceu`,
                 tone: other,
               },
@@ -111,17 +114,17 @@ export function QueuePanel({ camp }: { camp: Camp }) {
                 <span className="up-next" />
               )}
               <span className="ellipsis">{playerName(camp, p.user_id)}</span>
-              {p.s_rank && <SRankChip />}
+              <RankChip player={p} />
               <RoleChip role={p.role} />
-              <span className="row-end muted small">{p.consecutive_matches} seg.</span>
+              <span className="row-end muted small">{matchesWord(p.matches_played)}</span>
               <span className="mono small points">{points(p.points)}</span>
             </li>
           ))}
         </ol>
       )}
       <p className="muted small">
-        Depois de cada partida: quem ficou de fora vai na frente; depois, quem jogou menos partidas seguidas, com
-        vencedores antes dos perdedores.
+        Depois de cada partida, a fila fica em ordem de partidas jogadas no camp, quem jogou menos na frente; entre
+        quem jogou o mesmo tanto, quem estava esperando, depois os vencedores e depois os perdedores.
       </p>
       <DiscordLink url={camp.discord_url} />
     </aside>

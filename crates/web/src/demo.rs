@@ -92,6 +92,9 @@ impl DemoLink {
                 let ids: Vec<i64> = user_ids.iter().map(|id| *id as i64).collect();
                 db::add_players(pool, camp_id, &ids).await?;
             }
+            CampAction::ApplyPreset { preset_id } => {
+                refresher_core::presets::apply(pool, camp_id, preset_id).await?;
+            }
             CampAction::RemovePlayer { user_id } => {
                 db::remove_player(pool, camp_id, user_id as i64).await?;
             }
@@ -100,6 +103,9 @@ impl DemoLink {
             }
             CampAction::SetSRank { user_id, s_rank } => {
                 db::set_player_s_rank(pool, camp_id, user_id as i64, s_rank).await?;
+            }
+            CampAction::SetSsRank { user_id, ss_rank } => {
+                db::set_player_ss_rank(pool, camp_id, user_id as i64, ss_rank).await?;
             }
             CampAction::SetRole { user_id, role } => {
                 db::set_player_role(pool, camp_id, user_id as i64, role).await?;
@@ -252,6 +258,24 @@ async fn seed(pool: &SqlitePool) -> Result<()> {
     let ids: Vec<i64> = (0..30).map(|i| (FIRST_USER + i) as i64).collect();
     db::add_players(pool, &camp.id, &ids).await?;
     db::set_s_rank(pool, &camp.id, &ids[..5]).await?;
+    for user_id in &ids[..2] {
+        db::set_player_ss_rank(pool, &camp.id, *user_id, true).await?;
+    }
+    // A saved selection, as if from an earlier camp: the first 24, with the same categories.
+    let selection: Vec<refresher_core::presets::PresetPlayer> = ids[..24]
+        .iter()
+        .enumerate()
+        .map(|(i, user_id)| refresher_core::presets::PresetPlayer {
+            user_id: *user_id,
+            rank: match i {
+                0 | 1 => Some(refresher_core::presets::Rank::Ss),
+                2..5 => Some(refresher_core::presets::Rank::S),
+                _ => None,
+            },
+            role: Some(Role::ALL[i % Role::ALL.len()]),
+        })
+        .collect();
+    refresher_core::presets::save(pool, GUILD as i64, None, "Elenco de quinta", &selection).await?;
     // Main roles for all but the last four, who show what "no role" looks like.
     for (i, user_id) in ids.iter().take(26).enumerate() {
         db::set_player_role(pool, &camp.id, *user_id, Some(Role::ALL[i % Role::ALL.len()])).await?;

@@ -29,17 +29,19 @@ function Player({ player }: { player: OverlayPlayer }) {
       <Avatar name={player.name} url={player.avatar_url} />
       {player.captain && <span className="ov-crown">👑</span>}
       <span className="ov-name">{player.name}</span>
-      {player.s_rank && <span className="ov-s">S</span>}
+      {player.ss_rank ? <span className="ov-s ov-ss">SS</span> : player.s_rank && <span className="ov-s">S</span>}
       {player.role && <span className="ov-role">{ROLE_TAG[player.role]}</span>}
     </span>
   );
 }
 
-function Pips({ count, needed, side }: { count: number; needed: number; side: Side }) {
+/** The Refresh votes toward `needed`, each in its side's color: Hiddenking's first. */
+function Pips({ teams, needed }: { teams: OverlayVote['teams']; needed: number }) {
+  const votes: Side[] = teams.flatMap((team) => Array.from({ length: team.refresh }, () => team.side));
   return (
-    <div className={`ov-pips ov-pips-${side}`} style={{ gridTemplateColumns: `repeat(${needed}, 1fr)` }}>
+    <div className="ov-pips" style={{ gridTemplateColumns: `repeat(${needed}, 1fr)` }}>
       {Array.from({ length: needed }, (_, i) => (
-        <i key={i} className={i < count ? 'on' : undefined} />
+        <i key={i} className={votes[i] ? `on on-${votes[i]}` : undefined} />
       ))}
     </div>
   );
@@ -57,16 +59,22 @@ function OpenVote({ vote }: { vote: OverlayVote }) {
           {vote.voted}/{vote.total} votaram
         </span>
       </header>
+      <div className="ov-team-head">
+        <span className="ov-label ov-jade">Refresh</span>
+        <span className="ov-muted">
+          <b className="ov-jade">{vote.refresh}</b>/{vote.needed}
+        </span>
+      </div>
+      <Pips teams={vote.teams} needed={vote.needed} />
       <div className="ov-cols">
         {vote.teams.map((team) => (
           <div key={team.side}>
             <div className="ov-team-head">
               <span className={`ov-label ov-${team.side}`}>{SIDE_LABEL[team.side]}</span>
               <span className="ov-muted">
-                Refresh <b className={`ov-${team.side}`}>{team.refresh}</b>/{vote.needed}
+                Refresh <b className={`ov-${team.side}`}>{team.refresh}</b>
               </span>
             </div>
-            <Pips count={team.refresh} needed={vote.needed} side={team.side} />
             {team.players.map((p) => (
               <div key={p.user_id} className="ov-row">
                 <Player player={p} />
@@ -82,8 +90,8 @@ function OpenVote({ vote }: { vote: OverlayVote }) {
         </span>
         <span className="ov-muted">
           {vote.needed === 1
-            ? '1 voto Refresh de um lado sorteia times novos'
-            : `${vote.needed} votos Refresh de um lado sorteiam times novos`}
+            ? '1 voto Refresh sorteia times novos'
+            : `${vote.needed} votos Refresh, somando os dois times, sorteiam times novos`}
         </span>
       </footer>
     </section>

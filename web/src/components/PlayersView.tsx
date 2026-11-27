@@ -1,35 +1,31 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 
 import { useActions } from '../actions';
-import { api, type Camp, type MemberResult, type Player, type Role } from '../api';
-import { formatLabel, playerName, points, ROLE_LABEL, roleCounts, ROLES, signed, whereIs } from '../camp';
+import { api, type Camp, type Player, type Preset, type Rank } from '../api';
+import { formatLabel, matchesWord, playerName, points, RANK_LABEL, rankOf, ROLE_LABEL, roleCounts, signed, whereIs } from '../camp';
+import { routeHref } from '../route';
 import { RemovedChip } from './common';
 import { CheckIcon } from './Icons';
+import { Avatar, MemberPicker } from './MemberPicker';
+import { NO_FILTER, passes, PlayerFilter, RankPicker, RolePicker, type Filter } from './PlayerFields';
 import { PointsDialog } from './PointsDialog';
 
-function Avatar({ url, name }: { url?: string; name: string }) {
-  if (url) return <img className="avatar" src={url} alt="" width={28} height={28} />;
-  return (
-    <span className="avatar avatar-initial" aria-hidden="true">
-      {name.charAt(0).toUpperCase()}
-    </span>
-  );
-}
-
-function SRankSwitch({ camp, player }: { camp: Camp; player: Player }) {
+/** None, S rank or SS rank. Each takes the other away. */
+function RankSelect({ camp, player }: { camp: Camp; player: Player }) {
   const { run, busy } = useActions();
+  const set = (rank: Rank | null) => {
+    if (rank === 'ss') run({ type: 'set_ss_rank', user_id: player.user_id, ss_rank: true });
+    else if (rank === 's') run({ type: 'set_s_rank', user_id: player.user_id, s_rank: true });
+    else if (player.ss_rank) run({ type: 'set_ss_rank', user_id: player.user_id, ss_rank: false });
+    else run({ type: 'set_s_rank', user_id: player.user_id, s_rank: false });
+  };
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={player.s_rank}
-      aria-label={`S rank: ${playerName(camp, player.user_id)}`}
-      className={player.s_rank ? 'switch switch-on' : 'switch'}
+    <RankPicker
+      value={rankOf(player)}
+      label={`Categoria: ${playerName(camp, player.user_id)}`}
       disabled={busy}
-      onClick={() => run({ type: 'set_s_rank', user_id: player.user_id, s_rank: !player.s_rank })}
-    >
-      <span className="switch-knob" />
-    </button>
+      onChange={set}
+    />
   );
 }
 
@@ -37,126 +33,143 @@ function SRankSwitch({ camp, player }: { camp: Camp; player: Player }) {
 function RoleSelect({ camp, player }: { camp: Camp; player: Player }) {
   const { run, busy } = useActions();
   return (
-    <select
-      className="input role-select"
-      aria-label={`Função: ${playerName(camp, player.user_id)}`}
-      value={player.role ?? ''}
+    <RolePicker
+      value={player.role}
+      label={`Função: ${playerName(camp, player.user_id)}`}
       disabled={busy}
-      onChange={(e) => run({ type: 'set_role', user_id: player.user_id, role: (e.target.value || null) as Role | null })}
-    >
-      <option value="">Sem função</option>
-      {ROLES.map((role) => (
-        <option key={role} value={role}>
-          {ROLE_LABEL[role]}
-        </option>
-      ))}
-    </select>
+      onChange={(role) => run({ type: 'set_role', user_id: player.user_id, role })}
+    />
   );
 }
 
 const ROLES_HELP =
-  'Ao iniciar a fila, as funções são espalhadas entre os times como os S rank. Ao montar os times de uma partida, o bot tenta dar a cada time pelo menos um Tank/Bruiser, um Carry e um Utility/Support, sem mudar a divisão dos S rank. A função fica guardada no servidor e vale nos próximos camps.';
-
-/** Lowercase without accents, so "fumaca" finds "fumaça". */
-function folded(text: string): string {
-  return text.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
-}
-
-/** The most members the list shows at once; typing narrows it. */
-const SHOWN = 50;
-
-type ServerMember = MemberResult & { folded: string };
+  'Ao iniciar a fila, as funções são espalhadas entre os times como as categorias. Ao montar os times de uma partida, o bot tenta dar a cada time pelo menos um Tank/Bruiser, um Carry e um Utility/Support, sem mudar a divisão das categorias. A função fica guardada no servidor e vale nos próximos camps.';
 
 function MemberSearch({ camp }: { camp: Camp }) {
   const { run, busy } = useActions();
-  const [query, setQuery] = useState('');
-  const [members, setMembers] = useState<ServerMember[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  return (
+    <MemberPicker
+      guildId={camp.guild_id}
+      label="Adicionar membro do servidor"
+      taken={new Set(camp.players.map((p) => p.user_id))}
+      inVoice={new Set(camp.queue_voice)}
+      full={camp.players.length >= camp.target_size}
+      busy={busy}
+      onAdd={(m) => run({ type: 'add_players', user_ids: [m.id] })}
+    />
+  );
+}
 
-  // Once per server: the list is filtered here, not on Discord.
+/** Fills the roster from a saved selection, or saves the roster as one. */
+function Selections({ camp }: { camp: Camp }) {
+  const { run, busy } = useActions();
+  const [presets, setPresets] = useState<Preset[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [chosen, setChosen] = useState('');
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+
   useEffect(() => {
     let cancelled = false;
-    setMembers(null);
-    setError(null);
     api
-      .members(camp.guild_id)
-      .then((list) => {
-        if (cancelled) return;
-        const sorted = list
-          .map((m) => ({ ...m, folded: folded(m.name) }))
-          .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }));
-        setMembers(sorted);
-      })
+      .presets(camp.guild_id)
+      .then((loaded) => !cancelled && setPresets(loaded.presets))
       .catch((e: Error) => !cancelled && setError(e.message));
     return () => {
       cancelled = true;
     };
   }, [camp.guild_id]);
 
-  const onRoster = new Set(camp.players.map((p) => p.user_id));
-  const inVoice = new Set(camp.queue_voice);
-  const full = camp.players.length >= camp.target_size;
-  const q = folded(query.trim());
-  const available = members?.filter((m) => !onRoster.has(m.id)) ?? [];
-  const matching = q ? available.filter((m) => m.folded.includes(q)) : available;
+  const preset = presets?.find((p) => String(p.id) === chosen);
+  const apply = () => {
+    if (!preset) return;
+    run(
+      { type: 'apply_preset', preset_id: preset.id },
+      { success: `Seleção ${preset.name} no elenco, com categorias e funções.` },
+    );
+  };
+  const save = (e: FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    setSaved(null);
+    const players = camp.players.map((p) => ({ user_id: p.user_id, rank: rankOf(p), role: p.role }));
+    api
+      .createPreset(camp.guild_id, { name, players })
+      .then((result) => {
+        setPresets(result.presets);
+        setSaved(`Elenco salvo como ${name.trim()}.`);
+        setName('');
+      })
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setSaving(false));
+  };
 
   return (
-    <div className="field">
-      <label htmlFor="member-search">Adicionar membro do servidor</label>
-      <input
-        id="member-search"
-        type="search"
-        className="input"
-        placeholder="Filtrar por nome"
-        autoComplete="off"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-      />
-      {error ? (
-        <p className="error small">{error}</p>
-      ) : members === null ? (
-        <p className="muted small">Carregando membros do servidor…</p>
-      ) : available.length === 0 ? (
-        <p className="muted small">Todos os membros do servidor já estão no elenco.</p>
-      ) : matching.length === 0 ? (
-        <p className="muted small">Ninguém fora do elenco com esse nome.</p>
-      ) : (
+    <section className="card" aria-labelledby="selections-title">
+      <h2 id="selections-title">Seleções</h2>
+      {presets === null && !error ? (
+        <p className="muted small">Carregando…</p>
+      ) : presets && presets.length > 0 ? (
         <>
-          <ul className="search-results" aria-label="Membros do servidor fora do elenco">
-            {matching.slice(0, SHOWN).map((m) => (
-              <li key={m.id} className="search-result">
-                <Avatar url={m.avatar_url} name={m.name} />
-                <span className="ellipsis">{m.name}</span>
-                {inVoice.has(m.id) && <span className="muted small">em voz: Queue</span>}
-                <button
-                  type="button"
-                  className="button button-primary button-small row-end"
-                  disabled={busy || full}
-                  title={full ? 'O elenco está completo.' : undefined}
-                  onClick={() => run({ type: 'add_players', user_ids: [m.id] })}
-                >
-                  Adicionar
-                </button>
-              </li>
-            ))}
-          </ul>
-          {matching.length > SHOWN && (
-            <p className="muted small">
-              Mostrando {SHOWN} de {matching.length}. Digite para filtrar.
-            </p>
-          )}
+          <div className="field">
+            <label htmlFor="preset-choice">Usar uma seleção salva</label>
+            <select id="preset-choice" className="input" value={chosen} onChange={(e) => setChosen(e.target.value)}>
+              <option value="">Escolha uma seleção</option>
+              {presets.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.players.length})
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="form-actions">
+            <button type="button" className="button button-small" disabled={busy || !preset} onClick={apply}>
+              Usar seleção
+            </button>
+          </div>
+          <p className="muted small">
+            Entram os jogadores da seleção até completar o elenco, com as categorias e as funções dela. Quem já está no
+            elenco fica.
+          </p>
         </>
+      ) : (
+        <p className="muted small">
+          Nenhuma seleção salva. Monte uma em <a href={routeHref('presets')}>Elenco</a>, antes do camp, com jogadores,
+          categorias e funções.
+        </p>
       )}
-    </div>
+      {camp.players.length > 0 && (
+        <form className="field" onSubmit={save}>
+          <label htmlFor="preset-name">Salvar este elenco como seleção</label>
+          <div className="inline-actions">
+            <input
+              id="preset-name"
+              className="input"
+              maxLength={60}
+              placeholder="Nome da seleção"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <button type="submit" className="button button-small" disabled={saving || !name.trim()}>
+              {saving ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
+        </form>
+      )}
+      {saved && (
+        <p className="small" role="status">
+          {saved}
+        </p>
+      )}
+      {error && (
+        <p className="error small" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
   );
-}
-
-/** How the starting queue spreads S rank over the camp's teams, e.g. "3 times com 2 e 2 com 1". */
-function sRankSpread(sRank: number, teams: number): string {
-  const each = Math.floor(sRank / teams);
-  const more = sRank % teams;
-  if (more === 0) return `${each} por time`;
-  return `${more} ${more === 1 ? 'time' : 'times'} com ${each + 1} e ${teams - more} com ${each}`;
 }
 
 function Signup({ camp }: { camp: Camp }) {
@@ -167,6 +180,9 @@ function Signup({ camp }: { camp: Camp }) {
   const onRoster = new Set(camp.players.map((p) => p.user_id));
   const voiceToAdd = camp.queue_voice.filter((id) => !onRoster.has(id));
   const sRank = camp.players.filter((p) => p.s_rank).length;
+  const ssRank = camp.players.filter((p) => p.ss_rank).length;
+  const [filter, setFilter] = useState<Filter>(NO_FILTER);
+  const shown = roster.filter((p) => passes(filter, playerName(camp, p.user_id), p.role));
   const isTest = camp.target_size === 4;
   const teamSize = camp.match_size / 2;
   const teams = camp.target_size / teamSize;
@@ -195,19 +211,21 @@ function Signup({ camp }: { camp: Camp }) {
           <div className="progress-bar" style={{ width: `${(count / camp.target_size) * 100}%` }} />
         </div>
         <MemberSearch camp={camp} />
+        {roster.length > 0 && <PlayerFilter filter={filter} onChange={setFilter} shown={shown.length} total={roster.length} />}
         {roster.length === 0 ? (
           <p className="empty">Ninguém no elenco ainda.</p>
+        ) : shown.length === 0 ? (
+          <p className="empty">Ninguém do elenco com esse filtro.</p>
         ) : (
           <ul className="rows roster" aria-label="Jogadores no elenco">
-            {roster.map((p) => (
+            {shown.map((p) => (
               <li key={p.user_id} className="row row-tall">
                 <Avatar url={camp.members[p.user_id]?.avatar_url} name={playerName(camp, p.user_id)} />
                 <span className="ellipsis">{playerName(camp, p.user_id)}</span>
                 <span className="row-end">
                   <RoleSelect camp={camp} player={p} />
                 </span>
-                <span className="muted small">S rank</span>
-                <SRankSwitch camp={camp} player={p} />
+                <RankSelect camp={camp} player={p} />
                 <button
                   type="button"
                   className="icon-button icon-button-quiet"
@@ -224,19 +242,22 @@ function Signup({ camp }: { camp: Camp }) {
       </section>
 
       <aside className="split-aside" aria-label="Antes de iniciar">
+        <Selections camp={camp} />
         <section className="card" aria-labelledby="s-title">
           <div className="card-head">
-            <h2 id="s-title">S rank</h2>
-            <span className="chip chip-s">{sRank} marcados</span>
+            <h2 id="s-title">Categorias</h2>
+            <span className="inline-actions">
+              <span className="chip chip-ss">{ssRank} SS</span>
+              <span className="chip chip-s">{sRank} S</span>
+            </span>
           </div>
           <p className="small">
-            {`Ao iniciar a fila, o elenco é sorteado em ${teams} times de ${teamSize}, com os S rank divididos por igual${
-              sRank > 0 ? `: ${sRankSpread(sRank, teams)}` : ''
-            }. Depois disso, S rank não têm prioridade na fila.`}
+            {`Ao iniciar a fila, o elenco é sorteado em ${teams} times de ${teamSize}, com os ${RANK_LABEL.ss} e depois os ${RANK_LABEL.s} divididos por igual. Depois disso, a categoria não dá prioridade na fila.`}
           </p>
           <p className="muted small">
-            Numa partida, os S rank ficam divididos entre os dois times, e todo S rank do time é capitão e recebe o link do
-            draft. Um time sem S rank tem como capitão quem tem mais pontos.
+            Numa partida, cada time tem no máximo dois SS rank, e todo SS rank do time é capitão e recebe o link do draft.
+            Os S rank também ficam divididos entre os dois times. Um time sem SS rank tem um capitão: o S rank com mais
+            pontos, ou quem tem mais pontos.
           </p>
         </section>
         <section className="card" aria-labelledby="roles-title">
@@ -268,7 +289,7 @@ function Signup({ camp }: { camp: Camp }) {
                 {
                   confirm: {
                     title: 'Iniciar a fila?',
-                    message: `O elenco é embaralhado em ${teams} times de ${teamSize}, com os S rank e as funções divididos por igual, e postado no Discord. Quem estiver em voz vai para o canal Queue.`,
+                    message: `O elenco é embaralhado em ${teams} times de ${teamSize}, com as categorias e as funções divididas por igual, e postado no Discord. Quem estiver em voz vai para o canal Queue.`,
                     note: 'Depois disso não dá para adicionar nem remover jogadores.',
                     action: 'Iniciar fila',
                   },
@@ -355,6 +376,8 @@ function Roster({ camp }: { camp: Camp }) {
   const [adjusting, setAdjusting] = useState<Player | null>(null);
   const { busy } = useActions();
   const removed = players.filter((p) => p.removed).length;
+  const [filter, setFilter] = useState<Filter>(NO_FILTER);
+  const shown = players.filter((p) => passes(filter, playerName(camp, p.user_id), p.role));
   return (
     <section className="card" aria-labelledby="roster-table-title">
       <div className="card-head">
@@ -370,23 +393,24 @@ function Roster({ camp }: { camp: Camp }) {
       </div>
       <p className="muted small">
         {running
-          ? 'Depois que a fila começa, ninguém entra no elenco, mas dá para remover um jogador: ele sai da fila e não entra em partidas novas nem na final, e os pontos dele continuam no ranking. S rank e função valem para os times montados daqui em diante, numa partida nova ou num refresh. Ajustar pontos é para correções e penalidades; o bot anuncia cada ajuste e cada remoção.'
+          ? 'Depois que a fila começa, ninguém entra no elenco, mas dá para remover um jogador: ele sai da fila e não entra em partidas novas nem na final, e os pontos dele continuam no ranking. Categoria e função valem para os times montados daqui em diante, numa partida nova ou num refresh. Ajustar pontos é para correções e penalidades; o bot anuncia cada ajuste e cada remoção.'
           : 'Este camp não está em andamento.'}
       </p>
       <p className="muted small">
         {roleCounts(players)}. {ROLES_HELP}
       </p>
+      <PlayerFilter filter={filter} onChange={setFilter} shown={shown.length} total={players.length} />
       <div className="table-scroll">
         <table className="table">
           <thead>
             <tr>
               <th scope="col">Jogador</th>
-              <th scope="col">S rank</th>
+              <th scope="col">Categoria</th>
               <th scope="col">Função</th>
               <th scope="col" aria-sort="descending">
                 Pontos
               </th>
-              <th scope="col">Seguidas</th>
+              <th scope="col">Partidas</th>
               <th scope="col">Onde está</th>
               {running && (
                 <th scope="col" className="align-end">
@@ -396,7 +420,14 @@ function Roster({ camp }: { camp: Camp }) {
             </tr>
           </thead>
           <tbody>
-            {players.map((p) => (
+            {shown.length === 0 && (
+              <tr>
+                <td colSpan={running ? 7 : 6} className="muted">
+                  Ninguém do elenco com esse filtro.
+                </td>
+              </tr>
+            )}
+            {shown.map((p) => (
               <tr key={p.user_id} className={p.removed ? 'row-removed' : undefined}>
                 <td>
                   <span className="player-cell">
@@ -405,7 +436,7 @@ function Roster({ camp }: { camp: Camp }) {
                     {p.removed && <RemovedChip />}
                   </span>
                 </td>
-                <td>{running ? <SRankSwitch camp={camp} player={p} /> : p.s_rank ? 'Sim' : '—'}</td>
+                <td>{running ? <RankSelect camp={camp} player={p} /> : rankOf(p) ? RANK_LABEL[rankOf(p)!] : '—'}</td>
                 <td>{running ? <RoleSelect camp={camp} player={p} /> : p.role ? ROLE_LABEL[p.role] : '—'}</td>
                 <td className="mono">
                   {points(p.points)}
@@ -416,7 +447,7 @@ function Roster({ camp }: { camp: Camp }) {
                     </span>
                   )}
                 </td>
-                <td>{p.consecutive_matches}</td>
+                <td>{matchesWord(p.matches_played)}</td>
                 <td className="muted">{whereIs(camp, p)}</td>
                 {running && (
                   <td className="align-end">

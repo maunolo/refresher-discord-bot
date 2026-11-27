@@ -5,6 +5,7 @@ pub mod db;
 pub mod deadlock;
 pub mod draft;
 pub mod link;
+pub mod presets;
 pub mod queue;
 pub mod r2;
 pub mod ranking;

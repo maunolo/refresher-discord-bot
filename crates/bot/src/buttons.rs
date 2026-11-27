@@ -112,8 +112,7 @@ async fn vote_choice(
             ephemeral(ctx, interaction, "Você já votou.").await
         }
         RefreshOutcome::Recorded {
-            hk,
-            am,
+            refresh,
             keep,
             voted,
             total,
@@ -126,7 +125,7 @@ async fn vote_choice(
                     ctx,
                     interaction,
                     format!(
-                        "Voto registrado. Atualizar Hiddenking {hk}/{needed} · Archmother {am}/{needed} · Manter times {keep} · Votos {voted}/{total}"
+                        "Voto registrado. Refresh {refresh}/{needed} · Manter times {keep} · Votos {voted}/{total}"
                     ),
                 )
                 .await;
@@ -190,10 +189,7 @@ async fn captain_link(
         return ephemeral(
             ctx,
             interaction,
-            format!(
-                "Só os capitães ({}) desta partida têm link do draft.",
-                crate::ui::CAPTAIN_TAG
-            ),
+            "Só os capitães desta partida têm link do draft.",
         )
         .await;
     };

@@ -2,9 +2,9 @@ import { useState, type DragEvent } from 'react';
 
 import { useActions } from '../actions';
 import type { Camp } from '../api';
-import { playerById, playerName, points, queuedPlayers } from '../camp';
+import { matchesWord, playerById, playerName, points, queuedPlayers } from '../camp';
 import { routeHref } from '../route';
-import { DiscordLink, RoleChip, SRankChip } from './common';
+import { DiscordLink, RoleChip, RankChip } from './common';
 import { ArrowDownIcon, ArrowUpIcon, GripIcon, ToTopIcon } from './Icons';
 
 function sameMembers(a: string[], b: string[]): boolean {
@@ -119,10 +119,10 @@ export function QueueView({ camp }: { camp: Camp }) {
         ) : (
           <p className="muted small">
             {camp.finals
-              ? `Final: cada partida é jogada pelos ${camp.match_size} primeiros do ranking. Marcados com → jogam a próxima; a ordem da fila só desempata quem tem os mesmos pontos e MVPs.`
+              ? `Final: cada partida é jogada pelos ${camp.match_size} primeiros do ranking. Marcados com → jogam a próxima; a ordem da fila só desempata quem tem os mesmos pontos, MVPs e partidas.`
               : missing > 0
                 ? `Uma partida precisa de ${camp.match_size}. Faltam ${missing}; os próximos entram quando uma partida terminar.`
-                : 'Marcados com → entram na próxima partida: os primeiros da fila.'}
+                : 'Marcados com → entram na próxima partida: quem jogou menos partidas no camp, na ordem da fila.'}
           </p>
         )}
         {order.length === 0 ? (
@@ -157,9 +157,9 @@ export function QueueView({ camp }: { camp: Camp }) {
                     {draft === null && missing <= 0 && upNext.has(id) ? '→' : ''}
                   </span>
                   <span className="ellipsis">{name}</span>
-                  {player?.s_rank && <SRankChip />}
+                  <RankChip player={player} />
                   <RoleChip role={player?.role ?? null} />
-                  <span className="row-end muted small queue-seg">{player?.consecutive_matches ?? 0} seg.</span>
+                  <span className="row-end muted small queue-seg">{matchesWord(player?.matches_played ?? 0)}</span>
                   <span className="mono small points">{points(player?.points ?? 0)}</span>
                   <span className="reorder-buttons">
                     <button
@@ -203,12 +203,15 @@ export function QueueView({ camp }: { camp: Camp }) {
         <section className="card" aria-labelledby="queue-rules-title">
           <h2 id="queue-rules-title">Como a fila anda</h2>
           <p className="muted small">
-            A fila começa sorteada em times, com os S rank divididos por igual. Uma partida nova pega os primeiros da fila,
-            S rank ou não. Depois de cada resultado, quem
-            estava esperando continua na frente, nesta ordem; quem acabou de jogar entra no fim, quem jogou menos partidas
-            seguidas primeiro e vencedores antes dos perdedores.
+            A fila começa sorteada em times, com os SS e os S rank divididos por igual. Uma partida nova pega quem jogou
+            menos partidas no camp, na ordem da fila entre quem jogou o mesmo tanto, com no máximo dois SS rank por time.
+            Depois de cada resultado, a fila fica em ordem de partidas jogadas; entre iguais, quem estava esperando vai na
+            frente, depois os vencedores e depois os perdedores.
           </p>
-          <p className="muted small">Mude a ordem para corrigir um atraso ou dar a vez a quem precisa sair mais cedo.</p>
+          <p className="muted small">
+            Mude a ordem para dar a vez a quem precisa sair mais cedo. A ordem vale entre quem jogou o mesmo número de
+            partidas: quem jogou menos entra antes de qualquer jeito.
+          </p>
         </section>
         <section className="card card-dashed" aria-labelledby="queue-discord-title">
           <h2 id="queue-discord-title" className="small-title">

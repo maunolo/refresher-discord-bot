@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 
-import type { MatchPoints, Role } from '../api';
-import { ROLE_LABEL, roleShort } from '../camp';
+import type { MatchPoints, Player, Role } from '../api';
+import { rankOf, ROLE_LABEL, roleShort } from '../camp';
 import { ArrowRightIcon, CheckIcon, CopyIcon, CrownIcon, ExternalIcon, StarIcon } from './Icons';
 
 /** What a match gives each player, for a win and for a loss. */
@@ -29,12 +29,24 @@ export function RemovedChip() {
   );
 }
 
-export function SRankChip() {
-  return (
-    <span className="chip chip-s" title="S rank">
-      S
-    </span>
-  );
+/** The player's category: SS rank (captains) or S rank. Nothing without one. */
+export function RankChip({ player }: { player: Pick<Player, 's_rank' | 'ss_rank'> | undefined }) {
+  const rank = player ? rankOf(player) : null;
+  if (rank === 'ss') {
+    return (
+      <span className="chip chip-ss" title="SS rank: capitão do time">
+        SS
+      </span>
+    );
+  }
+  if (rank === 's') {
+    return (
+      <span className="chip chip-s" title="S rank">
+        S
+      </span>
+    );
+  }
+  return null;
 }
 
 /** A player's main role, short, with the full name on hover. Nothing without a role. */

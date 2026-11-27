@@ -212,7 +212,8 @@
     })();
   </script>
 
-  <!-- Ranking de jogadores: os dados ficam em jogadores.js. Ordem por pontos; empate é decidido pelos MVPs.
+  <!-- Ranking de jogadores: os dados ficam em jogadores.js. Igual ao painel da staff: ordem por pontos, empate
+       decidido pelos MVPs e depois por quem jogou menos partidas; empatados nos três dividem o lugar.
        Mostra o pódio (3 primeiros); "Ver mais" abre a lista completa -->
   <section id="players" class="players" aria-labelledby="players-title">
     <h2 id="players-title" class="section-title" data-i18n="players.title">Ranking de jogadores</h2>
@@ -223,12 +224,15 @@
             <th scope="col" class="col-rank" data-i18n="players.rank">#</th>
             <th scope="col" data-i18n="players.player">Jogador</th>
             <th scope="col" class="col-score" data-i18n="players.score">Pontos</th>
-            <th scope="col" class="col-mvp" data-i18n="players.mvp">MVP</th>
+            <th scope="col" class="col-mvp" data-i18n="players.mvp">MVPs</th>
+            <th scope="col" class="col-num col-wins" data-i18n="players.wins">Vitórias</th>
+            <th scope="col" class="col-num" data-i18n="players.played">Partidas</th>
+            <th scope="col" class="col-num col-rate" data-i18n="players.rate">Aproveitamento</th>
           </tr>
         </thead>
         <tbody id="players-body"></tbody>
       </table>
-      <p class="players-note" id="players-note" data-i18n="players.note">Empate em pontos? Fica na frente quem tem mais MVPs.</p>
+      <p class="players-note" id="players-note" data-i18n="players.note">Empate em pontos? Fica na frente quem tem mais MVPs; depois, quem jogou menos partidas.</p>
       <p class="players-empty" id="players-empty" hidden data-i18n="players.empty">Ranking em breve</p>
     </div>
     <div class="players-more" id="players-more" hidden>
@@ -245,21 +249,34 @@
       // MVPs: o bot manda a contagem em jogadores.js (p.mvps); sem ela, conta o campo "mvp" de cada partida em partida.js
       const mvps = {};
       ((window.PARTIDAS || {}).partidas || []).forEach((m) => { if (m.mvp) mvps[m.mvp] = (mvps[m.mvp] || 0) + 1; });
-      // Ordem: mais pontos; empate em pontos → quem tem mais MVPs fica na frente
+      // Ordem: mais pontos; empate em pontos → mais MVPs; depois → menos partidas. O bot já manda nessa ordem.
       const list = (window.JOGADORES || []).filter((p) => p && p.nome)
-        .map((p) => ({ nome: String(p.nome), pontos: Number(p.pontos) || 0, mvp: Number(p.mvps ?? mvps[String(p.nome)]) || 0 }))
-        .sort((a, b) => b.pontos - a.pontos || b.mvp - a.mvp || a.nome.localeCompare(b.nome));
+        .map((p) => ({
+          nome: String(p.nome), pontos: Number(p.pontos) || 0, mvp: Number(p.mvps ?? mvps[String(p.nome)]) || 0,
+          vitorias: Number(p.vitorias) || 0, partidas: Number(p.partidas) || 0, posicao: Number(p.posicao) || 0,
+        }))
+        .sort((a, b) => b.pontos - a.pontos || b.mvp - a.mvp || a.partidas - b.partidas);
+      // Lugar: o que o bot manda; sem ele, empatados em pontos, MVPs e partidas dividem o lugar
+      let place = 0, last = null;
+      list.forEach((p) => {
+        const key = p.pontos + ":" + p.mvp + ":" + p.partidas;
+        if (key !== last) { place += 1; last = key; }
+        if (!p.posicao) p.posicao = place;
+      });
       const body = document.getElementById("players-body");
       if (!list.length) { document.getElementById("players-empty").hidden = false; document.getElementById("players-note").hidden = true; body.closest("table").hidden = true; return; }
       list.forEach((p, i) => {
-        const rank = i + 1;   // posições sempre em sequência: 1, 2, 3, 4, 5...
         const tr = document.createElement("tr");
-        if (rank <= 3) tr.className = "top top-" + rank;
+        if (i < 3) tr.className = "top top-" + Math.min(p.posicao, 4);
         else { tr.className = "extra"; tr.hidden = true; }   // fora do pódio: só aparece com "Ver mais"
         const td = (text, cls) => { const c = document.createElement("td"); c.textContent = text; if (cls) c.className = cls; return c; };
         const score = td(p.pontos.toLocaleString("pt-BR"), "col-score"); score.dataset.num = p.pontos;
         const mvpCell = td(p.mvp ? "★ " + p.mvp : "–", "col-mvp" + (p.mvp ? " has-mvp" : ""));
-        tr.append(td(rank, "col-rank"), td(p.nome, "col-name"), score, mvpCell);
+        const rate = p.partidas ? Math.round((p.vitorias * 100) / p.partidas) + "%" : "—";
+        tr.append(
+          td(p.posicao, "col-rank"), td(p.nome, "col-name"), score, mvpCell,
+          td(p.vitorias, "col-num col-wins"), td(p.partidas, "col-num"), td(rate, "col-num col-rate"),
+        );
         body.appendChild(tr);
       });
       // Botão "Ver mais / Ver menos" (só aparece se houver alguém além do pódio)

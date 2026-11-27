@@ -11,6 +11,7 @@ import { LiveView } from './components/LiveView';
 import { MatchesView } from './components/MatchesView';
 import { NavRail } from './components/NavRail';
 import { PlayersView } from './components/PlayersView';
+import { PresetsView } from './components/PresetsView';
 import { QueueView } from './components/QueueView';
 import { RankingView } from './components/RankingView';
 import { RulesView } from './components/RulesView';
@@ -148,6 +149,8 @@ function Admin({ me }: { me: Me }) {
         }}
       />
     );
+  } else if (route === 'presets') {
+    content = <PresetsView guildId={guildId} />;
   } else if (route === 'overlays') {
     content = <OverlaysView guildId={guildId} />;
   } else if (route === 'settings') {
