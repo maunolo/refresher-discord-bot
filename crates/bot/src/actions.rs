@@ -54,11 +54,7 @@ pub async fn run(
         CampAction::CancelMatch { match_id } => {
             cancel_match(discord, data, guild_id, camp_id, &normalize(match_id)).await
         }
-        CampAction::AddPlayers { user_ids } => {
-            let ids: Vec<i64> = user_ids.iter().map(|id| *id as i64).collect();
-            db::add_players(&data.db, camp_id, &ids).await?;
-            redraw_board(discord, data, camp_id).await
-        }
+        CampAction::AddPlayers { user_ids } => add_players(discord, data, guild_id, camp_id, user_ids).await,
         CampAction::ApplyPreset { preset_id } => {
             refresher_core::presets::apply(&data.db, camp_id, *preset_id).await?;
             let state = load(data, camp_id).await?;
@@ -333,6 +329,36 @@ async fn adjust_points(discord: &Discord, data: &Data, camp_id: &str, user_id: i
             ),
         )
         .await;
+    Ok(())
+}
+
+/// Puts players on the roster. While the camp runs they join the end of the queue: the bot says
+/// so in the camp's channel and moves them to the Queue voice channel.
+async fn add_players(discord: &Discord, data: &Data, guild_id: GuildId, camp_id: &str, user_ids: &[u64]) -> Result<()> {
+    let ids: Vec<i64> = user_ids.iter().map(|id| *id as i64).collect();
+    let (added, _) = db::add_players(&data.db, camp_id, &ids).await?;
+    let state = load(data, camp_id).await?;
+    if state.camp.status != "running" {
+        return sync::redraw_board(discord, &data.db, &state).await;
+    }
+    if added.is_empty() {
+        bail!("Ninguém entrou: já está no elenco, ou o camp está completo.");
+    }
+    sync::redraw_all(discord, &data.db, &state).await?;
+    let channel = channel(&state);
+    let then = if state.camp.finals {
+        "entrou no fim da fila, sem pontos. Na final jogam os primeiros do ranking."
+    } else {
+        "entrou no fim da fila, sem pontos. Quem jogou menos partidas entra antes na próxima."
+    };
+    let _ = channel
+        .say(
+            &discord.http,
+            format!("Um admin adicionou {} ao camp: {then}", sync::mention_list(&added)),
+        )
+        .await;
+    let settings = data.settings(guild_id.get()).await?;
+    sync::apply_moves(discord, guild_id, &settings, channel, &sync::queue_voice_moves(&added)).await;
     Ok(())
 }
 

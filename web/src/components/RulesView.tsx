@@ -37,7 +37,8 @@ export function RulesView() {
       <section className="card" aria-labelledby="rules-start">
         <h2 id="rules-start">1. Início da fila</h2>
         <p>
-          <strong>Iniciar fila</strong> exige o elenco exatamente completo (24 ou 30). O elenco pode vir de uma{' '}
+          <strong>Iniciar fila</strong> precisa de jogadores para uma partida (12); o elenco vai até 24 ou 30, e quem
+          faltar pode entrar depois. O elenco pode vir de uma{' '}
           <strong>seleção</strong> salva, com categorias e funções prontas. Ele é sorteado numa fila de blocos de 6, meia
           partida cada:
         </p>
@@ -52,6 +53,10 @@ export function RulesView() {
             primeiras partidas começam com pelo menos dois de cada.
           </li>
           <li>O resto é sorteado. Todos começam com 0 partidas jogadas.</li>
+          <li>
+            Quem entra com a fila andando vai para o fim dela, com 0 pontos e 0 partidas: por ter jogado menos, é sorteado
+            antes dos outros.
+          </li>
         </ul>
         <p>A primeira partida pega os dois primeiros blocos, a segunda os dois seguintes.</p>
       </section>

@@ -45,6 +45,11 @@ function RoleSelect({ camp, player }: { camp: Camp; player: Player }) {
 const ROLES_HELP =
   'Ao iniciar a fila, as funções são espalhadas entre os times como as categorias. Ao montar os times de uma partida, o bot tenta dar a cada time pelo menos um Tank/Bruiser, um Carry e um Utility/Support, sem mudar a divisão das categorias. A função fica guardada no servidor e vale nos próximos camps.';
 
+/** Players who count toward the camp's size: removed players leave room. */
+function activeCount(camp: Camp): number {
+  return camp.players.filter((p) => !p.removed).length;
+}
+
 function MemberSearch({ camp }: { camp: Camp }) {
   const { run, busy } = useActions();
   return (
@@ -53,10 +58,53 @@ function MemberSearch({ camp }: { camp: Camp }) {
       label="Adicionar membro do servidor"
       taken={new Set(camp.players.map((p) => p.user_id))}
       inVoice={new Set(camp.queue_voice)}
-      full={camp.players.length >= camp.target_size}
+      full={activeCount(camp) >= camp.target_size}
       busy={busy}
       onAdd={(m) => run({ type: 'add_players', user_ids: [m.id] })}
     />
+  );
+}
+
+/** Adds everyone in the Queue voice channel who isn't on the roster, as far as there's room. */
+function VoiceAddButton({ camp }: { camp: Camp }) {
+  const { run, busy } = useActions();
+  const onRoster = new Set(camp.players.map((p) => p.user_id));
+  const voiceToAdd = camp.queue_voice.filter((id) => !onRoster.has(id));
+  const full = activeCount(camp) >= camp.target_size;
+  return (
+    <button
+      type="button"
+      className="button"
+      disabled={busy || voiceToAdd.length === 0 || full}
+      title={full ? 'O camp está completo.' : voiceToAdd.length === 0 ? 'Ninguém novo no canal de voz Queue.' : undefined}
+      onClick={() => run({ type: 'add_players', user_ids: voiceToAdd })}
+    >
+      Adicionar quem está no canal Queue ({voiceToAdd.length})
+    </button>
+  );
+}
+
+/** While the camp runs: newcomers join the end of the queue with no points. */
+function LateJoin({ camp }: { camp: Camp }) {
+  const count = activeCount(camp);
+  return (
+    <section className="card" aria-labelledby="late-join-title">
+      <div className="card-head">
+        <h2 id="late-join-title">
+          Adicionar jogadores{' '}
+          <span className="mono muted">
+            {count}/{camp.target_size}
+          </span>
+        </h2>
+        <VoiceAddButton camp={camp} />
+      </div>
+      <MemberSearch camp={camp} />
+      <p className="muted small">
+        {camp.finals
+          ? 'Quem entra agora vai para o fim da fila, sem pontos. Na final jogam os primeiros do ranking.'
+          : 'Quem entra agora vai para o fim da fila, sem pontos e sem partidas, e por isso é sorteado antes de quem já jogou mais. O bot avisa no canal do camp e move para Queue quem estiver em voz.'}
+      </p>
+    </section>
   );
 }
 
@@ -176,16 +224,16 @@ function Signup({ camp }: { camp: Camp }) {
   const { run, busy } = useActions();
   const roster = [...camp.players].sort((a, b) => playerName(camp, a.user_id).localeCompare(playerName(camp, b.user_id)));
   const count = camp.players.length;
-  const full = count === camp.target_size;
-  const onRoster = new Set(camp.players.map((p) => p.user_id));
-  const voiceToAdd = camp.queue_voice.filter((id) => !onRoster.has(id));
+  const full = count >= camp.target_size;
+  const enough = count >= camp.match_size;
   const sRank = camp.players.filter((p) => p.s_rank).length;
   const ssRank = camp.players.filter((p) => p.ss_rank).length;
   const [filter, setFilter] = useState<Filter>(NO_FILTER);
   const shown = roster.filter((p) => passes(filter, playerName(camp, p.user_id), p.role));
   const isTest = camp.target_size === 4;
   const teamSize = camp.match_size / 2;
-  const teams = camp.target_size / teamSize;
+  const teams = Math.ceil(Math.max(count, 1) / teamSize);
+  const split = `${teams} ${teams === 1 ? 'time' : 'times'} de ${count % teamSize === 0 ? '' : 'até '}${teamSize}`;
 
   return (
     <div className="split">
@@ -197,15 +245,7 @@ function Signup({ camp }: { camp: Camp }) {
               {count}/{camp.target_size}
             </span>
           </h2>
-          <button
-            type="button"
-            className="button"
-            disabled={busy || voiceToAdd.length === 0 || full}
-            title={voiceToAdd.length === 0 ? 'Ninguém novo no canal de voz Queue.' : undefined}
-            onClick={() => run({ type: 'add_players', user_ids: voiceToAdd })}
-          >
-            Adicionar quem está no canal Queue ({voiceToAdd.length})
-          </button>
+          <VoiceAddButton camp={camp} />
         </div>
         <div className="progress" role="img" aria-label={`${count} de ${camp.target_size} jogadores`}>
           <div className="progress-bar" style={{ width: `${(count / camp.target_size) * 100}%` }} />
@@ -252,7 +292,7 @@ function Signup({ camp }: { camp: Camp }) {
             </span>
           </div>
           <p className="small">
-            {`Ao iniciar a fila, o elenco é sorteado em ${teams} times de ${teamSize}, com os ${RANK_LABEL.ss} e depois os ${RANK_LABEL.s} divididos por igual. Depois disso, a categoria não dá prioridade na fila.`}
+            {`Ao iniciar a fila, o elenco é sorteado em ${split}, com os ${RANK_LABEL.ss} e depois os ${RANK_LABEL.s} divididos por igual. Depois disso, a categoria não dá prioridade na fila.`}
           </p>
           <p className="muted small">
             Numa partida, cada time tem no máximo dois SS rank, e todo SS rank do time é capitão e recebe o link do draft.
@@ -268,10 +308,14 @@ function Signup({ camp }: { camp: Camp }) {
         <section className="card" aria-labelledby="check-title">
           <h2 id="check-title">Antes de iniciar a fila</h2>
           <ul className="checklist">
+            <li className={enough ? 'done' : ''}>
+              {enough ? <CheckIcon size={16} label="Pronto" /> : <span className="pending" aria-label="Pendente" role="img" />}
+              Jogadores para a primeira partida: {Math.min(count, camp.match_size)} de {camp.match_size}
+            </li>
             <li className={full ? 'done' : ''}>
-              {full ? <CheckIcon size={16} label="Pronto" /> : <span className="pending" aria-label="Pendente" role="img" />}
-              Elenco completo: {count} de {camp.target_size}
-              {full ? '' : `, faltam ${camp.target_size - count}`}
+              {full ? <CheckIcon size={16} label="Pronto" /> : <span className="pending" aria-label="Opcional" role="img" />}
+              Elenco: {count} de {camp.target_size}
+              {full ? ', completo' : `. Os ${camp.target_size - count} que faltam podem entrar depois`}
             </li>
             <li className="done">
               <CheckIcon size={16} label="Pronto" />
@@ -281,16 +325,18 @@ function Signup({ camp }: { camp: Camp }) {
           <button
             type="button"
             className="button button-primary"
-            disabled={busy || !full}
-            title={full ? undefined : `Precisa de exatamente ${camp.target_size} jogadores.`}
+            disabled={busy || !enough}
+            title={enough ? undefined : `Precisa de pelo menos ${camp.match_size} jogadores.`}
             onClick={() =>
               run(
                 { type: 'start_queue' },
                 {
                   confirm: {
                     title: 'Iniciar a fila?',
-                    message: `O elenco é embaralhado em ${teams} times de ${teamSize}, com as categorias e as funções divididas por igual, e postado no Discord. Quem estiver em voz vai para o canal Queue.`,
-                    note: 'Depois disso não dá para adicionar nem remover jogadores.',
+                    message: `O elenco é embaralhado em ${split}, com as categorias e as funções divididas por igual, e postado no Discord. Quem estiver em voz vai para o canal Queue.`,
+                    note: full
+                      ? 'Depois disso, quem entrar vai para o fim da fila, e quem sair fica fora das partidas novas.'
+                      : `Faltam ${camp.target_size - count} para completar o camp. Quem entrar depois vai para o fim da fila, sem pontos.`,
                     action: 'Iniciar fila',
                   },
                 },
@@ -393,7 +439,7 @@ function Roster({ camp }: { camp: Camp }) {
       </div>
       <p className="muted small">
         {running
-          ? 'Depois que a fila começa, ninguém entra no elenco, mas dá para remover um jogador: ele sai da fila e não entra em partidas novas nem na final, e os pontos dele continuam no ranking. Categoria e função valem para os times montados daqui em diante, numa partida nova ou num refresh. Ajustar pontos é para correções e penalidades; o bot anuncia cada ajuste e cada remoção.'
+          ? 'Quem entra com a fila andando vai para o fim dela, sem pontos. Um jogador removido sai da fila e não entra em partidas novas nem na final, e os pontos dele continuam no ranking. Categoria e função valem para os times montados daqui em diante, numa partida nova ou num refresh. Ajustar pontos é para correções e penalidades; o bot anuncia cada ajuste e cada remoção.'
           : 'Este camp não está em andamento.'}
       </p>
       <p className="muted small">
@@ -476,5 +522,12 @@ function Roster({ camp }: { camp: Camp }) {
 }
 
 export function PlayersView({ camp }: { camp: Camp }) {
-  return camp.status === 'signup' ? <Signup camp={camp} /> : <Roster camp={camp} />;
+  if (camp.status === 'signup') return <Signup camp={camp} />;
+  if (camp.status !== 'running') return <Roster camp={camp} />;
+  return (
+    <div className="stack">
+      <LateJoin camp={camp} />
+      <Roster camp={camp} />
+    </div>
+  );
 }
