@@ -8,6 +8,7 @@ const COLABORADORES = [
   { nome: "Pinkish_nana" },
   { nome: "Aqua" },
   { nome: "Atlas_sw" },
+  { nome: "Rique" },
 ];
 
 (function () {
