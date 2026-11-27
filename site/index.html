@@ -195,7 +195,8 @@
   </script>
 
   <!-- Ranking de jogadores: os dados ficam em jogadores.js. Igual ao painel da staff: ordem por pontos, empate
-       decidido pelos MVPs e depois por quem jogou menos partidas; empatados nos três dividem o lugar.
+       decidido pelos MVPs, depois por quem jogou menos partidas e por fim por quem venceu mais; empatados nos quatro
+       dividem o lugar.
        Mostra o pódio (3 primeiros); "Ver mais" abre a lista completa -->
   <section id="players" class="players" aria-labelledby="players-title">
     <h2 id="players-title" class="section-title" data-i18n="players.title">Ranking de jogadores</h2>
@@ -214,7 +215,7 @@
         </thead>
         <tbody id="players-body"></tbody>
       </table>
-      <p class="players-note" id="players-note" data-i18n="players.note">Empate em pontos? Fica na frente quem tem mais MVPs; depois, quem jogou menos partidas.</p>
+      <p class="players-note" id="players-note" data-i18n="players.note">Empate em pontos? Fica na frente quem tem mais MVPs; depois, quem jogou menos partidas; por fim, quem venceu mais.</p>
       <p class="players-empty" id="players-empty" hidden data-i18n="players.empty">Ranking em breve</p>
     </div>
     <div class="players-more" id="players-more" hidden>
@@ -231,17 +232,18 @@
       // MVPs: o bot manda a contagem em jogadores.js (p.mvps); sem ela, conta o campo "mvp" de cada partida em partida.js
       const mvps = {};
       ((window.PARTIDAS || {}).partidas || []).forEach((m) => { if (m.mvp) mvps[m.mvp] = (mvps[m.mvp] || 0) + 1; });
-      // Ordem: mais pontos; empate em pontos → mais MVPs; depois → menos partidas. O bot já manda nessa ordem.
+      // Ordem: mais pontos; empate em pontos → mais MVPs; depois → menos partidas; depois → mais vitórias.
+      // O bot já manda nessa ordem.
       const list = (window.JOGADORES || []).filter((p) => p && p.nome)
         .map((p) => ({
           nome: String(p.nome), pontos: Number(p.pontos) || 0, mvp: Number(p.mvps ?? mvps[String(p.nome)]) || 0,
           vitorias: Number(p.vitorias) || 0, partidas: Number(p.partidas) || 0, posicao: Number(p.posicao) || 0,
         }))
-        .sort((a, b) => b.pontos - a.pontos || b.mvp - a.mvp || a.partidas - b.partidas);
-      // Lugar: o que o bot manda; sem ele, empatados em pontos, MVPs e partidas dividem o lugar
+        .sort((a, b) => b.pontos - a.pontos || b.mvp - a.mvp || a.partidas - b.partidas || b.vitorias - a.vitorias);
+      // Lugar: o que o bot manda; sem ele, empatados em pontos, MVPs, partidas e vitórias dividem o lugar
       let place = 0, last = null;
       list.forEach((p) => {
-        const key = p.pontos + ":" + p.mvp + ":" + p.partidas;
+        const key = p.pontos + ":" + p.mvp + ":" + p.partidas + ":" + p.vitorias;
         if (key !== last) { place += 1; last = key; }
         if (!p.posicao) p.posicao = place;
       });

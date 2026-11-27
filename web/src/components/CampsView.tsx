@@ -28,18 +28,26 @@ function StatusPill({ status }: { status: string }) {
   return <span className={`pill ${tone}`}>{campStatusLabel(status)}</span>;
 }
 
+/** The channel of the server's latest camp if it still exists, else the first one. */
+function startingChannel(channels: Channel[], lastChannelId: string | null): string {
+  return (channels.find((c) => c.id === lastChannelId) ?? channels[0])?.id ?? '';
+}
+
 function NewCampForm({
   guildId,
   channels,
+  lastChannelId,
   onCreated,
   onClose,
 }: {
   guildId: string;
   channels: Channel[];
+  /** Where the server's latest camp ran: the form starts there. */
+  lastChannelId: string | null;
   onCreated: (camp: Camp) => void;
   onClose: () => void;
 }) {
-  const [channelId, setChannelId] = useState(channels[0]?.id ?? '');
+  const [channelId, setChannelId] = useState(() => startingChannel(channels, lastChannelId));
   const [size, setSize] = useState<CampSizeChoice>('24');
   const [presets, setPresets] = useState<Preset[]>([]);
   const [presetId, setPresetId] = useState('');
@@ -47,8 +55,8 @@ function NewCampForm({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!channelId && channels[0]) setChannelId(channels[0].id);
-  }, [channels, channelId]);
+    if (!channelId && channels[0]) setChannelId(startingChannel(channels, lastChannelId));
+  }, [channels, channelId, lastChannelId]);
 
   useEffect(() => {
     api
@@ -83,7 +91,10 @@ function NewCampForm({
             </option>
           ))}
         </select>
-        <span className="muted small">O bot posta a fila e as partidas aqui.</span>
+        <span className="muted small">
+          O bot posta a fila e as partidas aqui.
+          {lastChannelId && channelId === lastChannelId && ' Já vem com o canal do último camp.'}
+        </span>
       </div>
       <fieldset className="field">
         <legend>Tamanho do camp</legend>
@@ -206,6 +217,7 @@ export function CampsView({ guildId, camps, onOpen, onCreated }: CampsViewProps)
           <NewCampForm
             guildId={guildId}
             channels={channels}
+            lastChannelId={camps[0]?.channel_id ?? null}
             onClose={() => setCreating(false)}
             onCreated={(camp) => {
               setCreating(false);

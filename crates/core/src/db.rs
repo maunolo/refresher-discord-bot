@@ -1782,6 +1782,7 @@ pub async fn next_finalists(pool: &SqlitePool, state: &CampState) -> Result<Vec<
             points: p.points,
             matches_played: p.matches_played,
             mvps: stats.get(&p.user_id).map_or(0, |s| s.mvps),
+            wins: stats.get(&p.user_id).map_or(0, |s| s.wins),
             played_last_final: last_final.contains(&p.user_id),
             queue_position: p.queue_position,
         })

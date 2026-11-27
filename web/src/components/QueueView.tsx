@@ -119,7 +119,7 @@ export function QueueView({ camp }: { camp: Camp }) {
         ) : (
           <p className="muted small">
             {camp.finals
-              ? `Final: cada partida é jogada pelos ${camp.match_size} primeiros do ranking. Marcados com → jogam a próxima; a ordem da fila só desempata quem tem os mesmos pontos, MVPs e partidas.`
+              ? `Final: cada partida é jogada pelos ${camp.match_size} primeiros do ranking. Marcados com → jogam a próxima; a ordem da fila só desempata quem tem os mesmos pontos, MVPs, partidas e vitórias.`
               : missing > 0
                 ? `Uma partida precisa de ${camp.match_size}. Faltam ${missing}; os próximos entram quando uma partida terminar.`
                 : 'Marcados com → entram na próxima partida: quem jogou menos partidas no camp, na ordem da fila.'}

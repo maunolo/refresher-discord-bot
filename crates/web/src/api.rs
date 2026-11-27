@@ -860,14 +860,20 @@ pub async fn overlay_ranking(
             points: p.points,
             matches: p.matches_played,
             mvps: stats.get(&p.user_id).map_or(0, |s| s.mvps),
+            wins: stats.get(&p.user_id).map_or(0, |s| s.wins),
         })
         .collect();
     let gained: Vec<(i64, i64)> = recent
         .first()
         .map(|m| m.players.iter().map(|p| (p.user_id, m.points.for_side(p.side == m.winner_side))).collect())
         .unwrap_or_default();
+    let winners: Vec<i64> = recent
+        .first()
+        .map(|m| m.players.iter().filter(|p| p.side == m.winner_side).map(|p| p.user_id).collect())
+        .unwrap_or_default();
     let latest = LatestResult {
         gained: &gained,
+        winners: &winners,
         mvp: recent.first().and_then(|m| m.mvp_user_id),
     };
     let user_ids: Vec<u64> = camp.players.iter().map(|p| p.user_id as u64).collect();
