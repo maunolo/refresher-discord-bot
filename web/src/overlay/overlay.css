@@ -606,10 +606,9 @@ h1 {
   font: 700 14px Consolas, monospace;
 }
 
-/* Replay overlay (ReplayOverlay.tsx), 1920×1080. Without a pause: the clip full screen, fading
-   in and out, with a REPLAY tag, transparent while nothing plays. With the pause screen on: the
-   league's background with the countdown in the middle; a replay then plays in a frame on the
-   right while the countdown moves to the left column. */
+/* Pause and replay overlay (ReplayOverlay.tsx), 1920×1080: always the league's background with
+   the message, the logo and the title in the middle, and the countdown while an admin has the
+   pause on. A replay plays in a frame on the right while that block moves to the left column. */
 .stage {
   position: relative;
   width: 1920px;
@@ -624,15 +623,10 @@ h1 {
     radial-gradient(ellipse 900px 560px at 50% 50%, rgba(4, 18, 18, 0.65), transparent 70%),
     linear-gradient(rgba(4, 16, 16, 0.25), rgba(4, 16, 16, 0.45)),
     url('/pausa.webp') center / cover no-repeat;
-  opacity: 0;
-  transition: opacity 800ms ease;
+  transition: filter 800ms ease;
 }
 
-.paused .pause-bg {
-  opacity: 1;
-}
-
-.replaying.paused .pause-bg {
+.replaying .pause-bg {
   filter: brightness(0.7);
 }
 
@@ -648,18 +642,12 @@ h1 {
   align-items: center;
   gap: 4px;
   text-align: center;
-  opacity: 0;
   transform: translate(-50%, -50%);
   transition:
     left 900ms cubic-bezier(0.65, 0, 0.35, 1),
     top 900ms cubic-bezier(0.65, 0, 0.35, 1),
-    transform 900ms cubic-bezier(0.65, 0, 0.35, 1),
-    opacity 800ms ease;
+    transform 900ms cubic-bezier(0.65, 0, 0.35, 1);
   text-shadow: 0 4px 24px rgba(0, 0, 0, 0.75);
-}
-
-.paused .pause-clock {
-  opacity: 1;
 }
 
 .replaying .pause-clock {
@@ -718,7 +706,7 @@ h1 {
   color: #c18d52;
 }
 
-.pause-clock.done .pause-time {
+.pause-time.done {
   animation: pause-blink 1.2s ease-in-out infinite;
 }
 
@@ -728,22 +716,18 @@ h1 {
   }
 }
 
+/* The replay's frame on the right, the league's background around it. */
 .replay {
   position: absolute;
-  inset: 0;
-  overflow: hidden;
-  background: #000;
-  opacity: 0;
-  transition: opacity 400ms ease;
-}
-
-/* The frame on the right during a pause, the league's background around it. */
-.paused .replay {
   inset: 110px 60px auto auto;
   width: 1320px;
   height: 742px;
+  overflow: hidden;
   border: 2px solid var(--gold);
+  background: #000;
   box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transition: opacity 400ms ease;
 }
 
 .replay.on {
@@ -758,7 +742,7 @@ h1 {
   object-fit: contain;
 }
 
-.paused .replay-tag {
+.replay .replay-tag {
   left: 24px;
   top: 20px;
   font-size: 22px;

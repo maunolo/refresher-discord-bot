@@ -399,8 +399,8 @@ function PauseControls({ guildId }: { guildId: string }) {
         Pausa
       </h2>
       <p className="muted small">
-        Mostra o fundo da liga com a mensagem e o contador no centro. Se tocar um replay durante a pausa, o vídeo entra à
-        direita e o contador vai para a esquerda.
+        O overlay sempre mostra o fundo da liga com “Já voltamos”, o logo e o título no centro. A pausa troca a mensagem
+        e põe o contador; um replay entra à direita e esse bloco vai para a esquerda.
       </p>
       <div className="pause-form">
         <div className="field pause-minutes">
@@ -574,7 +574,7 @@ export function Replays({ guildId, links }: { guildId: string; links: OverlayLin
           ))}
           <p className="muted small">
             Fonte de navegador de 1920 × 1080 acima das outras, com “Controlar áudio pelo OBS” ligado para o som do clipe
-            entrar no mixer. Fica transparente sem pausa e sem replay.
+            entrar no mixer. Sem pausa e sem replay, fica a tela de “Já voltamos”.
           </p>
         </section>
       )}
