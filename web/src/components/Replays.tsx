@@ -6,7 +6,7 @@ import { OverlayLink } from './OverlayLink';
 
 const TYPES = ['video/mp4', 'video/webm'];
 const STREAMS = [1, 2];
-/** Whose channel each stream is, as the pause screen's controls name them. */
+/** Whose channel each stream is, as the page names them. */
 const STREAM_NAMES: Record<number, string> = { 1: 'FARINHAGM', 2: 'NOKEIMEE' };
 
 /** `1:05`. */
@@ -310,10 +310,10 @@ function ClipRow({
       </div>
       <div className="inline-actions clip-actions">
         <button type="button" className="button button-small" disabled={busy} onClick={() => onPlay([1])}>
-          Tocar na 1
+          Tocar na {STREAM_NAMES[1]}
         </button>
         <button type="button" className="button button-small" disabled={busy} onClick={() => onPlay([2])}>
-          Tocar na 2
+          Tocar na {STREAM_NAMES[2]}
         </button>
         <button type="button" className="button button-small" disabled={busy} onClick={() => onPlay([1, 2])}>
           Nas duas
@@ -601,7 +601,7 @@ export function Replays({ guildId, links }: { guildId: string; links: OverlayLin
             </h2>
             {STREAMS.map((stream) => (
               <div key={stream} className="stack replay-stream">
-                <strong className="small">Transmissão {stream}</strong>
+                <strong className="small">{STREAM_NAMES[stream]}</strong>
                 <NowPlaying
                   play={state.playing.find((p) => p.stream === stream)}
                   loadedAt={loadedAt}
