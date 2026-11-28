@@ -313,6 +313,13 @@ export interface PauseScreen {
   remaining_ms: number;
 }
 
+/** How loud a stream's pause and replay overlay plays (crates/core/src/volume.rs). */
+export interface OverlayVolume {
+  stream: number;
+  /** From 0 to 100. */
+  volume: number;
+}
+
 /** A commentator's VDO.Ninja camera: the ID they push (`&push=`) and the name shown under it. */
 export interface CameraSource {
   id: string;
@@ -435,6 +442,9 @@ export const api = {
     post<{ pauses: PauseScreen[] }>(`/api/guilds/${guildId}/pause/add`, { streams, delta_ms: deltaMs }),
   stopPause: (guildId: string, streams: number[]) =>
     post<{ pauses: PauseScreen[] }>(`/api/guilds/${guildId}/pause/stop`, { streams }),
+  volumes: (guildId: string) => request<{ volumes: OverlayVolume[] }>(`/api/guilds/${guildId}/volume`),
+  setVolume: (guildId: string, streams: number[], volume: number) =>
+    post<{ volumes: OverlayVolume[] }>(`/api/guilds/${guildId}/volume`, { streams, volume }),
   deleteClip: (guildId: string, clipId: string) => post<ClipsState>(`/api/guilds/${guildId}/clips/${clipId}/delete`, {}),
   cameras: (guildId: string) => request<CameraConfig>(`/api/guilds/${guildId}/cameras`),
   /** Comes back cleaned up: IDs and the room as VDO.Ninja writes them. */

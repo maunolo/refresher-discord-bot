@@ -627,6 +627,32 @@ data: 111
     }
 
     #[tokio::test]
+    async fn replay_overlay_plays_at_the_volume_admins_set() {
+        let link = Arc::new(FakeLink {
+            guilds: vec![111],
+            ..FakeLink::default()
+        });
+        let state = test_state_with(link.clone()).await;
+        let token = sign_in(&state, &[111]).await;
+        let secret = refresher_core::db::overlay_token(&state.db, 111).await.unwrap();
+        let (_, body) = get(&state, &format!("/api/overlay/{secret}/replay/2"), None).await;
+        assert_eq!(body["volume"], 100, "full volume until set");
+
+        let loud = r#"{"streams": [2], "volume": 150}"#;
+        assert_eq!(post(&state, "/api/guilds/111/volume", Some(&token), loud).await.0, StatusCode::BAD_REQUEST);
+        let changes = link.changes().subscribe();
+        let (status, body) = post(&state, "/api/guilds/111/volume", Some(&token), r#"{"streams": [2], "volume": 35}"#).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["volumes"], serde_json::json!([{"stream": 1, "volume": 100}, {"stream": 2, "volume": 35}]));
+        assert_eq!(changes.len(), 1, "open overlays hear about it");
+
+        let (_, body) = get(&state, &format!("/api/overlay/{secret}/replay/2"), None).await;
+        assert_eq!(body["volume"], 35);
+        let (_, body) = get(&state, "/api/guilds/111/volume", Some(&token)).await;
+        assert_eq!(body["volumes"][1]["volume"], 35);
+    }
+
+    #[tokio::test]
     async fn vote_overlay_shows_who_voted_but_not_how() {
         use refresher_core::db;
         let state = test_state(FakeLink {

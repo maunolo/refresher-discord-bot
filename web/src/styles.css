@@ -2095,6 +2095,29 @@ h3,
   min-width: 200px;
 }
 
+/* Overlays: volume of the pause and replay overlays */
+.volume-row {
+  display: grid;
+  grid-template-columns: 110px minmax(0, 1fr) 56px auto;
+  align-items: center;
+  gap: 12px;
+}
+.volume-slider {
+  width: 100%;
+  accent-color: var(--jade);
+}
+.volume-value {
+  text-align: right;
+}
+@media (max-width: 560px) {
+  .volume-row {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+  }
+  .volume-row label {
+    grid-column: 1 / -1;
+  }
+}
+
 /* Overlays: replay clips */
 .replay-stream {
   gap: 6px;

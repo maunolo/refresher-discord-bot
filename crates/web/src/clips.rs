@@ -8,6 +8,7 @@ use axum::{Json, Router};
 use refresher_core::clips::{self, Clip, Play};
 use refresher_core::pause::{self, Pause};
 use refresher_core::r2::R2Config;
+use refresher_core::volume;
 use serde::{Deserialize, Serialize};
 
 use crate::api::{managed_guild, overlay_guild};
@@ -31,6 +32,7 @@ pub fn api_routes() -> Router<AppState> {
         .route("/guilds/{guild_id}/pause/start", post(start_pause))
         .route("/guilds/{guild_id}/pause/add", post(add_pause))
         .route("/guilds/{guild_id}/pause/stop", post(stop_pause))
+        .route("/guilds/{guild_id}/volume", get(list_volumes).post(set_volume))
         .route("/overlay/{token}/replay/{stream}", get(overlay_replay))
 }
 
@@ -271,6 +273,8 @@ pub struct OverlayReplayDto {
     playing: Option<OverlayPlayDto>,
     /// The pause screen, while an admin has it on.
     pause: Option<PauseDto>,
+    /// How loud the overlay plays its sound, from 0 to 100.
+    volume: i64,
 }
 
 #[derive(Serialize)]
@@ -374,6 +378,60 @@ async fn stop_pause(
     Ok(Json(pauses_dto(&state, guild_id).await?))
 }
 
+#[derive(Serialize)]
+struct VolumeDto {
+    stream: i64,
+    /// From 0 to 100.
+    volume: i64,
+}
+
+#[derive(Serialize)]
+pub struct VolumesDto {
+    /// Stream 1, then stream 2.
+    volumes: Vec<VolumeDto>,
+}
+
+async fn volumes_dto(state: &AppState, guild_id: u64) -> Result<VolumesDto, ApiError> {
+    Ok(VolumesDto {
+        volumes: volume::list(&state.db, guild_id as i64)
+            .await?
+            .into_iter()
+            .map(|(stream, volume)| VolumeDto { stream, volume })
+            .collect(),
+    })
+}
+
+/// How loud each stream's pause and replay overlay plays.
+async fn list_volumes(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+) -> Result<Json<VolumesDto>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    Ok(Json(volumes_dto(&state, guild_id).await?))
+}
+
+#[derive(Deserialize)]
+struct SetVolumeRequest {
+    streams: Vec<i64>,
+    volume: i64,
+}
+
+/// Sets the streams' overlay volume; open overlays change it at once, even mid-replay.
+async fn set_volume(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+    Json(request): Json<SetVolumeRequest>,
+) -> Result<Json<VolumesDto>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    volume::set(&state.db, guild_id as i64, &request.streams, request.volume)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    state.link.changes().notify(guild_id);
+    Ok(Json(volumes_dto(&state, guild_id).await?))
+}
+
 /// What stream 1's or 2's replay overlay plays. Public: the link's secret is the only key.
 async fn overlay_replay(
     State(state): State<AppState>,
@@ -402,5 +460,6 @@ async fn overlay_replay(
         .iter()
         .find(|p| p.stream == stream)
         .map(pause_dto);
-    Ok(Json(OverlayReplayDto { playing, pause }))
+    let volume = volume::get(&state.db, guild_id as i64, stream).await?;
+    Ok(Json(OverlayReplayDto { playing, pause, volume }))
 }
