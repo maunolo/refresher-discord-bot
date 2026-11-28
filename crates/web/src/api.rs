@@ -95,7 +95,7 @@ pub struct CampDto {
     recent_matches: Vec<RecentMatchDto>,
     /// Name and avatar per user ID, for everyone on the roster Discord could find.
     members: HashMap<String, MemberDto>,
-    /// During signup: who is in the Queue voice channel right now, roster or not.
+    /// While the camp is active: who is in the Queue voice channel right now, roster or not.
     queue_voice: Vec<String>,
     /// The camp's message in Discord (signup, then queue), else its channel.
     discord_url: String,
@@ -503,7 +503,7 @@ async fn camp_response(state: &AppState, camp: CampState) -> Result<Json<CampDto
         .link
         .profiles(camp.camp.guild_id as u64, &user_ids)
         .await;
-    let queue_voice = if camp.camp.status == "signup" {
+    let queue_voice = if matches!(camp.camp.status.as_str(), "signup" | "running") {
         state.link.queue_voice_members(camp.camp.guild_id as u64).await
     } else {
         Vec::new()

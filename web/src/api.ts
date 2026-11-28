@@ -49,7 +49,7 @@ export interface Camp {
   open_matches: Match[];
   recent_matches: RecentMatch[];
   members: Record<string, Member>;
-  /** During signup: who is in the Queue voice channel now. */
+  /** While the camp is active: who is in the Queue voice channel now, roster or not. */
   queue_voice: string[];
   /** The camp's message in Discord, else its channel. */
   discord_url: string;

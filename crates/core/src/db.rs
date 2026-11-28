@@ -1093,41 +1093,47 @@ async fn assemble_state(pool: &SqlitePool, c: CampColumns) -> Result<CampState> 
     })
 }
 
-pub async fn add_players(pool: &SqlitePool, camp_id: &str, user_ids: &[i64]) -> Result<(usize, Vec<i64>)> {
+/// Puts players on the roster, up to the camp's size, not counting players an admin removed. In
+/// signup they wait for the queue to start; while the camp runs they join the end of the queue
+/// with no points and no matches, so they're picked ahead of everyone who played more. Returns
+/// who was added and who was left out (already on the roster, or no room).
+pub async fn add_players(pool: &SqlitePool, camp_id: &str, user_ids: &[i64]) -> Result<(Vec<i64>, Vec<i64>)> {
     let state = load_camp(pool, camp_id)
         .await?
         .ok_or_else(|| anyhow!("camp não encontrado"))?;
-    if state.camp.status != "signup" {
-        return Err(anyhow!("jogadores só podem ser adicionados antes de iniciar a fila"));
+    if !matches!(state.camp.status.as_str(), "signup" | "running") {
+        return Err(anyhow!("o camp não está ativo"));
     }
-    let mut added = 0usize;
+    let mut added = Vec::new();
     let mut skipped = Vec::new();
     let mut seen: std::collections::HashSet<i64> =
         state.players.iter().map(|p| p.user_id).collect();
+    let mut active = state.active_players().count() as i64;
+    let mut position = if state.camp.status == "signup" {
+        state.players.len()
+    } else {
+        state.queued_count()
+    } as i64;
     let ts = now();
     let mut tx = pool.begin().await?;
     for user_id in user_ids {
-        if !seen.insert(*user_id) {
+        if !seen.insert(*user_id) || active >= state.camp.target_size {
             skipped.push(*user_id);
             continue;
         }
-        let current = count_players(&mut tx, camp_id).await?;
-        if current >= state.camp.target_size {
-            skipped.push(*user_id);
-            continue;
-        }
-        let pos = current;
         sqlx::query(
             "INSERT INTO camp_players (camp_id, user_id, points, location, queue_position, consecutive_matches, joined_at)
              VALUES (?, ?, 0, 'queued', ?, 0, ?)",
         )
         .bind(camp_id)
         .bind(user_id)
-        .bind(pos)
+        .bind(position)
         .bind(ts)
         .execute(&mut *tx)
         .await?;
-        added += 1;
+        added.push(*user_id);
+        active += 1;
+        position += 1;
     }
     sqlx::query("UPDATE camps SET updated_at = ? WHERE id = ?")
         .bind(ts)
@@ -1136,14 +1142,6 @@ pub async fn add_players(pool: &SqlitePool, camp_id: &str, user_ids: &[i64]) -> 
         .await?;
     tx.commit().await?;
     Ok((added, skipped))
-}
-
-async fn count_players(tx: &mut Transaction<'_, Sqlite>, camp_id: &str) -> Result<i64> {
-    let n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM camp_players WHERE camp_id = ?")
-        .bind(camp_id)
-        .fetch_one(&mut **tx)
-        .await?;
-    Ok(n)
 }
 
 /// What taking a player out of a camp did.
@@ -1578,6 +1576,8 @@ async fn pull_match_in_tx(
     Ok(Some(match_id))
 }
 
+/// Shuffles the roster into the queue and starts the camp. It takes enough players for one match;
+/// the rest can join later (`add_players`).
 pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<Vec<i64>> {
     let state = load_camp(pool, camp_id)
         .await?
@@ -1585,10 +1585,10 @@ pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<Vec<i64>> {
     if state.camp.status != "signup" {
         return Err(anyhow!("a fila já foi iniciada"));
     }
-    if state.players.len() as i64 != state.camp.target_size {
+    let need = state.camp.layout().match_size;
+    if state.players.len() < need {
         return Err(anyhow!(
-            "precisa de exatamente {} jogadores, tem {}",
-            state.camp.target_size,
+            "precisa de pelo menos {need} jogadores para a primeira partida, tem {}",
             state.players.len()
         ));
     }
@@ -3506,6 +3506,40 @@ mod tests {
                 .await
                 .unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn a_camp_starts_with_one_match_of_players_and_takes_more_later() {
+        let pool = memory_db().await;
+        // A 1v1 camp of up to 4.
+        let camp = create_camp(&pool, 1, 10, 4, 2).await.unwrap();
+        add_players(&pool, &camp.id, &[1]).await.unwrap();
+        assert!(start_queue(&pool, &camp.id).await.is_err(), "not enough for a match");
+        add_players(&pool, &camp.id, &[2]).await.unwrap();
+        start_queue(&pool, &camp.id).await.unwrap();
+        let (_, first) = create_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
+
+        assert_eq!(add_players(&pool, &camp.id, &[3, 3, 1]).await.unwrap(), (vec![3], vec![3, 1]));
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert_eq!(queue_order(&state), vec![3]);
+        remove_player(&pool, &camp.id, 3).await.unwrap();
+        assert_eq!(
+            add_players(&pool, &camp.id, &[4, 5, 6]).await.unwrap(),
+            (vec![4, 5], vec![6]),
+            "removed players leave room"
+        );
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert_eq!(queue_order(&state), vec![4, 5], "at the end of the queue");
+
+        close_voting(&pool, &camp.id, &first).await.unwrap();
+        start_live_match(&pool, &first, None, None).await.unwrap();
+        report_winner(&pool, &camp.id, &first, "hiddenking", None).await.unwrap();
+        let (_, second) = create_match(&pool, &camp.id, 1, MatchPoints::default()).await.unwrap();
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        let open = state.open_matches.iter().find(|m| m.row.id == second).unwrap();
+        let mut playing: Vec<i64> = open.players.iter().map(|p| p.user_id).collect();
+        playing.sort();
+        assert_eq!(playing, vec![4, 5], "the newcomers played fewer matches");
     }
 
     #[tokio::test]

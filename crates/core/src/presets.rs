@@ -224,6 +224,7 @@ pub async fn apply(pool: &SqlitePool, camp_id: &str, preset_id: i64) -> Result<A
         .ok_or_else(|| anyhow!("seleção não encontrada"))?;
     let ids: Vec<i64> = preset.players.iter().map(|p| p.user_id).collect();
     let (added, _) = db::add_players(pool, camp_id, &ids).await?;
+    let added = added.len();
     let roster: Vec<i64> = db::load_camp(pool, camp_id)
         .await?
         .map(|state| state.players.iter().map(|p| p.user_id).collect())

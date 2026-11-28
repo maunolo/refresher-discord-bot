@@ -34,7 +34,7 @@ export function QueueView({ camp }: { camp: Camp }) {
         <h2>Sem fila agora</h2>
         <p className="muted small">
           {camp.status === 'signup'
-            ? 'A fila começa quando a inscrição fecha. Monte o elenco e inicie a fila em Jogadores.'
+            ? 'A fila começa quando um admin inicia a fila em Jogadores, com o elenco completo ou com o bastante para uma partida.'
             : 'A fila só existe com o camp em andamento.'}
         </p>
         {camp.status === 'signup' && (
