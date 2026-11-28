@@ -1453,19 +1453,27 @@ fn slot_location(slot: i64) -> &'static str {
     }
 }
 
-async fn next_free_slot(tx: &mut Transaction<'_, Sqlite>, camp_id: &str) -> Result<Option<i64>> {
+/// The slots a match can take, one per stream.
+pub const SLOTS: [i64; 2] = [1, 2];
+
+/// `wanted` if it's free (an error if not), else the first free slot; `None` when both are taken.
+async fn free_slot(tx: &mut Transaction<'_, Sqlite>, camp_id: &str, wanted: Option<i64>) -> Result<Option<i64>> {
     let used: Vec<i64> = sqlx::query_scalar(
         "SELECT slot FROM camp_matches WHERE camp_id = ? AND status IN ('voting', 'live')",
     )
     .bind(camp_id)
     .fetch_all(&mut **tx)
     .await?;
-    for slot in [1_i64, 2] {
-        if !used.contains(&slot) {
-            return Ok(Some(slot));
+    if let Some(slot) = wanted {
+        if !SLOTS.contains(&slot) {
+            return Err(anyhow!("a vaga da partida precisa ser 1 ou 2"));
         }
+        if used.contains(&slot) {
+            return Err(anyhow!("a vaga {slot} já tem uma partida aberta"));
+        }
+        return Ok(Some(slot));
     }
-    Ok(None)
+    Ok(SLOTS.into_iter().find(|slot| !used.contains(slot)))
 }
 
 async fn camp_layout_in_tx(
@@ -1507,8 +1515,9 @@ async fn pull_match_in_tx(
     tx: &mut Transaction<'_, Sqlite>,
     camp_id: &str,
     points: MatchPoints,
+    slot: Option<i64>,
 ) -> Result<Option<String>> {
-    let slot = match next_free_slot(tx, camp_id).await? {
+    let slot = match free_slot(tx, camp_id, slot).await? {
         Some(s) => s,
         None => return Ok(None),
     };
@@ -1637,12 +1646,23 @@ pub async fn start_queue(pool: &SqlitePool, camp_id: &str) -> Result<Vec<i64>> {
 }
 
 /// A match from the front of the queue, or in the finals from the top of the ranking, giving
-/// `points` to its players when it ends.
+/// `points` to its players when it ends, in the first free slot.
 pub async fn create_match(
     pool: &SqlitePool,
     camp_id: &str,
     guild_id: i64,
     points: MatchPoints,
+) -> Result<(String, String)> {
+    create_match_in_slot(pool, camp_id, guild_id, points, None).await
+}
+
+/// Like `create_match`, in `slot` (1 or 2, each one stream) when given; refused if it's taken.
+pub async fn create_match_in_slot(
+    pool: &SqlitePool,
+    camp_id: &str,
+    guild_id: i64,
+    points: MatchPoints,
+    slot: Option<i64>,
 ) -> Result<(String, String)> {
     let points = points.check()?;
     let mut state = load_camp(pool, camp_id)
@@ -1675,7 +1695,7 @@ pub async fn create_match(
     }
     let camp_id = state.camp.id.clone();
     if state.camp.finals {
-        let match_id = create_finals_match(pool, &state, points).await?;
+        let match_id = create_finals_match(pool, &state, points, slot).await?;
         return Ok((camp_id, match_id));
     }
     if state.open_matches.len() >= 2 {
@@ -1689,7 +1709,7 @@ pub async fn create_match(
         ));
     }
     let mut tx = pool.begin().await?;
-    let match_id = pull_match_in_tx(&mut tx, &camp_id, points)
+    let match_id = pull_match_in_tx(&mut tx, &camp_id, points, slot)
         .await?
         .ok_or_else(|| anyhow!("não foi possível criar uma partida a partir da fila"))?;
     tx.commit().await?;
@@ -1792,7 +1812,12 @@ pub async fn next_finalists(pool: &SqlitePool, state: &CampState) -> Result<Vec<
 
 /// A finals match: the top of the ranking (`next_finalists`), with teams balanced by points. Only
 /// with no other match open, so every finalist is free to play.
-async fn create_finals_match(pool: &SqlitePool, state: &CampState, points: MatchPoints) -> Result<String> {
+async fn create_finals_match(
+    pool: &SqlitePool,
+    state: &CampState,
+    points: MatchPoints,
+    slot: Option<i64>,
+) -> Result<String> {
     if !state.open_matches.is_empty() {
         return Err(anyhow!("termine as partidas abertas antes da próxima partida da final"));
     }
@@ -1814,7 +1839,7 @@ async fn create_finals_match(pool: &SqlitePool, state: &CampState, points: Match
     let split = queue::split_match(&seats, true, &mut StdRng::from_entropy());
 
     let mut tx = pool.begin().await?;
-    let slot = next_free_slot(&mut tx, camp_id)
+    let slot = free_slot(&mut tx, camp_id, slot)
         .await?
         .ok_or_else(|| anyhow!("não há vaga livre para partida"))?;
 
@@ -3506,6 +3531,32 @@ mod tests {
                 .await
                 .unwrap();
         }
+    }
+
+    #[tokio::test]
+    async fn an_admin_picks_the_slot_of_a_new_match() {
+        let pool = memory_db().await;
+        // A 1v1 camp of 4: two matches at once.
+        let camp = create_camp(&pool, 1, 10, 4, 2).await.unwrap();
+        add_players(&pool, &camp.id, &[1, 2, 3, 4]).await.unwrap();
+        start_queue(&pool, &camp.id).await.unwrap();
+        let points = MatchPoints::default();
+        assert!(create_match_in_slot(&pool, &camp.id, 1, points, Some(3)).await.is_err());
+
+        let (_, second) = create_match_in_slot(&pool, &camp.id, 1, points, Some(2)).await.unwrap();
+        assert!(
+            create_match_in_slot(&pool, &camp.id, 1, points, Some(2)).await.is_err(),
+            "slot 2 is taken"
+        );
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        assert_eq!(state.queued_count(), 2, "a refused match takes nobody from the queue");
+        let (_, first) = create_match(&pool, &camp.id, 1, points).await.unwrap();
+
+        let state = load_camp(&pool, &camp.id).await.unwrap().unwrap();
+        let slot = |id: &str| state.open_matches.iter().find(|m| m.row.id == id).unwrap().row.slot;
+        assert_eq!((slot(&first), slot(&second)), (1, 2), "the first free slot when none is picked");
+        let in_slot_2 = state.players.iter().filter(|p| p.location == "match_2").count();
+        assert_eq!(in_slot_2, 2);
     }
 
     #[tokio::test]

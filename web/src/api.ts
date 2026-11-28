@@ -201,7 +201,7 @@ export interface Member {
 
 /** An admin action; the bot makes the change and does its Discord side. */
 export type CampAction =
-  | { type: 'create_match'; win_points: number; loss_points: number }
+  | { type: 'create_match'; win_points: number; loss_points: number; slot?: number }
   | { type: 'enter_finals' }
   | { type: 'leave_finals' }
   | { type: 'close_vote'; match_id: string }

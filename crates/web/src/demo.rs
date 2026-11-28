@@ -51,8 +51,8 @@ impl DemoLink {
         let pool = &self.db;
         let guild = GUILD as i64;
         match action {
-            CampAction::CreateMatch { points } => {
-                db::create_match(pool, camp_id, guild, points).await?;
+            CampAction::CreateMatch { points, slot } => {
+                db::create_match_in_slot(pool, camp_id, guild, points, slot).await?;
             }
             CampAction::EnterFinals => db::enter_finals(pool, camp_id).await?,
             CampAction::LeaveFinals => db::leave_finals(pool, camp_id).await?,

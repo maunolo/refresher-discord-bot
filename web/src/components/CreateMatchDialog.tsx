@@ -2,6 +2,7 @@ import { type Ref, useEffect, useRef, useState } from 'react';
 
 import { useActions } from '../actions';
 import type { Camp, MatchPoints } from '../api';
+import { freeSlots, SLOTS, STREAM_NAMES } from '../camp';
 import { Modal } from './Modal';
 
 /** The most a match can give each player; the bot refuses more. */
@@ -75,18 +76,21 @@ export function CreateMatchDialog({ camp, open, onClose }: { camp: Camp; open: b
   const final = camp.finals;
   const { run, busy } = useActions();
   const [points, setPoints] = useState<MatchPoints>(camp.next_points);
+  const free = freeSlots(camp);
+  const [slot, setSlot] = useState<number>(free[0] ?? 1);
   const input = useRef<HTMLInputElement>(null);
   // Runs after Modal has opened the dialog (a child's effects run first), so focus can land.
   useEffect(() => {
     if (!open) return;
     setPoints(camp.next_points);
+    setSlot(free[0] ?? 1);
     input.current?.select();
     // Only on opening: the camp keeps reloading while the dialog is open.
   }, [open]);
 
   const worth = `+${points.win} / +${points.loss}`;
   const submit = () => {
-    run({ type: 'create_match', win_points: points.win, loss_points: points.loss });
+    run({ type: 'create_match', win_points: points.win, loss_points: points.loss, slot });
     onClose();
   };
 
@@ -108,6 +112,28 @@ export function CreateMatchDialog({ camp, open, onClose }: { camp: Camp; open: b
                 : `Os próximos ${camp.match_size} da fila jogam.`}
             </p>
           </div>
+          <fieldset className="field slot-picker">
+            <legend className="field-label">Vaga e transmissão</legend>
+            <div className="presets">
+              {SLOTS.map((s) => {
+                const taken = !free.includes(s);
+                const on = s === slot;
+                return (
+                  <button
+                    key={s}
+                    type="button"
+                    className={on ? 'button button-ghost button-small preset-on' : 'button button-ghost button-small'}
+                    aria-pressed={on}
+                    disabled={taken}
+                    title={taken ? `A vaga ${s} já tem uma partida aberta.` : undefined}
+                    onClick={() => setSlot(s)}
+                  >
+                    Vaga {s} · {STREAM_NAMES[s]}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
           <div className="field">
             <span className="field-label">Valores comuns</span>
             <div className="presets">
@@ -151,7 +177,7 @@ export function CreateMatchDialog({ camp, open, onClose }: { camp: Camp; open: b
               Voltar
             </button>
             <button type="submit" className="button button-primary" disabled={busy}>
-              {final ? 'Criar partida da final' : 'Criar partida'} · {worth}
+              {final ? 'Criar partida da final' : 'Criar partida'} na vaga {slot} · {worth}
             </button>
           </div>
         </form>

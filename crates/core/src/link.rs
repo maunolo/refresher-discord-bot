@@ -57,7 +57,8 @@ pub struct Profile {
 pub enum CampAction {
     /// `points` go to each player when the match ends: `win` to the winners, `loss` to the losers.
     /// In the finals, the match is played by the top of the ranking instead of the queue's front.
-    CreateMatch { points: MatchPoints },
+    /// `slot` (1 or 2, one per stream) picks where it goes; `None` takes the first free one.
+    CreateMatch { points: MatchPoints, slot: Option<i64> },
     /// From now on every new match is played by the top of the ranking, one at a time.
     EnterFinals,
     /// Back to matches from the queue. Not while a finals match is open.

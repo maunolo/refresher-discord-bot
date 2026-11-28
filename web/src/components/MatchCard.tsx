@@ -11,6 +11,7 @@ import {
   playerName,
   points,
   stage,
+  STREAM_NAMES,
   voteSummary,
   type Stage,
 } from '../camp';
@@ -260,6 +261,9 @@ export function MatchCard({ camp, match }: { camp: Camp; match: Match }) {
             </a>
           </h2>
           <span className="mono muted small">{match.id}</span>
+          <span className="chip" title={`Vaga ${match.slot}: transmissão da ${STREAM_NAMES[match.slot]}`}>
+            {STREAM_NAMES[match.slot]}
+          </span>
         </div>
         <div className="inline-actions">
           <StagePill match={match} />

@@ -25,7 +25,7 @@ pub async fn run(
     }
     let camp_id = camp.camp.id.as_str();
     match action {
-        CampAction::CreateMatch { points } => create_match(discord, data, guild_id, camp_id, *points).await,
+        CampAction::CreateMatch { points, slot } => create_match(discord, data, guild_id, camp_id, *points, *slot).await,
         CampAction::EnterFinals => enter_finals(discord, data, camp_id).await,
         CampAction::LeaveFinals => leave_finals(discord, data, camp_id).await,
         CampAction::CloseVote { match_id } => close_vote(discord, data, camp_id, &normalize(match_id)).await,
@@ -213,8 +213,10 @@ async fn create_match(
     guild_id: GuildId,
     camp_id: &str,
     points: db::MatchPoints,
+    slot: Option<i64>,
 ) -> Result<()> {
-    let (camp_id, match_id) = db::create_match(&data.db, camp_id, guild_id.get() as i64, points).await?;
+    let (camp_id, match_id) =
+        db::create_match_in_slot(&data.db, camp_id, guild_id.get() as i64, points, slot).await?;
     let state = load(data, &camp_id).await?;
     sync::redraw_all(discord, &data.db, &state).await?;
     if let Some(open) = state.open_matches.iter().find(|m| m.row.id == match_id) {

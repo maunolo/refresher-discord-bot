@@ -840,7 +840,7 @@ data: 111
 
         let (status, _) = post(&state, &path, Some(&token), r#"{"type": "create_match"}"#).await;
         assert_eq!(status, StatusCode::OK);
-        let worth_more = r#"{"type": "create_match", "win_points": 3, "loss_points": 1}"#;
+        let worth_more = r#"{"type": "create_match", "win_points": 3, "loss_points": 1, "slot": 2}"#;
         assert_eq!(post(&state, &path, Some(&token), worth_more).await.0, StatusCode::OK);
         for finals in ["enter_finals", "leave_finals"] {
             let body = format!(r#"{{"type": "{finals}"}}"#);
@@ -868,14 +868,16 @@ data: 111
                     111,
                     camp.id.clone(),
                     CampAction::CreateMatch {
-                        points: MatchPoints { win: 1, loss: 0 }
+                        points: MatchPoints { win: 1, loss: 0 },
+                        slot: None
                     }
                 ),
                 (
                     111,
                     camp.id.clone(),
                     CampAction::CreateMatch {
-                        points: MatchPoints { win: 3, loss: 1 }
+                        points: MatchPoints { win: 3, loss: 1 },
+                        slot: Some(2)
                     }
                 ),
                 (111, camp.id.clone(), CampAction::EnterFinals),

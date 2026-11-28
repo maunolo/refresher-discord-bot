@@ -89,6 +89,17 @@ export function playerById(camp: Camp, userId: string): Player | undefined {
   return camp.players.find((p) => p.user_id === userId);
 }
 
+/** The match slots, one per stream. */
+export const SLOTS = [1, 2];
+
+/** Whose channel each stream (and match slot) is, as the page names them. */
+export const STREAM_NAMES: Record<number, string> = { 1: 'FARINHAGM', 2: 'NOKEIMEE' };
+
+/** Slots with no open match, in order. */
+export function freeSlots(camp: Camp): number[] {
+  return SLOTS.filter((slot) => !camp.open_matches.some((m) => m.slot === slot));
+}
+
 export function matchName(match: Match): string {
   return match.is_final ? 'Partida final' : `Partida ${match.slot}`;
 }
