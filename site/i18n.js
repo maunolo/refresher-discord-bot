@@ -65,6 +65,7 @@ const translations = {
     "live.local": "The stream only plays on the published site (Twitch blocks it when the file is opened directly).",
     "hero.sub": "Community-run Deadlock tournament",
     "rules.title": "Format and prizes",
+    "sponsor.title": "Sponsor",
     "rules.f1": "Schedule",
     "rules.f1.1": "Saturday, Nov 28: starts at 1 PM, with at least 10 matches planned. The day is expected to end at 6:30 PM.",
     "rules.f1.2": "Sunday, Nov 29: starts at 2 PM and runs until the tournament ends. 11 matches are planned, including the three finals, played by the 12 best-ranked players.",
@@ -76,7 +77,7 @@ const translations = {
     "rules.f3.2": "In the three final matches, each win is worth 3 points, and each loss is still worth 1 point.",
     "rules.f4": "Live broadcast",
     "rules.f4.1": "Two matches run at the same time: Farinha streams one and Nokeime streams the other.",
-    "rules.prizeText": "The total prize, currently set at R$ 1,000.00, will be split among the 6 best-ranked players at the end of the tournament.",
+    "rules.prizeText": "The total prize, currently set at R$ 1,500.00, will be split among the 6 best-ranked players at the end of the tournament.",
     "collab.title": "Contributors",
     "footer.main": "Refresher League",
     "footer.small": "Independent event, not affiliated with Valve."
@@ -146,6 +147,7 @@ const translations = {
     "live.local": "La transmisión solo aparece en el sitio publicado (Twitch la bloquea al abrir el archivo directamente).",
     "hero.sub": "Torneo de Deadlock hecho por la comunidad",
     "rules.title": "Formato y premios",
+    "sponsor.title": "Patrocinador",
     "rules.f1": "Programación",
     "rules.f1.1": "Sábado 28/11: empieza a las 13 h, con al menos 10 partidas previstas. El cierre del día está previsto para las 18:30.",
     "rules.f1.2": "Domingo 29/11: empieza a las 14 h y sigue hasta el final del campeonato. Se prevén 11 partidas, incluidas las tres finales, disputadas por los 12 jugadores mejor clasificados.",
@@ -157,7 +159,7 @@ const translations = {
     "rules.f3.2": "En las tres partidas finales, cada victoria pasa a valer 3 puntos y cada derrota sigue valiendo 1 punto.",
     "rules.f4": "Transmisión en vivo",
     "rules.f4.1": "Se juegan dos partidas al mismo tiempo: Farinha transmite una y Nokeime transmite la otra.",
-    "rules.prizeText": "El premio total, por ahora fijado en R$ 1.000,00, se dividirá entre los 6 jugadores mejor clasificados al final del campeonato.",
+    "rules.prizeText": "El premio total, por ahora fijado en R$ 1.500,00, se dividirá entre los 6 jugadores mejor clasificados al final del campeonato.",
     "collab.title": "Colaboradores",
     "footer.main": "Refresher League",
     "footer.small": "Evento independiente, sin vínculo con Valve."
