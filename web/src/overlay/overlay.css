@@ -606,16 +606,112 @@ h1 {
   font: 700 14px Consolas, monospace;
 }
 
-/* Replay clips (ReplayOverlay.tsx), 1920×1080: the clip full screen, fading in and out, with a
-   REPLAY tag. Transparent while nothing plays. */
-.replay {
+/* Replay overlay (ReplayOverlay.tsx), 1920×1080. Without a pause: the clip full screen, fading
+   in and out, with a REPLAY tag, transparent while nothing plays. With the pause screen on: the
+   league's background with the countdown in the middle; a replay then plays in a frame on the
+   right while the countdown moves to the left column. */
+.stage {
   position: relative;
   width: 1920px;
   height: 1080px;
   overflow: hidden;
+}
+
+.pause-bg {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 900px 420px at 50% 40%, rgba(4, 18, 18, 0.7), transparent 70%),
+    linear-gradient(rgba(4, 16, 16, 0.25), rgba(4, 16, 16, 0.45)),
+    url('/pausa.webp') center / cover no-repeat;
+  opacity: 0;
+  transition: opacity 800ms ease;
+}
+
+.paused .pause-bg {
+  opacity: 1;
+}
+
+.replaying.paused .pause-bg {
+  filter: brightness(0.7);
+}
+
+.pause-clock {
+  position: absolute;
+  left: 960px;
+  top: 420px;
+  width: 1100px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  transition:
+    left 900ms cubic-bezier(0.65, 0, 0.35, 1),
+    top 900ms cubic-bezier(0.65, 0, 0.35, 1),
+    transform 900ms cubic-bezier(0.65, 0, 0.35, 1),
+    opacity 800ms ease;
+  text-shadow: 0 4px 24px rgba(0, 0, 0, 0.75);
+}
+
+.paused .pause-clock {
+  opacity: 1;
+}
+
+.replaying .pause-clock {
+  left: 270px;
+  top: 480px;
+  width: 760px;
+  transform: translate(-50%, -50%) scale(0.6);
+}
+
+.pause-message {
+  max-width: 100%;
+  color: var(--gold);
+  font-size: 64px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+
+.pause-time {
+  color: #eee8b2;
+  font-size: 220px;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.pause-clock.done .pause-time {
+  animation: pause-blink 1.2s ease-in-out infinite;
+}
+
+@keyframes pause-blink {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.replay {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
   background: #000;
   opacity: 0;
   transition: opacity 400ms ease;
+}
+
+/* The frame on the right during a pause, the league's background around it. */
+.paused .replay {
+  inset: 110px 60px auto auto;
+  width: 1320px;
+  height: 742px;
+  border: 2px solid var(--gold);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.6);
 }
 
 .replay.on {
@@ -628,6 +724,12 @@ h1 {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+.paused .replay-tag {
+  left: 24px;
+  top: 20px;
+  font-size: 22px;
 }
 
 .replay-tag {

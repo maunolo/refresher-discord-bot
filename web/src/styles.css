@@ -2070,6 +2070,21 @@ h3,
   }
 }
 
+/* Overlays: pause screen */
+.pause-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.pause-minutes {
+  width: 110px;
+}
+.pause-message-field {
+  flex: 1;
+  min-width: 200px;
+}
+
 /* Overlays: replay clips */
 .replay-stream {
   gap: 6px;

@@ -149,9 +149,24 @@ export interface OverlayPlay {
   elapsed_ms: number;
 }
 
-/** Stream `stream`'s replay (1 or 2); `playing` is `null` once an admin stops it. */
-export function useReplay(token: string, stream: number): { playing: OverlayPlay | null } | null {
-  return useOverlayData<{ playing: OverlayPlay | null }>(token, `replay/${stream}`);
+/** The pause screen: a countdown under a message, while an admin has it on. */
+export interface OverlayPause {
+  message: string;
+  duration_ms: number;
+  /** Left when the server answered; 0 once it ran out. */
+  remaining_ms: number;
+}
+
+export interface OverlayReplay {
+  /** `null` once an admin stops it. */
+  playing: OverlayPlay | null;
+  /** `null` while the stream isn't on a break. */
+  pause: OverlayPause | null;
+}
+
+/** Stream `stream`'s replay overlay (1 or 2): its replay and its pause screen. */
+export function useReplay(token: string, stream: number): OverlayReplay | null {
+  return useOverlayData<OverlayReplay>(token, `replay/${stream}`);
 }
 
 /** The camp's ranking; after a camp ends, its final ranking until another starts. */

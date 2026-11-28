@@ -4,6 +4,7 @@ pub mod config;
 pub mod db;
 pub mod deadlock;
 pub mod draft;
+pub mod pause;
 pub mod link;
 pub mod presets;
 pub mod queue;

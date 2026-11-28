@@ -304,6 +304,15 @@ export interface ClipsState {
   playing: ClipPlay[];
 }
 
+/** A stream's pause screen on its replay overlay (crates/core/src/pause.rs). */
+export interface PauseScreen {
+  stream: number;
+  message: string;
+  duration_ms: number;
+  /** Left on the countdown when the server answered; 0 once it ran out. */
+  remaining_ms: number;
+}
+
 /** A commentator's VDO.Ninja camera: the ID they push (`&push=`) and the name shown under it. */
 export interface CameraSource {
   id: string;
@@ -418,6 +427,14 @@ export const api = {
   playClip: (guildId: string, clipId: string, streams: number[]) =>
     post<ClipsState>(`/api/guilds/${guildId}/clips/${clipId}/play`, { streams }),
   stopReplay: (guildId: string, streams: number[]) => post<ClipsState>(`/api/guilds/${guildId}/replay/stop`, { streams }),
+  pauses: (guildId: string) => request<{ pauses: PauseScreen[] }>(`/api/guilds/${guildId}/pause`),
+  startPause: (guildId: string, streams: number[], durationMs: number, message: string) =>
+    post<{ pauses: PauseScreen[] }>(`/api/guilds/${guildId}/pause/start`, { streams, duration_ms: durationMs, message }),
+  /** Negative takes time off. */
+  addPause: (guildId: string, streams: number[], deltaMs: number) =>
+    post<{ pauses: PauseScreen[] }>(`/api/guilds/${guildId}/pause/add`, { streams, delta_ms: deltaMs }),
+  stopPause: (guildId: string, streams: number[]) =>
+    post<{ pauses: PauseScreen[] }>(`/api/guilds/${guildId}/pause/stop`, { streams }),
   deleteClip: (guildId: string, clipId: string) => post<ClipsState>(`/api/guilds/${guildId}/clips/${clipId}/delete`, {}),
   cameras: (guildId: string) => request<CameraConfig>(`/api/guilds/${guildId}/cameras`),
   /** Comes back cleaned up: IDs and the room as VDO.Ninja writes them. */
