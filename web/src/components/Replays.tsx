@@ -6,6 +6,8 @@ import { OverlayLink } from './OverlayLink';
 
 const TYPES = ['video/mp4', 'video/webm'];
 const STREAMS = [1, 2];
+/** Whose channel each stream is, as the pause screen's controls name them. */
+const STREAM_NAMES: Record<number, string> = { 1: 'FARINHAGM', 2: 'NOKEIMEE' };
 
 /** `1:05`. */
 function clock(ms: number): string {
@@ -440,10 +442,10 @@ function PauseControls({ guildId }: { guildId: string }) {
       </div>
       <div className="inline-actions">
         <button type="button" className="button button-primary" disabled={busy || !valid} onClick={() => start([1])}>
-          Iniciar na 1
+          Iniciar na {STREAM_NAMES[1]}
         </button>
         <button type="button" className="button button-primary" disabled={busy || !valid} onClick={() => start([2])}>
-          Iniciar na 2
+          Iniciar na {STREAM_NAMES[2]}
         </button>
         <button type="button" className="button button-primary" disabled={busy || !valid} onClick={() => start([1, 2])}>
           Nas duas
@@ -460,7 +462,7 @@ function PauseControls({ guildId }: { guildId: string }) {
         const left = pause ? Math.max(0, pause.remaining_ms - (now - loadedAt)) : 0;
         return (
           <div key={stream} className="replay-now">
-            <strong className="small">Transmissão {stream}</strong>
+            <strong className="small">{STREAM_NAMES[stream]}</strong>
             {pause ? (
               <>
                 <span className="pill pill-live">
@@ -565,9 +567,9 @@ export function Replays({ guildId, links }: { guildId: string; links: OverlayLin
           {STREAMS.map((stream) => (
             <OverlayLink
               key={stream}
-              title={`Transmissão ${stream}`}
+              title={STREAM_NAMES[stream]}
               url={links.replay_urls[stream - 1]}
-              label={`Copiar o link do overlay de pausa e replay da transmissão ${stream}`}
+              label={`Copiar o link do overlay de pausa e replay da ${STREAM_NAMES[stream]}`}
             />
           ))}
           <p className="muted small">
