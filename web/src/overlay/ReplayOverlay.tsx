@@ -17,8 +17,11 @@ function countdown(ms: number): string {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${String(m).padStart(2, '0')}:${s}`;
 }
 
-/** The pause's message and countdown, ticking by this computer's clock from the last load. */
-function PauseClock({ pause }: { pause: OverlayPause }) {
+/** Without a pause on, the screen still says this. */
+const DEFAULT_MESSAGE = 'Já voltamos';
+
+/** The countdown, ticking by this computer's clock from the last load. */
+function Countdown({ pause }: { pause: OverlayPause }) {
   // Each load brings the server's time left; counting down from when it arrived.
   const deadline = useMemo(() => Date.now() + pause.remaining_ms, [pause]);
   const [now, setNow] = useState(Date.now());
@@ -27,10 +30,15 @@ function PauseClock({ pause }: { pause: OverlayPause }) {
     return () => window.clearInterval(timer);
   }, []);
   const left = Math.max(0, deadline - now);
+  return <strong className={left === 0 ? 'pause-time done' : 'pause-time'}>{countdown(left)}</strong>;
+}
+
+/** The message, the countdown while a pause is on, the logo and the title. */
+function PauseClock({ pause }: { pause: OverlayPause | null }) {
   return (
-    <div className={left === 0 ? 'pause-clock done' : 'pause-clock'}>
-      <span className="pause-message">{pause.message}</span>
-      <strong className="pause-time">{countdown(left)}</strong>
+    <div className="pause-clock">
+      <span className="pause-message">{pause?.message ?? DEFAULT_MESSAGE}</span>
+      {pause && <Countdown pause={pause} />}
       <img className="pause-logo" src="/logo-pausa.webp" alt="" />
       <span className="pause-title">
         Refresher <span>League</span>
@@ -40,11 +48,11 @@ function PauseClock({ pause }: { pause: OverlayPause }) {
 }
 
 /**
- * Stream `stream`'s replay overlay, 1920×1080. When an admin presses play on the Overlays page,
- * the clip fades in, plays with its sound (OBS's browser source allows that) and fades out at its
- * end. With the pause screen on, the league's background shows with the countdown in the middle;
- * a replay then plays in a frame on the right and the countdown moves to the left. Transparent
- * when neither is on.
+ * Stream `stream`'s pause and replay overlay, 1920×1080: always the league's background with
+ * "Já voltamos", the logo and the title in the middle, plus the countdown while an admin has the
+ * pause on. When an admin presses play on the Overlays page, the clip fades in, in a frame on the
+ * right, plays with its sound (OBS's browser source allows that) and fades out at its end; that
+ * block moves to the left meanwhile.
  */
 export function ReplayOverlay({ token, stream }: { token: string; stream: number }) {
   const data = useReplay(token, stream);
@@ -103,21 +111,10 @@ export function ReplayOverlay({ token, stream }: { token: string; stream: number
     setVisible(true);
   };
 
-  const pause = data?.pause ?? null;
-  // The last pause shown, so it fades out with its message instead of going blank.
-  const [shownPause, setShownPause] = useState<OverlayPause | null>(null);
-  if (pause && pause !== shownPause) setShownPause(pause);
-  useEffect(() => {
-    if (pause) return;
-    const timer = window.setTimeout(() => setShownPause(null), 800);
-    return () => window.clearTimeout(timer);
-  }, [pause]);
-
-  const classes = ['stage', pause && 'paused', visible && 'replaying'].filter(Boolean).join(' ');
   return (
-    <div className={classes}>
+    <div className={visible ? 'stage replaying' : 'stage'}>
       <div className="pause-bg" />
-      {shownPause && <PauseClock pause={shownPause} />}
+      <PauseClock pause={data?.pause ?? null} />
       <div className={visible ? 'replay on' : 'replay'}>
         {current && (
           <>
