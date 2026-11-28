@@ -640,6 +640,8 @@ h1 {
   position: absolute;
   left: 960px;
   top: 420px;
+  /* Over the replay's frame while it slides past it. */
+  z-index: 1;
   width: 1100px;
   display: flex;
   flex-direction: column;
@@ -684,6 +686,26 @@ h1 {
   line-height: 1;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
+}
+
+/* The league's logo under the countdown, only in the left column beside a replay. */
+.pause-logo {
+  width: 400px;
+  max-height: 0;
+  opacity: 0;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 24px rgba(0, 0, 0, 0.6));
+  transition:
+    max-height 900ms cubic-bezier(0.65, 0, 0.35, 1),
+    margin-top 900ms cubic-bezier(0.65, 0, 0.35, 1),
+    opacity 600ms ease;
+}
+
+.replaying .pause-logo {
+  max-height: 400px;
+  margin-top: 40px;
+  opacity: 1;
+  transition-delay: 0ms, 0ms, 300ms;
 }
 
 .pause-clock.done .pause-time {
