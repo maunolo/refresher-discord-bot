@@ -31,8 +31,10 @@ function PauseClock({ pause }: { pause: OverlayPause }) {
     <div className={left === 0 ? 'pause-clock done' : 'pause-clock'}>
       <span className="pause-message">{pause.message}</span>
       <strong className="pause-time">{countdown(left)}</strong>
-      {/* Only beside a replay: in the middle, the background already has the logo. */}
       <img className="pause-logo" src="/logo-pausa.webp" alt="" />
+      <span className="pause-title">
+        Refresher <span>League</span>
+      </span>
     </div>
   );
 }
