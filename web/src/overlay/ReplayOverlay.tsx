@@ -51,12 +51,13 @@ function PauseClock({ pause }: { pause: OverlayPause | null }) {
  * Stream `stream`'s pause and replay overlay, 1920×1080: always the league's background with
  * "Já voltamos", the logo and the title in the middle, plus the countdown while an admin has the
  * pause on. When an admin presses play on the Overlays page, the clip fades in, in a frame on the
- * right, plays with its sound (OBS's browser source allows that) and fades out at its end; that
- * block moves to the left meanwhile.
+ * right, plays with its sound (OBS's browser source allows that) at the stream's volume and fades
+ * out at its end; that block moves to the left meanwhile.
  */
 export function ReplayOverlay({ token, stream }: { token: string; stream: number }) {
   const data = useReplay(token, stream);
   const playing = data?.playing ?? null;
+  const volume = (data?.volume ?? 100) / 100;
   // The play on screen, as first loaded: later loads sign a new link for the same play.
   const [current, setCurrent] = useState<OverlayPlay | null>(null);
   const [visible, setVisible] = useState(false);
@@ -98,10 +99,16 @@ export function ReplayOverlay({ token, stream }: { token: string; stream: number
     return () => window.clearTimeout(timer);
   }, [visible, current]);
 
+  // A new volume from the page applies at once, even mid-replay.
+  useEffect(() => {
+    if (video.current) video.current.volume = volume;
+  }, [volume, current]);
+
   const start = () => {
     const element = video.current;
     if (!element || !current || started.current) return;
     started.current = true;
+    element.volume = volume;
     if (current.elapsed_ms > CATCH_UP_MS) element.currentTime = current.elapsed_ms / 1000;
     // OBS plays with sound; a normal browser (the admin page's preview) only allows it muted.
     element.play().catch(() => {

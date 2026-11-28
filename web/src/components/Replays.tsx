@@ -1,6 +1,14 @@
 import { type DragEvent, useEffect, useRef, useState } from 'react';
 
-import { api, type Clip, type ClipPlay, type ClipsState, type OverlayLinks, type PauseScreen } from '../api';
+import {
+  api,
+  type Clip,
+  type ClipPlay,
+  type ClipsState,
+  type OverlayLinks,
+  type OverlayVolume,
+  type PauseScreen,
+} from '../api';
 import { STREAM_NAMES } from '../camp';
 import { FilmIcon, UploadIcon } from './Icons';
 import { OverlayLink } from './OverlayLink';
@@ -505,6 +513,96 @@ function PauseControls({ guildId }: { guildId: string }) {
   );
 }
 
+/** Waits this long after the slider stops before saving, so dragging it sends one change. */
+const VOLUME_SAVE_MS = 250;
+
+/**
+ * How loud each stream's pause and replay overlay plays its sound (the replays' audio), saved on
+ * the server: open overlays change it at once, even mid-replay.
+ */
+function VolumeControls({ guildId }: { guildId: string }) {
+  const [volumes, setVolumes] = useState<OverlayVolume[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const timers = useRef(new Map<number, number>());
+
+  useEffect(() => {
+    let cancelled = false;
+    setVolumes(null);
+    api
+      .volumes(guildId)
+      .then((loaded) => !cancelled && setVolumes(loaded.volumes))
+      .catch((err: Error) => !cancelled && setError(err.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [guildId]);
+
+  useEffect(() => {
+    const pending = timers.current;
+    return () => pending.forEach((timer) => window.clearTimeout(timer));
+  }, []);
+
+  /** Shows the new volume now and saves it once the slider rests. */
+  const change = (stream: number, volume: number) => {
+    setVolumes((current) => current?.map((v) => (v.stream === stream ? { ...v, volume } : v)) ?? null);
+    window.clearTimeout(timers.current.get(stream));
+    timers.current.set(
+      stream,
+      window.setTimeout(() => {
+        timers.current.delete(stream);
+        setError(null);
+        api.setVolume(guildId, [stream], volume).catch((err: Error) => setError(err.message));
+      }, VOLUME_SAVE_MS),
+    );
+  };
+
+  return (
+    <section className="card stack" aria-labelledby="volume-title">
+      <h2 id="volume-title" className="small-title">
+        Volume
+      </h2>
+      <p className="muted small">
+        O som dos replays em cada overlay de pausa e replay. Muda na hora, até no meio de um replay, sem mexer no OBS.
+      </p>
+      {!volumes ? (
+        !error && <p className="muted small">Carregando…</p>
+      ) : (
+        volumes.map(({ stream, volume }) => (
+          <div key={stream} className="volume-row">
+            <label htmlFor={`volume-${stream}`} className="small">
+              <strong>{STREAM_NAMES[stream]}</strong>
+            </label>
+            <input
+              id={`volume-${stream}`}
+              className="volume-slider"
+              type="range"
+              min={0}
+              max={100}
+              step={5}
+              value={volume}
+              aria-valuetext={volume === 0 ? 'mudo' : `${volume}%`}
+              onChange={(e) => change(stream, Number(e.target.value))}
+            />
+            <span className="mono small volume-value">{volume === 0 ? 'mudo' : `${volume}%`}</span>
+            <button
+              type="button"
+              className="button button-small button-ghost"
+              onClick={() => change(stream, volume === 0 ? 100 : 0)}
+            >
+              {volume === 0 ? 'Ligar som' : 'Mudo'}
+            </button>
+          </div>
+        ))
+      )}
+      {error && (
+        <p className="error small" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
 /** Replay clips: upload them, then play one on a stream's replay overlay. */
 export function Replays({ guildId, links }: { guildId: string; links: OverlayLinks | null }) {
   const [state, setState] = useState<ClipsState | null>(null);
@@ -578,6 +676,7 @@ export function Replays({ guildId, links }: { guildId: string; links: OverlayLin
         </section>
       )}
       <PauseControls guildId={guildId} />
+      <VolumeControls guildId={guildId} />
       {error && (
         <p className="error small" role="alert">
           {error}

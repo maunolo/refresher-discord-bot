@@ -12,3 +12,4 @@ pub mod r2;
 pub mod ranking;
 pub mod settings;
 pub mod stats;
+pub mod volume;

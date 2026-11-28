@@ -162,6 +162,8 @@ export interface OverlayReplay {
   playing: OverlayPlay | null;
   /** `null` while the stream isn't on a break. */
   pause: OverlayPause | null;
+  /** How loud the overlay plays its sound, from 0 to 100, as set on the Overlays page. */
+  volume: number;
 }
 
 /** Stream `stream`'s replay overlay (1 or 2): its replay and its pause screen. */
