@@ -595,6 +595,38 @@ data: 111
     }
 
     #[tokio::test]
+    async fn pause_screen_counts_down_on_the_replay_overlay() {
+        let link = Arc::new(FakeLink {
+            guilds: vec![111],
+            ..FakeLink::default()
+        });
+        let state = test_state_with(link.clone()).await;
+        let token = sign_in(&state, &[111]).await;
+        let bad = r#"{"streams": [1], "duration_ms": 0}"#;
+        assert_eq!(post(&state, "/api/guilds/111/pause/start", Some(&token), bad).await.0, StatusCode::BAD_REQUEST);
+        let changes = link.changes().subscribe();
+        let start = r#"{"streams": [2], "duration_ms": 300000, "message": "Voltamos já"}"#;
+        let (status, body) = post(&state, "/api/guilds/111/pause/start", Some(&token), start).await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(body["pauses"][0]["stream"], 2);
+        assert_eq!(changes.len(), 1, "open overlays hear about it");
+
+        let secret = refresher_core::db::overlay_token(&state.db, 111).await.unwrap();
+        let (status, body) = get(&state, &format!("/api/overlay/{secret}/replay/2"), None).await;
+        assert_eq!(status, StatusCode::OK, "works without the R2 bucket");
+        assert_eq!(body["pause"]["message"], "Voltamos já");
+        assert!(body["pause"]["remaining_ms"].as_i64().unwrap() > 290_000);
+        let (_, body) = get(&state, &format!("/api/overlay/{secret}/replay/1"), None).await;
+        assert_eq!(body["pause"], serde_json::Value::Null);
+
+        let add = r#"{"streams": [2], "delta_ms": 60000}"#;
+        let (_, body) = post(&state, "/api/guilds/111/pause/add", Some(&token), add).await;
+        assert_eq!(body["pauses"][0]["duration_ms"], 360_000);
+        let (_, body) = post(&state, "/api/guilds/111/pause/stop", Some(&token), r#"{"streams": [2]}"#).await;
+        assert_eq!(body["pauses"], serde_json::json!([]));
+    }
+
+    #[tokio::test]
     async fn vote_overlay_shows_who_voted_but_not_how() {
         use refresher_core::db;
         let state = test_state(FakeLink {

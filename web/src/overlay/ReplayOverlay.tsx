@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { useReplay, type OverlayPlay } from './data';
+import { useReplay, type OverlayPause, type OverlayPlay } from './data';
 
 /** A replay that started this long ago (with no known length) is old news when the overlay loads. */
 const STALE_MS = 15_000;
@@ -8,10 +8,39 @@ const STALE_MS = 15_000;
 const CATCH_UP_MS = 2_000;
 const FADE_MS = 400;
 
+/** `4:05`, or `1:04:05` from an hour. */
+function countdown(ms: number): string {
+  const total = Math.ceil(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = String(total % 60).padStart(2, '0');
+  return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${s}` : `${String(m).padStart(2, '0')}:${s}`;
+}
+
+/** The pause's message and countdown, ticking by this computer's clock from the last load. */
+function PauseClock({ pause }: { pause: OverlayPause }) {
+  // Each load brings the server's time left; counting down from when it arrived.
+  const deadline = useMemo(() => Date.now() + pause.remaining_ms, [pause]);
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 250);
+    return () => window.clearInterval(timer);
+  }, []);
+  const left = Math.max(0, deadline - now);
+  return (
+    <div className={left === 0 ? 'pause-clock done' : 'pause-clock'}>
+      <span className="pause-message">{pause.message}</span>
+      <strong className="pause-time">{countdown(left)}</strong>
+    </div>
+  );
+}
+
 /**
- * Stream `stream`'s replay clips, full screen at 1920×1080: when an admin presses play on the
- * Overlays page, the clip fades in, plays with its sound (OBS's browser source allows that) and
- * fades out at its end. Transparent the rest of the time.
+ * Stream `stream`'s replay overlay, 1920×1080. When an admin presses play on the Overlays page,
+ * the clip fades in, plays with its sound (OBS's browser source allows that) and fades out at its
+ * end. With the pause screen on, the league's background shows with the countdown in the middle;
+ * a replay then plays in a frame on the right and the countdown moves to the left. Transparent
+ * when neither is on.
  */
 export function ReplayOverlay({ token, stream }: { token: string; stream: number }) {
   const data = useReplay(token, stream);
@@ -70,26 +99,41 @@ export function ReplayOverlay({ token, stream }: { token: string; stream: number
     setVisible(true);
   };
 
+  const pause = data?.pause ?? null;
+  // The last pause shown, so it fades out with its message instead of going blank.
+  const [shownPause, setShownPause] = useState<OverlayPause | null>(null);
+  if (pause && pause !== shownPause) setShownPause(pause);
+  useEffect(() => {
+    if (pause) return;
+    const timer = window.setTimeout(() => setShownPause(null), 800);
+    return () => window.clearTimeout(timer);
+  }, [pause]);
+
+  const classes = ['stage', pause && 'paused', visible && 'replaying'].filter(Boolean).join(' ');
   return (
-    <div className={visible ? 'replay on' : 'replay'}>
-      {current && (
-        <>
-          <video
-            key={current.play_id}
-            ref={video}
-            src={current.url}
-            preload="auto"
-            playsInline
-            onCanPlay={start}
-            onEnded={finish}
-            onError={finish}
-          />
-          <div className="replay-tag">
-            <strong>Replay</strong>
-            <span>{current.title}</span>
-          </div>
-        </>
-      )}
+    <div className={classes}>
+      <div className="pause-bg" />
+      {shownPause && <PauseClock pause={shownPause} />}
+      <div className={visible ? 'replay on' : 'replay'}>
+        {current && (
+          <>
+            <video
+              key={current.play_id}
+              ref={video}
+              src={current.url}
+              preload="auto"
+              playsInline
+              onCanPlay={start}
+              onEnded={finish}
+              onError={finish}
+            />
+            <div className="replay-tag">
+              <strong>Replay</strong>
+              <span>{current.title}</span>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   );
 }

@@ -37,7 +37,7 @@ pub struct Play {
     pub clip: Clip,
 }
 
-fn now_ms() -> i64 {
+pub(crate) fn now_ms() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .expect("clock")
@@ -144,7 +144,7 @@ pub async fn delete(pool: &SqlitePool, guild_id: i64, id: &str) -> Result<()> {
     Ok(())
 }
 
-fn check_streams(streams: &[i64]) -> Result<()> {
+pub(crate) fn check_streams(streams: &[i64]) -> Result<()> {
     if streams.is_empty() || streams.iter().any(|s| !STREAMS.contains(s)) {
         return Err(anyhow!("escolha a transmissão 1, a 2 ou as duas"));
     }

@@ -6,6 +6,7 @@ use axum::extract::{Path, State};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use refresher_core::clips::{self, Clip, Play};
+use refresher_core::pause::{self, Pause};
 use refresher_core::r2::R2Config;
 use serde::{Deserialize, Serialize};
 
@@ -26,6 +27,10 @@ pub fn api_routes() -> Router<AppState> {
         .route("/guilds/{guild_id}/clips/{clip_id}/play", post(play_clip))
         .route("/guilds/{guild_id}/clips/{clip_id}/delete", post(delete_clip))
         .route("/guilds/{guild_id}/replay/stop", post(stop_replay))
+        .route("/guilds/{guild_id}/pause", get(list_pauses))
+        .route("/guilds/{guild_id}/pause/start", post(start_pause))
+        .route("/guilds/{guild_id}/pause/add", post(add_pause))
+        .route("/guilds/{guild_id}/pause/stop", post(stop_pause))
         .route("/overlay/{token}/replay/{stream}", get(overlay_replay))
 }
 
@@ -264,6 +269,109 @@ struct OverlayPlayDto {
 pub struct OverlayReplayDto {
     /// The stream's last replay, finished or not; the overlay skips one that already ended.
     playing: Option<OverlayPlayDto>,
+    /// The pause screen, while an admin has it on.
+    pause: Option<PauseDto>,
+}
+
+#[derive(Serialize)]
+struct PauseDto {
+    stream: i64,
+    message: String,
+    duration_ms: i64,
+    /// Left on the countdown when the server answered; 0 once it ran out.
+    remaining_ms: i64,
+}
+
+fn pause_dto(pause: &Pause) -> PauseDto {
+    PauseDto {
+        stream: pause.stream,
+        message: pause.message.clone(),
+        duration_ms: pause.duration_ms,
+        remaining_ms: pause.remaining_ms(),
+    }
+}
+
+#[derive(Serialize)]
+pub struct PausesDto {
+    /// The streams with the pause on.
+    pauses: Vec<PauseDto>,
+}
+
+async fn pauses_dto(state: &AppState, guild_id: u64) -> Result<PausesDto, ApiError> {
+    Ok(PausesDto {
+        pauses: pause::list(&state.db, guild_id as i64).await?.iter().map(pause_dto).collect(),
+    })
+}
+
+/// Which streams show the pause, and their countdowns.
+async fn list_pauses(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+) -> Result<Json<PausesDto>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    Ok(Json(pauses_dto(&state, guild_id).await?))
+}
+
+#[derive(Deserialize)]
+struct StartPauseRequest {
+    streams: Vec<i64>,
+    duration_ms: i64,
+    #[serde(default)]
+    message: String,
+}
+
+/// Shows the pause screen on the streams, counting down from now.
+async fn start_pause(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+    Json(request): Json<StartPauseRequest>,
+) -> Result<Json<PausesDto>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    pause::start(&state.db, guild_id as i64, &request.streams, request.duration_ms, &request.message)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    tracing::info!(user_id = session.user_id, guild_id, duration_ms = request.duration_ms, "pause started");
+    state.link.changes().notify(guild_id);
+    Ok(Json(pauses_dto(&state, guild_id).await?))
+}
+
+#[derive(Deserialize)]
+struct AddPauseRequest {
+    streams: Vec<i64>,
+    /// Negative takes time off.
+    delta_ms: i64,
+}
+
+/// More (or less) time on the streams' countdowns.
+async fn add_pause(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+    Json(request): Json<AddPauseRequest>,
+) -> Result<Json<PausesDto>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    pause::add(&state.db, guild_id as i64, &request.streams, request.delta_ms)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    state.link.changes().notify(guild_id);
+    Ok(Json(pauses_dto(&state, guild_id).await?))
+}
+
+/// Takes the pause screen off the streams.
+async fn stop_pause(
+    State(state): State<AppState>,
+    Admin(session): Admin,
+    Path(guild_id): Path<u64>,
+    Json(request): Json<StreamsRequest>,
+) -> Result<Json<PausesDto>, ApiError> {
+    managed_guild(&state, &session, guild_id)?;
+    pause::stop(&state.db, guild_id as i64, &request.streams)
+        .await
+        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    state.link.changes().notify(guild_id);
+    Ok(Json(pauses_dto(&state, guild_id).await?))
 }
 
 /// What stream 1's or 2's replay overlay plays. Public: the link's secret is the only key.
@@ -289,5 +397,10 @@ async fn overlay_replay(
             }),
         None => None,
     };
-    Ok(Json(OverlayReplayDto { playing }))
+    let pause = pause::list(&state.db, guild_id as i64)
+        .await?
+        .iter()
+        .find(|p| p.stream == stream)
+        .map(pause_dto);
+    Ok(Json(OverlayReplayDto { playing, pause }))
 }

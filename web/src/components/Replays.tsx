@@ -1,6 +1,6 @@
 import { type DragEvent, useEffect, useRef, useState } from 'react';
 
-import { api, type Clip, type ClipPlay, type ClipsState, type OverlayLinks } from '../api';
+import { api, type Clip, type ClipPlay, type ClipsState, type OverlayLinks, type PauseScreen } from '../api';
 import { FilmIcon, UploadIcon } from './Icons';
 import { OverlayLink } from './OverlayLink';
 
@@ -339,6 +339,171 @@ function ClipRow({
   );
 }
 
+const PRESET_MINUTES = [3, 5, 10, 15];
+
+/**
+ * The pause screen on the replay overlays: a countdown under a message ("Já voltamos"), started
+ * here with a length, given more time or taken off.
+ */
+function PauseControls({ guildId }: { guildId: string }) {
+  const [pauses, setPauses] = useState<PauseScreen[] | null>(null);
+  const [loadedAt, setLoadedAt] = useState(Date.now());
+  const [now, setNow] = useState(Date.now());
+  const [minutes, setMinutes] = useState('5');
+  const [message, setMessage] = useState('Já voltamos');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const show = (fresh: { pauses: PauseScreen[] }) => {
+    setPauses(fresh.pauses);
+    setLoadedAt(Date.now());
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    setPauses(null);
+    api
+      .pauses(guildId)
+      .then((loaded) => !cancelled && show(loaded))
+      .catch((err: Error) => !cancelled && setError(err.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [guildId]);
+
+  const anyOn = (pauses?.length ?? 0) > 0;
+  useEffect(() => {
+    if (!anyOn) return;
+    const timer = window.setInterval(() => setNow(Date.now()), 500);
+    return () => window.clearInterval(timer);
+  }, [anyOn]);
+
+  const act = (action: () => Promise<{ pauses: PauseScreen[] }>) => {
+    setBusy(true);
+    setError(null);
+    action()
+      .then(show)
+      .catch((err: Error) => setError(err.message))
+      .finally(() => setBusy(false));
+  };
+
+  const durationMs = Math.round(Number(minutes.replace(',', '.')) * 60_000);
+  const valid = Number.isFinite(durationMs) && durationMs >= 1_000 && durationMs <= 3 * 60 * 60_000;
+  const start = (streams: number[]) => act(() => api.startPause(guildId, streams, durationMs, message));
+
+  return (
+    <section className="card stack" aria-labelledby="pause-title">
+      <h2 id="pause-title" className="small-title">
+        Pausa
+      </h2>
+      <p className="muted small">
+        Mostra o fundo da liga com a mensagem e o contador no centro. Se tocar um replay durante a pausa, o vídeo entra à
+        direita e o contador vai para a esquerda.
+      </p>
+      <div className="pause-form">
+        <div className="field pause-minutes">
+          <label htmlFor="pause-minutes">Minutos</label>
+          <input
+            id="pause-minutes"
+            className="input"
+            inputMode="decimal"
+            value={minutes}
+            disabled={busy}
+            onChange={(e) => setMinutes(e.target.value)}
+          />
+        </div>
+        <div className="inline-actions">
+          {PRESET_MINUTES.map((m) => (
+            <button
+              key={m}
+              type="button"
+              className={String(m) === minutes ? 'button button-small' : 'button button-small button-ghost'}
+              disabled={busy}
+              onClick={() => setMinutes(String(m))}
+            >
+              {m} min
+            </button>
+          ))}
+        </div>
+        <div className="field pause-message-field">
+          <label htmlFor="pause-message">Mensagem</label>
+          <input
+            id="pause-message"
+            className="input"
+            maxLength={60}
+            placeholder="Já voltamos"
+            value={message}
+            disabled={busy}
+            onChange={(e) => setMessage(e.target.value)}
+          />
+        </div>
+      </div>
+      <div className="inline-actions">
+        <button type="button" className="button button-primary" disabled={busy || !valid} onClick={() => start([1])}>
+          Iniciar na 1
+        </button>
+        <button type="button" className="button button-primary" disabled={busy || !valid} onClick={() => start([2])}>
+          Iniciar na 2
+        </button>
+        <button type="button" className="button button-primary" disabled={busy || !valid} onClick={() => start([1, 2])}>
+          Nas duas
+        </button>
+      </div>
+      {!valid && <p className="error small">O contador vai de 1 segundo a 3 horas.</p>}
+      {error && (
+        <p className="error small" role="alert">
+          {error}
+        </p>
+      )}
+      {STREAMS.map((stream) => {
+        const pause = pauses?.find((p) => p.stream === stream);
+        const left = pause ? Math.max(0, pause.remaining_ms - (now - loadedAt)) : 0;
+        return (
+          <div key={stream} className="replay-now">
+            <strong className="small">Transmissão {stream}</strong>
+            {pause ? (
+              <>
+                <span className="pill pill-live">
+                  <span className="dot" />
+                  Pausa
+                </span>
+                <span className="ellipsis">{pause.message}</span>
+                <span className="mono small">{left > 0 ? clock(left) : 'tempo esgotado'}</span>
+                <button
+                  type="button"
+                  className="button button-small button-ghost"
+                  disabled={busy}
+                  onClick={() => act(() => api.addPause(guildId, [stream], -60_000))}
+                >
+                  −1 min
+                </button>
+                <button
+                  type="button"
+                  className="button button-small button-ghost"
+                  disabled={busy}
+                  onClick={() => act(() => api.addPause(guildId, [stream], 60_000))}
+                >
+                  +1 min
+                </button>
+                <button
+                  type="button"
+                  className="button button-small"
+                  disabled={busy}
+                  onClick={() => act(() => api.stopPause(guildId, [stream]))}
+                >
+                  Tirar pausa
+                </button>
+              </>
+            ) : (
+              <span className="muted small">Sem pausa.</span>
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
 /** Replay clips: upload them, then play one on a stream's replay overlay. */
 export function Replays({ guildId, links }: { guildId: string; links: OverlayLinks | null }) {
   const [state, setState] = useState<ClipsState | null>(null);
@@ -385,13 +550,33 @@ export function Replays({ guildId, links }: { guildId: string; links: OverlayLin
     <section className="stack" aria-labelledby="replays-title">
       <div className="title-row">
         <h2 id="replays-title" className="section-title">
-          Replays
+          Pausa e replays
         </h2>
       </div>
       <p className="muted small">
-        Clipes de lances para mostrar na live. Cada transmissão tem um overlay de replay: ao tocar um clipe, ele aparece
-        em tela cheia com o som e some sozinho no fim.
+        Cada transmissão tem um overlay de pausa e replay: a tela de pausa com contador, e os clipes de lances, que aparecem
+        com o som e somem sozinhos no fim.
       </p>
+      {links && (
+        <section className="card stack" aria-labelledby="pause-links-title">
+          <h2 id="pause-links-title" className="small-title">
+            Overlays de pausa e replay
+          </h2>
+          {STREAMS.map((stream) => (
+            <OverlayLink
+              key={stream}
+              title={`Transmissão ${stream}`}
+              url={links.replay_urls[stream - 1]}
+              label={`Copiar o link do overlay de pausa e replay da transmissão ${stream}`}
+            />
+          ))}
+          <p className="muted small">
+            Fonte de navegador de 1920 × 1080 acima das outras, com “Controlar áudio pelo OBS” ligado para o som do clipe
+            entrar no mixer. Fica transparente sem pausa e sem replay.
+          </p>
+        </section>
+      )}
+      <PauseControls guildId={guildId} />
       {error && (
         <p className="error small" role="alert">
           {error}
@@ -410,17 +595,11 @@ export function Replays({ guildId, links }: { guildId: string; links: OverlayLin
         <>
           <section className="card stack" aria-labelledby="replay-links-title">
             <h2 id="replay-links-title" className="small-title">
-              Overlays de replay
+              Replay tocando
             </h2>
             {STREAMS.map((stream) => (
               <div key={stream} className="stack replay-stream">
-                {links && (
-                  <OverlayLink
-                    title={`Transmissão ${stream}`}
-                    url={links.replay_urls[stream - 1]}
-                    label={`Copiar o link do overlay de replay da transmissão ${stream}`}
-                  />
-                )}
+                <strong className="small">Transmissão {stream}</strong>
                 <NowPlaying
                   play={state.playing.find((p) => p.stream === stream)}
                   loadedAt={loadedAt}
@@ -430,10 +609,6 @@ export function Replays({ guildId, links }: { guildId: string; links: OverlayLin
                 />
               </div>
             ))}
-            <p className="muted small">
-              Fonte de navegador de 1920 × 1080 acima das outras, com “Controlar áudio pelo OBS” ligado para o som do clipe
-              entrar no mixer. Fica transparente enquanto nada toca.
-            </p>
           </section>
 
           <section className="card stack" aria-labelledby="replay-upload-title">
