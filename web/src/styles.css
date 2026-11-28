@@ -1450,6 +1450,16 @@ input {
 .modal-wide {
   width: min(600px, calc(100vw - 32px));
 }
+/* CreateMatchDialog: a fieldset that looks like any other field. */
+.slot-picker {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.slot-picker legend {
+  padding: 0;
+}
 .mvp-picker {
   margin: 0;
   padding: 0;

@@ -1,13 +1,12 @@
 import { type DragEvent, useEffect, useRef, useState } from 'react';
 
 import { api, type Clip, type ClipPlay, type ClipsState, type OverlayLinks, type PauseScreen } from '../api';
+import { STREAM_NAMES } from '../camp';
 import { FilmIcon, UploadIcon } from './Icons';
 import { OverlayLink } from './OverlayLink';
 
 const TYPES = ['video/mp4', 'video/webm'];
 const STREAMS = [1, 2];
-/** Whose channel each stream is, as the page names them. */
-const STREAM_NAMES: Record<number, string> = { 1: 'FARINHAGM', 2: 'NOKEIMEE' };
 
 /** `1:05`. */
 function clock(ms: number): string {

@@ -1143,12 +1143,15 @@ pub enum SideRequest {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ActionRequest {
-    /// Points each winner and each loser earns; 1 and 0 when left out.
+    /// Points each winner and each loser earns; 1 and 0 when left out. `slot` (1 or 2, one per
+    /// stream) picks where the match goes; left out, the first free one.
     CreateMatch {
         #[serde(default = "default_win_points")]
         win_points: i64,
         #[serde(default)]
         loss_points: i64,
+        #[serde(default)]
+        slot: Option<i64>,
     },
     EnterFinals,
     LeaveFinals,
@@ -1205,8 +1208,9 @@ impl TryFrom<ActionRequest> for CampAction {
 
     fn try_from(request: ActionRequest) -> Result<Self, ApiError> {
         Ok(match request {
-            ActionRequest::CreateMatch { win_points, loss_points } => CampAction::CreateMatch {
+            ActionRequest::CreateMatch { win_points, loss_points, slot } => CampAction::CreateMatch {
                 points: match_points(win_points, loss_points)?,
+                slot,
             },
             ActionRequest::EnterFinals => CampAction::EnterFinals,
             ActionRequest::LeaveFinals => CampAction::LeaveFinals,
