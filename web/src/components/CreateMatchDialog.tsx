@@ -8,11 +8,15 @@ import { Modal } from './Modal';
 /** The most a match can give each player; the bot refuses more. */
 const MAX_POINTS = 10;
 
-const PRESETS: { label: string; points: MatchPoints }[] = [
-  { label: 'Normal', points: { win: 1, loss: 0 } },
-  { label: 'Dobrada', points: { win: 2, loss: 0 } },
-  { label: 'Todos pontuam', points: { win: 2, loss: 1 } },
+type Choice = 'qualifier' | 'finals' | 'custom';
+
+/** What a match gives each winner and loser, in the qualifiers and in the finals. */
+const PRESETS: { choice: Exclude<Choice, 'custom'>; label: string; points: MatchPoints }[] = [
+  { choice: 'qualifier', label: 'Classificatórias', points: { win: 2, loss: 1 } },
+  { choice: 'finals', label: 'Finais', points: { win: 3, loss: 1 } },
 ];
+
+const presetPoints = (choice: Choice) => PRESETS.find((p) => p.choice === choice)?.points;
 
 const clamp = (n: number) => Math.min(MAX_POINTS, Math.max(0, Math.trunc(n)));
 
@@ -70,23 +74,30 @@ function PointsField({
 
 /**
  * Creates a match, from the queue or in the finals from the top of the ranking, with the points it
- * gives each winner and each loser. Starts with what the camp's newest match gave.
+ * gives each winner and each loser: the qualifiers' or the finals' (whichever the camp is in), or
+ * custom ones.
  */
 export function CreateMatchDialog({ camp, open, onClose }: { camp: Camp; open: boolean; onClose: () => void }) {
   const final = camp.finals;
   const { run, busy } = useActions();
-  const [points, setPoints] = useState<MatchPoints>(camp.next_points);
+  const start: Choice = final ? 'finals' : 'qualifier';
+  const [choice, setChoice] = useState<Choice>(start);
+  const [custom, setCustom] = useState<MatchPoints>(camp.next_points);
+  const points = presetPoints(choice) ?? custom;
   const free = freeSlots(camp);
   const [slot, setSlot] = useState<number>(free[0] ?? 1);
   const input = useRef<HTMLInputElement>(null);
   // Runs after Modal has opened the dialog (a child's effects run first), so focus can land.
   useEffect(() => {
     if (!open) return;
-    setPoints(camp.next_points);
+    setChoice(start);
+    setCustom(camp.next_points);
     setSlot(free[0] ?? 1);
-    input.current?.select();
     // Only on opening: the camp keeps reloading while the dialog is open.
   }, [open]);
+  useEffect(() => {
+    if (choice === 'custom') input.current?.select();
+  }, [choice]);
 
   const worth = `+${points.win} / +${points.loss}`;
   const submit = () => {
@@ -134,43 +145,55 @@ export function CreateMatchDialog({ camp, open, onClose }: { camp: Camp; open: b
               })}
             </div>
           </fieldset>
-          <div className="field">
-            <span className="field-label">Valores comuns</span>
+          <fieldset className="field slot-picker">
+            <legend className="field-label">Pontos</legend>
             <div className="presets">
-              {PRESETS.map((p) => {
-                const on = p.points.win === points.win && p.points.loss === points.loss;
-                return (
-                  <button
-                    key={p.label}
-                    type="button"
-                    className={on ? 'button button-ghost button-small preset-on' : 'button button-ghost button-small'}
-                    aria-pressed={on}
-                    onClick={() => setPoints(p.points)}
-                  >
-                    {p.label} · +{p.points.win} / +{p.points.loss}
-                  </button>
-                );
-              })}
+              {PRESETS.map((p) => (
+                <button
+                  key={p.choice}
+                  type="button"
+                  className={choice === p.choice ? 'button button-ghost button-small preset-on' : 'button button-ghost button-small'}
+                  aria-pressed={choice === p.choice}
+                  onClick={() => setChoice(p.choice)}
+                >
+                  {p.label} · +{p.points.win} / +{p.points.loss}
+                </button>
+              ))}
+              <button
+                type="button"
+                className={choice === 'custom' ? 'button button-ghost button-small preset-on' : 'button button-ghost button-small'}
+                aria-pressed={choice === 'custom'}
+                onClick={() => {
+                  setCustom(points);
+                  setChoice('custom');
+                }}
+              >
+                Personalizado
+              </button>
             </div>
-          </div>
-          <div className="points-fields">
-            <PointsField
-              id="points-win"
-              label="Quem vence ganha"
-              value={points.win}
-              onChange={(win) => setPoints((p) => ({ ...p, win }))}
-              inputRef={input}
-            />
-            <PointsField
-              id="points-loss"
-              label="Quem perde ganha"
-              value={points.loss}
-              onChange={(loss) => setPoints((p) => ({ ...p, loss }))}
-            />
-          </div>
+          </fieldset>
+          {choice === 'custom' && (
+            <div className="points-fields">
+              <PointsField
+                id="points-win"
+                label="Quem vence ganha"
+                value={custom.win}
+                onChange={(win) => setCustom((p) => ({ ...p, win }))}
+                inputRef={input}
+              />
+              <PointsField
+                id="points-loss"
+                label="Quem perde ganha"
+                value={custom.loss}
+                onChange={(loss) => setCustom((p) => ({ ...p, loss }))}
+              />
+            </div>
+          )}
           <p id="create-help" className="muted small">
-            De 0 a {MAX_POINTS} pontos por jogador. Aparece na mensagem da partida no Discord e no card dela. A
-            próxima partida já começa com estes valores.
+            {choice === 'custom'
+              ? `De 0 a ${MAX_POINTS} pontos por jogador. `
+              : `Cada vencedor ganha ${points.win} e cada perdedor ${points.loss}. `}
+            Aparece na mensagem da partida no Discord e no card dela.
           </p>
           <div className="modal-actions">
             <button type="button" className="button button-ghost" onClick={onClose}>
