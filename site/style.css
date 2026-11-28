@@ -216,6 +216,11 @@ section[id] { scroll-margin-top: 80px; } /* o menu fixo não cobre o título ao 
 .rules-block h4 { font-size: 1.02rem; color: var(--title); margin-bottom: 6px; letter-spacing: 0.02em; }
 .rules-block li { margin-top: 6px; line-height: 1.55; }
 .rules-block li::marker { color: var(--gold-strong); }
+/* Patrocinador: o banner inteiro, com a mesma moldura dos blocos de formato */
+.sponsor { max-width: 1100px; margin: 0 auto; padding: 0 4vw 90px; }
+.sponsor-card { display: block; border: 1px solid var(--line); border-top: 2px solid var(--gold-strong); background: rgba(8, 27, 27, 0.82); overflow: hidden; transition: border-color 0.2s, transform 0.2s; }
+.sponsor-card img { display: block; width: 100%; height: auto; }
+.sponsor-card:hover, .sponsor-card:focus-visible { border-color: var(--gold-strong); transform: translateY(-2px); }
 .match-board {
   position: relative;
   background: rgba(8, 27, 27, 0.82);
